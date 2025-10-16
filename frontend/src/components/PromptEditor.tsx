@@ -19,6 +19,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   const [isEditing, setIsEditing] = useState(false)
   const [localContent, setLocalContent] = useState(
     cell.cell_type === CellType.PROMPT ? cell.prompt : 
+    cell.cell_type === CellType.METHODOLOGY ? (cell.scientific_explanation || '') :
     cell.cell_type === CellType.CODE ? cell.code :
     cell.markdown
   )
@@ -37,22 +38,22 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     adjustTextareaHeight()
   }, [localContent, adjustTextareaHeight])
 
-  // Auto-enter editing mode for prompt and methodology cells only
+  // Auto-enter editing mode for prompt cells only (methodology is read-only)
   useEffect(() => {
-    if (cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.METHODOLOGY) {
+    if (cell.cell_type === CellType.PROMPT) {
       setIsEditing(true)
     } else {
-      setIsEditing(false) // Code and other types don't need editing mode
+      setIsEditing(false) // Code, methodology and other types don't need editing mode
     }
     
     // Update local content when cell type changes
     const newContent = 
       cell.cell_type === CellType.PROMPT ? (cell.prompt || '') : 
-      cell.cell_type === CellType.METHODOLOGY ? (cell.markdown || '') :
+      cell.cell_type === CellType.METHODOLOGY ? (cell.scientific_explanation || '') :
       cell.cell_type === CellType.CODE ? (cell.code || '') :
       (cell.markdown || '')
     setLocalContent(newContent)
-  }, [cell.cell_type, cell.prompt, cell.code, cell.markdown])
+  }, [cell.cell_type, cell.prompt, cell.code, cell.markdown, cell.scientific_explanation])
 
   const handleSave = useCallback(() => {
     const updates: Partial<Cell> = {}
@@ -74,7 +75,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   const handleCancel = useCallback(() => {
     setLocalContent(
       cell.cell_type === CellType.PROMPT ? cell.prompt : 
-      cell.cell_type === CellType.METHODOLOGY ? (cell.markdown || '') :
+      cell.cell_type === CellType.METHODOLOGY ? (cell.scientific_explanation || '') :
       cell.cell_type === CellType.CODE ? cell.code :
       cell.markdown
     )
@@ -104,7 +105,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     if (cell.cell_type === CellType.PROMPT) {
       return isEditing ? localContent : (cell.prompt || '')
     } else if (cell.cell_type === CellType.METHODOLOGY) {
-      return isEditing ? localContent : (cell.markdown || '')
+      return isEditing ? localContent : (cell.scientific_explanation || '')
     } else if (cell.cell_type === CellType.CODE) {
       return cell.code || '' // Always show the actual generated code
     } else {
@@ -231,9 +232,9 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
           </div>
         ) : (
           <div
-            onClick={() => cell.cell_type !== CellType.CODE && setIsEditing(true)}
+            onClick={() => cell.cell_type === CellType.PROMPT && setIsEditing(true)}
             className={`
-              ${cell.cell_type !== CellType.CODE ? 'cursor-pointer hover:border-gray-300' : ''} border border-gray-200 rounded-md
+              ${cell.cell_type === CellType.PROMPT ? 'cursor-pointer hover:border-gray-300' : ''} border border-gray-200 rounded-md
               ${isShowingCode ? 'p-0' : 'p-4 bg-white'}
             `}
           >
@@ -252,7 +253,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
                     {cell.cell_type === CellType.PROMPT 
                       ? "Click to add a prompt..."
                       : cell.cell_type === CellType.METHODOLOGY
-                      ? "Click to add methodology..."
+                      ? "Scientific explanation will appear here after code execution..."
                       : cell.cell_type === CellType.CODE
                       ? "Click to add code..."
                       : "Click to add markdown..."}
@@ -269,6 +270,14 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
         <div className="mt-2 flex items-center space-x-2 text-sm text-blue-600">
           <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full" />
           <span>Generating and executing code...</span>
+        </div>
+      )}
+      
+      {/* Methodology Writing Indicator */}
+      {cell.is_writing_methodology && (
+        <div className="mt-2 flex items-center space-x-2 text-sm text-green-600">
+          <div className="animate-spin h-4 w-4 border-2 border-green-600 border-t-transparent rounded-full" />
+          <span>Writing methodology...</span>
         </div>
       )}
     </div>

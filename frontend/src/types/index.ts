@@ -68,8 +68,10 @@ export interface Cell {
   execution_count: number
   last_result?: ExecutionResult
   is_executing: boolean
+  is_writing_methodology: boolean
   show_code: boolean
   markdown: string
+  scientific_explanation: string
   tags: string[]
   metadata: Record<string, any>
 }

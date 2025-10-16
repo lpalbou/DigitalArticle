@@ -23,6 +23,14 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Add request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"🌐 HTTP {request.method} {request.url.path}")
+    response = await call_next(request)
+    logger.info(f"🌐 Response: {response.status_code}")
+    return response
+
 # Global exception handler to show FULL Python execution errors
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):

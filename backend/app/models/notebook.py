@@ -19,6 +19,7 @@ class CellType(str, Enum):
     PROMPT = "prompt"  # Natural language prompt cells
     CODE = "code"      # Raw code cells (for advanced users)
     MARKDOWN = "markdown"  # Documentation cells
+    METHODOLOGY = "methodology"  # Scientific methodology explanations
 
 
 class ExecutionStatus(str, Enum):
@@ -72,11 +73,13 @@ class Cell(BaseModel):
     prompt: str = ""  # Natural language prompt
     code: str = ""    # Generated or manually written Python code
     markdown: str = ""  # Markdown content for documentation cells
+    scientific_explanation: str = ""  # AI-generated scientific article-style explanation
     
     # Execution state
     execution_count: int = 0
     last_result: Optional[ExecutionResult] = None
     is_executing: bool = False
+    is_writing_methodology: bool = False
     
     # Display preferences
     show_code: bool = False  # Toggle between prompt and code view

@@ -231,6 +231,7 @@ const NotebookContainer: React.FC = () => {
     }
   }, [notebook])
 
+
   const executeCell = useCallback(async (cellId: string, forceRegenerate: boolean = false) => {
     if (!notebook) return
 
@@ -254,6 +255,16 @@ const NotebookContainer: React.FC = () => {
         force_regenerate: forceRegenerate
       })
 
+      // Check if we should auto-switch to methodology tab
+      const shouldSwitchToMethodology = response.cell.scientific_explanation && 
+                                       response.cell.scientific_explanation.trim()
+
+      // Log the response to debug methodology
+      console.log('🔬 EXECUTION RESPONSE:', response)
+      console.log('🔬 CELL DATA:', response.cell)
+      console.log('🔬 SCIENTIFIC EXPLANATION:', response.cell.scientific_explanation)
+      console.log('🔬 SHOULD SWITCH TO METHODOLOGY:', shouldSwitchToMethodology)
+
       // Update cell with both the updated cell data AND execution result
       setNotebook(prev => {
         if (!prev) return prev
@@ -264,7 +275,9 @@ const NotebookContainer: React.FC = () => {
                 ...response.cell, // Use the updated cell from the backend (includes generated code!)
                 is_executing: false,
                 last_result: response.result,
-                execution_count: cell.execution_count + 1
+                execution_count: cell.execution_count + 1,
+                // Auto-switch to Methodology tab if scientific explanation was generated
+                cell_type: shouldSwitchToMethodology ? CellType.METHODOLOGY : response.cell.cell_type
               }
             : cell
         )
@@ -274,6 +287,10 @@ const NotebookContainer: React.FC = () => {
 
       // Refresh files after successful execution (files might have been created/modified)
       setFileRefreshTrigger(prev => prev + 1)
+
+      if (shouldSwitchToMethodology) {
+        console.log('🔬 Auto-switched to Methodology tab')
+      }
 
     } catch (err) {
       const apiError = handleAPIError(err)

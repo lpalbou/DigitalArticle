@@ -19,6 +19,41 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+@router.get("/{cell_id}/status")
+async def get_cell_status(cell_id: str):
+    """
+    Get the current status of a cell (including methodology writing status).
+    
+    Args:
+        cell_id: Cell UUID
+        
+    Returns:
+        Cell status information
+    """
+    try:
+        cell = notebook_service.get_cell(cell_id)
+        if not cell:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Cell {cell_id} not found"
+            )
+        
+        return {
+            "cell_id": cell_id,
+            "is_executing": cell.is_executing,
+            "is_writing_methodology": cell.is_writing_methodology,
+            "has_scientific_explanation": bool(cell.scientific_explanation),
+            "scientific_explanation": cell.scientific_explanation
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting cell status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get cell status: {str(e)}"
+        )
+
+
 @router.post("/", response_model=Cell, status_code=status.HTTP_201_CREATED)
 async def create_cell(request: CellCreateRequest):
     """Create a new cell in a notebook."""
@@ -77,17 +112,19 @@ async def delete_cell(notebook_id: str, cell_id: str):
 async def execute_cell(request: CellExecuteRequest):
     """Execute a cell (generate code from prompt if needed and run it)."""
     try:
-        logger.info(f"Executing cell: {request.cell_id}")
+        logger.info(f"🚀 API: Executing cell: {request.cell_id}")
+        logger.info(f"🚀 API: Force regenerate: {request.force_regenerate}")
         execution_result = notebook_service.execute_cell(request)
         if not execution_result:
-            logger.error(f"Cell {request.cell_id} not found in notebook service")
+            logger.error(f"🚀 API: Cell {request.cell_id} not found in notebook service")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Cell {request.cell_id} not found"
             )
         
         cell, result = execution_result
-        logger.info(f"Cell execution completed with status: {result.status}")
+        logger.info(f"🚀 API: Cell execution completed with status: {result.status}")
+        logger.info(f"🚀 API: Scientific explanation length: {len(cell.scientific_explanation) if cell.scientific_explanation else 0}")
         return CellExecuteResponse(cell=cell, result=result)
     except HTTPException:
         raise

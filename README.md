@@ -12,6 +12,11 @@ lsof -ti:8000 | xargs kill -9 2>/dev/null || true
 # Start backend
 cd backend
 python -m uvicorn app.main:app --reload --port 8000 --log-level debug
+
+
+lsof -ti:8000 | xargs kill -9 2>/dev/null || true && cd /Users/albou/projects/reverse-notebook/backend && python -m uvicorn app.main:app --reload --port 8000
+
+lsof -ti:5173 | xargs kill -9 2>/dev/null || true && cd /Users/albou/projects/reverse-notebook/frontend/ && npm run dev
 ```
 
 ### Frontend (React)

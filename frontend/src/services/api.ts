@@ -22,7 +22,7 @@ import {
 // Create axios instance with base configuration
 const api = axios.create({
   baseURL: '/api',
-  timeout: 30000, // 30 second timeout
+  timeout: 120000, // 120 second timeout (2 minutes) to handle LLM calls
   headers: {
     'Content-Type': 'application/json',
   },
@@ -113,6 +113,18 @@ export const cellAPI = {
   // Execute a cell
   execute: async (request: CellExecuteRequest): Promise<CellExecuteResponse> => {
     const response: AxiosResponse<CellExecuteResponse> = await api.post('/cells/execute', request)
+    return response.data
+  },
+
+  // Get cell status (including methodology writing status)
+  getStatus: async (cellId: string): Promise<{
+    cell_id: string;
+    is_executing: boolean;
+    is_writing_methodology: boolean;
+    has_scientific_explanation: boolean;
+    scientific_explanation: string;
+  }> => {
+    const response = await api.get(`/cells/${cellId}/status`)
     return response.data
   },
 
