@@ -7,11 +7,14 @@ and executing notebook cells.
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import Response
+from abstractcore.utils.structured_logging import get_logger
 
 from ..models.notebook import (
     Cell, ExecutionResult, CellCreateRequest, CellUpdateRequest, CellExecuteRequest
 )
 from ..services.shared import notebook_service
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
