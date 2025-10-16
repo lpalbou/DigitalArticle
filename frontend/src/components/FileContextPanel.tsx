@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Upload, File, X, Database, BarChart3, FileText, Eye, Info } from 'lucide-react'
+import { filesAPI, handleAPIError } from '../services/api'
 
 interface FileInfo {
   name: string
@@ -15,79 +16,50 @@ interface FileInfo {
 }
 
 interface FileContextPanelProps {
+  notebookId?: string
   onFilesChange: (files: FileInfo[]) => void
+  refreshTrigger?: number
 }
 
-const FileContextPanel: React.FC<FileContextPanelProps> = ({ onFilesChange }) => {
+const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFilesChange, refreshTrigger }) => {
   const [contextFiles, setContextFiles] = useState<FileInfo[]>([])
   const [isExpanded, setIsExpanded] = useState(true)
   const [isDragOver, setIsDragOver] = useState(false)
 
-  // Load available files on component mount
+  // Load available files on component mount and when notebook ID or refresh trigger changes
   useEffect(() => {
     loadAvailableFiles()
-  }, [])
+  }, [notebookId, refreshTrigger])
 
   const loadAvailableFiles = useCallback(async () => {
-    try {
-      // For now, simulate some sample files
-      const sampleFiles: FileInfo[] = [
-        {
-          name: 'gene_expression.csv',
-          path: 'data/gene_expression.csv',
-          size: 245760,
-          type: 'csv',
-          lastModified: new Date().toISOString(),
-          preview: {
-            rows: 20,
-            columns: ['Gene_ID', 'Sample_1', 'Sample_2', 'Sample_3', 'Control_1', 'Control_2', 'Control_3'],
-            shape: [20, 7]
-          }
-        },
-        {
-          name: 'patient_data.csv',
-          path: 'data/patient_data.csv', 
-          size: 89234,
-          type: 'csv',
-          lastModified: new Date().toISOString(),
-          preview: {
-            rows: 20,
-            columns: ['Patient_ID', 'Age', 'Gender', 'Condition', 'Treatment_Response', 'Biomarker_Level'],
-            shape: [20, 6]
-          }
-        },
-        {
-          name: 'customer_demographics.csv',
-          path: 'data/customer_demographics.csv',
-          size: 89234,
-          type: 'csv',
-          lastModified: new Date().toISOString(),
-          preview: {
-            rows: 100,
-            columns: ['Customer_ID', 'Age', 'Gender', 'Income', 'Location', 'Segment'],
-            shape: [100, 6]
-          }
-        },
-        {
-          name: 'sales_data.csv',
-          path: 'data/sales_data.csv',
-          size: 156890,
-          type: 'csv', 
-          lastModified: new Date().toISOString(),
-          preview: {
-            rows: 200,
-            columns: ['Date', 'Product', 'Sales', 'Region', 'Customer_ID'],
-            shape: [200, 5]
-          }
-        }
-      ]
-      
-      setContextFiles(sampleFiles)
-      onFilesChange(sampleFiles)
-    } catch (error) {
-      console.error('Failed to load files:', error)
+    if (!notebookId) {
+      // No notebook ID, show empty state
+      setContextFiles([])
+      onFilesChange([])
+      return
     }
-  }, [onFilesChange])
+
+    try {
+      const files = await filesAPI.list(notebookId)
+      const formattedFiles: FileInfo[] = files.map(file => ({
+        name: file.name,
+        path: file.path,
+        size: file.size,
+        type: file.type as FileInfo['type'],
+        lastModified: file.lastModified,
+        preview: file.preview
+      }))
+      
+      setContextFiles(formattedFiles)
+      onFilesChange(formattedFiles)
+    } catch (error) {
+      const apiError = handleAPIError(error)
+      console.error('Failed to load files:', apiError.message)
+      // Show empty state on error
+      setContextFiles([])
+      onFilesChange([])
+    }
+  }, [notebookId, onFilesChange])
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || [])

@@ -156,6 +156,15 @@ export const llmAPI = {
   },
 }
 
+// Files API
+export const filesAPI = {
+  // List files for a notebook
+  list: async (notebookId: string): Promise<any[]> => {
+    const response: AxiosResponse<any[]> = await api.get(`/files/${notebookId}`)
+    return response.data
+  },
+}
+
 // Error types for better error handling
 export class APIError extends Error {
   constructor(

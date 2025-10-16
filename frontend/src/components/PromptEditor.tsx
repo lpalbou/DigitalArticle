@@ -130,16 +130,6 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
           Prompt
         </button>
         <button
-          onClick={() => onUpdateCell({ cell_type: CellType.METHODOLOGY })}
-          className={`px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${
-            cell.cell_type === CellType.METHODOLOGY
-              ? 'bg-green-500 text-white shadow-md'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          }`}
-        >
-          Methodology
-        </button>
-        <button
           onClick={() => onUpdateCell({ cell_type: CellType.CODE })}
           className={`px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${
             cell.cell_type === CellType.CODE
@@ -148,6 +138,16 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
           }`}
         >
           Code
+        </button>
+        <button
+          onClick={() => onUpdateCell({ cell_type: CellType.METHODOLOGY })}
+          className={`px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${
+            cell.cell_type === CellType.METHODOLOGY
+              ? 'bg-green-500 text-white shadow-md'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          Methodology
         </button>
       </div>
 

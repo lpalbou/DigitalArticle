@@ -39,6 +39,7 @@ const NotebookContainer: React.FC = () => {
   const [executingCells, setExecutingCells] = useState<Set<string>>(new Set())
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [contextFiles, setContextFiles] = useState<FileInfo[]>([])
+  const [fileRefreshTrigger, setFileRefreshTrigger] = useState(0)
 
   // Load notebook on component mount or ID change
   useEffect(() => {
@@ -271,6 +272,9 @@ const NotebookContainer: React.FC = () => {
         return { ...prev, cells: newCells }
       })
 
+      // Refresh files after successful execution (files might have been created/modified)
+      setFileRefreshTrigger(prev => prev + 1)
+
     } catch (err) {
       const apiError = handleAPIError(err)
       
@@ -361,16 +365,23 @@ const NotebookContainer: React.FC = () => {
 
   return (
     <>
-      {/* Files in Context Panel */}
-      <FileContextPanel onFilesChange={setContextFiles} />
+      {/* Header */}
+      <Header
+        onNewNotebook={createNewNotebook}
+        onSaveNotebook={saveNotebook}
+        onExportNotebook={exportNotebook}
+      />
+
+      {/* Content with top padding to account for fixed header */}
+      <div className="pt-16">
+        {/* Files in Context Panel */}
+        <FileContextPanel 
+          notebookId={notebook?.id}
+          onFilesChange={setContextFiles}
+          refreshTrigger={fileRefreshTrigger}
+        />
       
       <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <Header
-          onNewNotebook={createNewNotebook}
-          onSaveNotebook={saveNotebook}
-          onExportNotebook={exportNotebook}
-        />
 
       {/* Error Display */}
       {error && (
@@ -440,6 +451,7 @@ const NotebookContainer: React.FC = () => {
             </button>
           </div>
         )}
+      </div>
       </div>
       </div>
     </>
