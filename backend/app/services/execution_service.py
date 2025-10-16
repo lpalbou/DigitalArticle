@@ -32,14 +32,15 @@ class ExecutionService:
     
     def __init__(self):
         """Initialize the execution service."""
-        from .data_manager import get_data_manager
+        from .data_manager_clean import get_data_manager
         
-        # Get the data manager to set up workspace
+        # Get the data manager to set up workspace  
         self.data_manager = get_data_manager()
         
-        # Set working directory to the workspace root
+        # Set working directory to the notebook working directory
         import os
-        os.chdir(str(self.data_manager.workspace_root))
+        working_dir = self.data_manager.get_working_directory()
+        os.chdir(str(working_dir))
         
         logger.info(f"Execution service initialized:")
         logger.info(f"  Working directory: {os.getcwd()}")

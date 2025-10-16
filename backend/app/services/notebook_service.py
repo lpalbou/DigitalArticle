@@ -50,7 +50,7 @@ class NotebookService:
         self.execution_service = ExecutionService()
         
         # Get data manager for file context
-        from .data_manager import get_data_manager
+        from .data_manager_clean import get_data_manager
         self.data_manager = get_data_manager()
         
         # In-memory notebook cache
