@@ -1,0 +1,45 @@
+{
+  "project": {
+    "name": "Digital Article Platform",
+    "version": "1.0.0",
+    "description": "A platform for creating interactive digital articles with data analysis capabilities"
+  },
+  "features": [
+    {
+      "id": 1,
+      "name": "File Viewer",
+      "status": "completed",
+      "capabilities": ["csv", "json", "markdown", "images"],
+      "metadata": {
+        "syntax_highlighting": true,
+        "horizontal_scroll": true,
+        "error_handling": true
+      }
+    },
+    {
+      "id": 2,
+      "name": "Notebook Interface",
+      "status": "active",
+      "capabilities": ["prompt", "code", "methodology"],
+      "metadata": {
+        "real_time_execution": true,
+        "llm_integration": true
+      }
+    }
+  ],
+  "statistics": {
+    "total_files_supported": 5,
+    "active_notebooks": 4,
+    "completion_rate": 0.85
+  },
+  "settings": {
+    "theme": "light",
+    "auto_save": true,
+    "max_file_size": "10MB",
+    "supported_formats": {
+      "data": ["csv", "tsv", "json"],
+      "documents": ["md", "txt"],
+      "media": ["jpg", "png", "gif", "webp", "tif"]
+    }
+  }
+}

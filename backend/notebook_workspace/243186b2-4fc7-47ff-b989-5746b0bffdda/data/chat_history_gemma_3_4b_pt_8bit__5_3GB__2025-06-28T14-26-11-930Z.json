@@ -1,0 +1,44 @@
+{
+  "metadata": {
+    "model": {
+      "name": "mlx-community/gemma-3-4b-pt-8bit",
+      "display_name": "⚡ mlx-community/gemma-3-4b-pt-8bit (5.3GB)",
+      "adapter_path": "",
+      "adapter_display_name": "No adapter (base model only)"
+    },
+    "parameters": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "repetition_penalty": 1.1,
+      "max_kv_size": 8192,
+      "system_prompt": null
+    },
+    "timestamp": "2025-06-28T14:26:11.930Z",
+    "token_count": 0
+  },
+  "instruction_format": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "My name is"
+      },
+      {
+        "role": "assistant",
+        "content": "Ashley, and I’m a lover of all things creative.\n\nI am obsessed with learning new skills, finding the best tools to get my work done, and I’m on a mission to find the most effective ways to manage all of my tasks. As you can see, I love a good checklist!\n\nI have a Bachelor’s degree in Communications and Media Arts from the University of Oregon, where I graduated with honors. While there, I was a student worker in the UO Marketing & Communications office and served as an undergraduate teaching assistant for three courses. Through this experience, I developed a passion for design and marketing, specifically in the realm of social media.\n\nI have over six years of experience working with brands to develop creative campaigns and content for their social media platforms. I’ve worked in-house, at an ad agency, and as a consultant for small businesses.\n\nI am currently the Marketing Manager for Portland Community College, working with our online marketing team to create and implement social media strategies.\n\nI am passionate about supporting small businesses, helping creatives find their voice online, and increasing diversity in the digital space."
+      }
+    ]
+  },
+  "cpt_format": {
+    "text": "User: My name is\n\nAssistant: Ashley, and I’m a lover of all things creative.\n\nI am obsessed with learning new skills, finding the best tools to get my work done, and I’m on a mission to find the most effective ways to manage all of my tasks. As you can see, I love a good checklist!\n\nI have a Bachelor’s degree in Communications and Media Arts from the University of Oregon, where I graduated with honors. While there, I was a student worker in the UO Marketing & Communications office and served as an undergraduate teaching assistant for three courses. Through this experience, I developed a passion for design and marketing, specifically in the realm of social media.\n\nI have over six years of experience working with brands to develop creative campaigns and content for their social media platforms. I’ve worked in-house, at an ad agency, and as a consultant for small businesses.\n\nI am currently the Marketing Manager for Portland Community College, working with our online marketing team to create and implement social media strategies.\n\nI am passionate about supporting small businesses, helping creatives find their voice online, and increasing diversity in the digital space.\n\n"
+  },
+  "raw_messages": [
+    {
+      "role": "user",
+      "content": "My name is"
+    },
+    {
+      "role": "assistant",
+      "content": "Ashley, and I’m a lover of all things creative.\n\nI am obsessed with learning new skills, finding the best tools to get my work done, and I’m on a mission to find the most effective ways to manage all of my tasks. As you can see, I love a good checklist!\n\nI have a Bachelor’s degree in Communications and Media Arts from the University of Oregon, where I graduated with honors. While there, I was a student worker in the UO Marketing & Communications office and served as an undergraduate teaching assistant for three courses. Through this experience, I developed a passion for design and marketing, specifically in the realm of social media.\n\nI have over six years of experience working with brands to develop creative campaigns and content for their social media platforms. I’ve worked in-house, at an ad agency, and as a consultant for small businesses.\n\nI am currently the Marketing Manager for Portland Community College, working with our online marketing team to create and implement social media strategies.\n\nI am passionate about supporting small businesses, helping creatives find their voice online, and increasing diversity in the digital space."
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+{"message": "Hello from uploaded JSON!", "timestamp": "2025-10-16", "data": {"numbers": [1, 2, 3, 4, 5], "nested": {"key": "value", "active": true}}}
