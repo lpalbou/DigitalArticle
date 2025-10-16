@@ -144,8 +144,8 @@ def main() -> None:
         # Check Node.js and npm
         check_node_and_npm()
         
-        # Kill any existing process on port 5173
-        kill_process_on_port(5173)
+        # Kill any existing process on port 3000
+        kill_process_on_port(3000)
         
         # Install dependencies if needed
         install_dependencies(frontend_dir)
@@ -154,7 +154,7 @@ def main() -> None:
         os.chdir(frontend_dir)
         
         # Start the frontend development server
-        print("🌐 Launching frontend development server on http://localhost:5173")
+        print("🌐 Launching frontend development server on http://localhost:3000")
         print("🔄 Server will auto-reload on code changes")
         print("🛑 Press Ctrl+C to stop the server")
         print("-" * 50)

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
-import { Play, Eye, EyeOff } from 'lucide-react'
+import { Play, Copy, Check } from 'lucide-react'
 import { Cell, CellType } from '../types'
 import CodeDisplay from './CodeDisplay'
 
@@ -23,6 +23,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     cell.cell_type === CellType.CODE ? cell.code :
     cell.markdown
   )
+  const [copySuccess, setCopySuccess] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Auto-resize textarea
@@ -96,9 +97,6 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     }
   }, [cell.cell_type, cell.id, handleSave, handleCancel, onExecuteCell])
 
-  const toggleCodeView = useCallback(() => {
-    onUpdateCell({ show_code: !cell.show_code })
-  }, [cell.show_code, onUpdateCell])
 
   // Determine what content to show based on cell type
   const currentContent = (() => {
@@ -112,9 +110,50 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
       return isEditing ? localContent : (cell.markdown || '')
     }
   })()
-  
-  const showToggle = cell.cell_type === CellType.PROMPT && cell.code
-  const isShowingCode = cell.cell_type === CellType.CODE
+
+  // Get content type name for better user feedback
+  const getContentTypeName = () => {
+    switch (cell.cell_type) {
+      case CellType.PROMPT:
+        return 'prompt'
+      case CellType.CODE:
+        return 'code'
+      case CellType.METHODOLOGY:
+        return 'methodology'
+      default:
+        return 'content'
+    }
+  }
+
+  const handleCopy = useCallback(async () => {
+    if (!currentContent.trim()) {
+      console.warn('No content to copy')
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(currentContent)
+      setCopySuccess(true)
+      setTimeout(() => setCopySuccess(false), 2000) // Reset after 2 seconds
+      console.log(`Copied ${getContentTypeName()} to clipboard (${currentContent.length} characters)`)
+    } catch (err) {
+      console.error('Failed to copy text: ', err)
+      // Fallback for older browsers
+      try {
+        const textArea = document.createElement('textarea')
+        textArea.value = currentContent
+        document.body.appendChild(textArea)
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
+        setCopySuccess(true)
+        setTimeout(() => setCopySuccess(false), 2000)
+        console.log(`Copied ${getContentTypeName()} to clipboard using fallback (${currentContent.length} characters)`)
+      } catch (fallbackErr) {
+        console.error('Fallback copy failed: ', fallbackErr)
+      }
+    }
+  }, [currentContent, getContentTypeName])
 
   return (
     <div className="w-full">
@@ -162,16 +201,18 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
             </span>
           )}
 
-          {/* Toggle Code/Prompt View */}
-          {showToggle && (
-            <button
-              onClick={toggleCodeView}
-              className="p-1 text-gray-500 hover:text-gray-700 rounded"
-              title={cell.show_code ? 'Show Prompt' : 'Show Code'}
-            >
-              {cell.show_code ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
-          )}
+          {/* Copy Button */}
+          <button
+            onClick={handleCopy}
+            className={`p-1 text-gray-500 hover:text-gray-700 rounded copy-button ${copySuccess ? 'copy-success' : ''}`}
+            title={copySuccess ? `Copied ${getContentTypeName()}!` : `Copy ${getContentTypeName()} to clipboard`}
+          >
+            {copySuccess ? (
+              <Check className="h-4 w-4 text-green-600" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+          </button>
 
           {/* Execute Button */}
           {(cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.CODE) && (
@@ -230,10 +271,10 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
             onClick={() => cell.cell_type === CellType.PROMPT && setIsEditing(true)}
             className={`
               ${cell.cell_type === CellType.PROMPT ? 'cursor-pointer hover:border-gray-300' : ''} border border-gray-200 rounded-md
-              ${isShowingCode ? 'p-0' : 'p-4 bg-white'}
+              ${cell.cell_type === CellType.CODE ? 'p-0' : 'p-4 bg-white'}
             `}
           >
-            {isShowingCode ? (
+            {cell.cell_type === CellType.CODE ? (
               <CodeDisplay 
                 key={`code-${cell.id}-${cell.cell_type}`}
                 code={currentContent || '# No code generated yet'} 

@@ -210,6 +210,15 @@
     scrollbar-color: #cbd5e1 #f1f5f9;
   }
   
+  /* Copy button animation */
+  .copy-button {
+    @apply transition-all duration-200 transform hover:scale-110 active:scale-95;
+  }
+  
+  .copy-success {
+    @apply animate-pulse;
+  }
+  
   /* JSON syntax highlighting */
   .json-content {
     color: #374151;
