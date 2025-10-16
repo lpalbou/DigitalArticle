@@ -36,6 +36,7 @@ const NotebookContainer: React.FC = () => {
   const [notebook, setNotebook] = useState<Notebook | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [executingCells, setExecutingCells] = useState<Set<string>>(new Set())
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [, setContextFiles] = useState<FileInfo[]>([])
@@ -128,9 +129,18 @@ const NotebookContainer: React.FC = () => {
       
       setHasUnsavedChanges(false)
       console.log('Notebook saved successfully')
+      
+      // Show success message briefly
+      setError(null)
+      setSuccessMessage('Notebook saved successfully!')
+      setTimeout(() => {
+        setSuccessMessage(null)
+      }, 3000)
     } catch (err) {
       const apiError = handleAPIError(err)
       console.error('Failed to save notebook:', apiError.message)
+      setError(`Save failed: ${apiError.message}`)
+      setSuccessMessage(null)
     }
   }, [notebook])
 
@@ -140,9 +150,17 @@ const NotebookContainer: React.FC = () => {
     try {
       const jsonContent = await notebookAPI.export(notebook.id, 'json')
       downloadFile(jsonContent, `${notebook.title}.json`, 'application/json')
+      
+      // Show success message briefly
+      setError(null)
+      setSuccessMessage('Notebook exported successfully!')
+      setTimeout(() => {
+        setSuccessMessage(null)
+      }, 3000)
     } catch (err) {
       const apiError = handleAPIError(err)
       setError(`Export failed: ${apiError.message}`)
+      setSuccessMessage(null)
     }
   }, [notebook])
 
@@ -458,6 +476,23 @@ const NotebookContainer: React.FC = () => {
           <button
             onClick={() => setError(null)}
             className="mt-2 text-sm text-red-700 underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Success Display */}
+      {successMessage && (
+        <div className="success-message mb-4">
+          <div className="flex items-center space-x-2 mb-2">
+            <Check className="h-5 w-5" />
+            <span className="font-medium">Success</span>
+          </div>
+          <p>{successMessage}</p>
+          <button
+            onClick={() => setSuccessMessage(null)}
+            className="mt-2 text-sm text-green-700 underline"
           >
             Dismiss
           </button>
