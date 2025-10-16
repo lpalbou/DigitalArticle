@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Upload, File, X, Database, BarChart3, FileText, Eye } from 'lucide-react'
 import { filesAPI, handleAPIError } from '../services/api'
+import FileViewerModal from './FileViewerModal'
 
 interface FileInfo {
   name: string
@@ -25,6 +26,8 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
   const [contextFiles, setContextFiles] = useState<FileInfo[]>([])
   const [isExpanded, setIsExpanded] = useState(true)
   const [isDragOver, setIsDragOver] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<FileInfo | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
 
   // Load available files on component mount and when notebook ID or refresh trigger changes
   useEffect(() => {
@@ -61,46 +64,97 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
     }
   }, [notebookId, onFilesChange])
 
-  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!notebookId) {
+      console.error('No notebook ID available for file upload')
+      return
+    }
+
     const files = Array.from(event.target.files || [])
     
-    files.forEach(file => {
-      const fileInfo: FileInfo = {
-        name: file.name,
-        path: `uploads/${file.name}`,
-        size: file.size,
-        type: getFileType(file.name),
-        lastModified: new Date().toISOString()
-      }
-      
-      setContextFiles(prev => [...prev, fileInfo])
-    })
-    
-    // Reset input
+    // Reset input immediately
     event.target.value = ''
-  }, [])
+    
+    // Upload each file to the backend
+    for (const file of files) {
+      try {
+        console.log(`Uploading file: ${file.name}`)
+        await filesAPI.upload(notebookId, file)
+        console.log(`Successfully uploaded: ${file.name}`)
+      } catch (error) {
+        const apiError = handleAPIError(error)
+        console.error(`Failed to upload ${file.name}:`, apiError.message)
+        // TODO: Show user-friendly error message
+      }
+    }
+    
+    // Refresh the file list after uploads
+    await loadAvailableFiles()
+  }, [notebookId, loadAvailableFiles])
 
-  const handleDrop = useCallback((event: React.DragEvent) => {
+  const handleDrop = useCallback(async (event: React.DragEvent) => {
     event.preventDefault()
     setIsDragOver(false)
     
+    if (!notebookId) {
+      console.error('No notebook ID available for file upload')
+      return
+    }
+    
     const files = Array.from(event.dataTransfer.files)
     
-    files.forEach(file => {
-      const fileInfo: FileInfo = {
-        name: file.name,
-        path: `uploads/${file.name}`,
-        size: file.size,
-        type: getFileType(file.name),
-        lastModified: new Date().toISOString()
+    // Upload each file to the backend
+    for (const file of files) {
+      try {
+        console.log(`Uploading file via drag & drop: ${file.name}`)
+        await filesAPI.upload(notebookId, file)
+        console.log(`Successfully uploaded: ${file.name}`)
+      } catch (error) {
+        const apiError = handleAPIError(error)
+        console.error(`Failed to upload ${file.name}:`, apiError.message)
+        // TODO: Show user-friendly error message
       }
+    }
+    
+    // Refresh the file list after uploads
+    await loadAvailableFiles()
+  }, [notebookId, loadAvailableFiles])
+
+  const removeFile = useCallback(async (filePath: string) => {
+    if (!notebookId) {
+      console.error('No notebook ID available for file deletion')
+      return
+    }
+
+    // Extract filename from path (e.g., "data/file.csv" -> "file.csv")
+    const fileName = filePath.split('/').pop()
+    if (!fileName) {
+      console.error('Invalid file path:', filePath)
+      return
+    }
+
+    try {
+      console.log(`Deleting file: ${fileName}`)
+      await filesAPI.delete(notebookId, fileName)
+      console.log(`Successfully deleted: ${fileName}`)
       
-      setContextFiles(prev => [...prev, fileInfo])
-    })
+      // Refresh the file list after deletion
+      await loadAvailableFiles()
+    } catch (error) {
+      const apiError = handleAPIError(error)
+      console.error(`Failed to delete ${fileName}:`, apiError.message)
+      // TODO: Show user-friendly error message
+    }
+  }, [notebookId, loadAvailableFiles])
+
+  const handleFileClick = useCallback((file: FileInfo) => {
+    setSelectedFile(file)
+    setIsModalOpen(true)
   }, [])
 
-  const removeFile = useCallback((filePath: string) => {
-    setContextFiles(prev => prev.filter(f => f.path !== filePath))
+  const handleCloseModal = useCallback(() => {
+    setIsModalOpen(false)
+    setSelectedFile(null)
   }, [])
 
   const getFileType = (filename: string): FileInfo['type'] => {
@@ -193,12 +247,9 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
                     <div className="flex items-center space-x-2 flex-1 min-w-0">
                       {getFileIcon(file.type)}
                       <div 
-                        className="flex-1 min-w-0 cursor-pointer hover:text-blue-600 transition-colors"
-                        onClick={() => {
-                          // Show file preview in a simple modal or expand
-                          alert(`File: ${file.name}\nPath: ${file.path}\nType: ${file.type}\nSize: ${formatFileSize(file.size)}\n\nPreview:\n- Rows: ${file.preview?.rows || 'Unknown'}\n- Columns: ${file.preview?.columns?.join(', ') || 'Unknown'}`);
-                        }}
-                        title="Click to view file details"
+                        className="flex-1 min-w-0 cursor-pointer hover:text-blue-600 hover:bg-blue-50 p-1 rounded transition-colors"
+                        onClick={() => handleFileClick(file)}
+                        title="Click to view file content"
                       >
                         <h4 className="text-xs font-medium text-gray-900 truncate">
                           {file.name}
@@ -238,6 +289,14 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
           )}
         </div>
       )}
+
+      {/* File Viewer Modal */}
+      <FileViewerModal
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+        notebookId={notebookId || ''}
+        file={selectedFile}
+      />
     </div>
   )
 }

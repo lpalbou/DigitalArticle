@@ -4,7 +4,7 @@ import { Plus, AlertCircle, Edit2, Check, X } from 'lucide-react'
 import Header from './Header'
 import FileContextPanel from './FileContextPanel'
 import NotebookCell from './NotebookCell'
-import { notebookAPI, cellAPI, handleAPIError, downloadFile } from '../services/api'
+import { notebookAPI, cellAPI, handleAPIError, downloadFile, getCurrentUser } from '../services/api'
 import { 
   Notebook, 
   Cell, 
@@ -92,10 +92,13 @@ const NotebookContainer: React.FC = () => {
     setError(null)
 
     try {
+      // Get the current user from the system
+      const currentUser = await getCurrentUser()
+      
       const request: NotebookCreateRequest = {
         title: 'Untitled Digital Article',
         description: 'A new digital article',
-        author: 'User'
+        author: currentUser
       }
       
       const newNotebook = await notebookAPI.create(request)
@@ -464,9 +467,9 @@ const NotebookContainer: React.FC = () => {
       {/* Digital Article Metadata */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6 p-6">
         {/* Title Section */}
-        <div className="mb-2 group">
+        <div className="mb-2">
           {editingTitle ? (
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2 edit-mode-enter">
               <input
                 type="text"
                 value={tempTitle}
@@ -475,43 +478,48 @@ const NotebookContainer: React.FC = () => {
                   if (e.key === 'Enter') saveTitleEdit()
                   if (e.key === 'Escape') cancelTitleEdit()
                 }}
-                className="text-2xl font-bold bg-transparent border-b-2 border-blue-500 focus:outline-none flex-1"
+                className="text-2xl font-bold bg-white border-2 border-blue-500 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200 flex-1 shadow-sm"
                 autoFocus
                 placeholder="Enter title..."
               />
               <button
                 onClick={saveTitleEdit}
-                className="text-green-600 hover:text-green-700 p-1"
-                title="Save title"
+                className="bg-green-600 hover:bg-green-700 text-white p-2 rounded-md shadow-sm edit-action-button"
+                title="Save title (Enter)"
               >
                 <Check className="h-4 w-4" />
               </button>
               <button
                 onClick={cancelTitleEdit}
-                className="text-red-600 hover:text-red-700 p-1"
-                title="Cancel editing"
+                className="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded-md shadow-sm edit-action-button"
+                title="Cancel editing (Escape)"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
           ) : (
-            <div className="flex items-center space-x-2">
-              <h1 className="text-2xl font-bold flex-1">{notebook.title}</h1>
-              <button
-                onClick={handleTitleEdit}
-                className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-600 p-1 transition-all"
-                title="Edit title"
-              >
-                <Edit2 className="h-4 w-4" />
-              </button>
+            <div 
+              className="group cursor-pointer rounded-lg hover:bg-gray-50 transition-all duration-300 p-3 -m-3"
+              onClick={handleTitleEdit}
+              title="Click to edit title"
+            >
+              <div className="flex items-center space-x-2">
+                <h1 className="text-2xl font-bold flex-1 text-gray-900 group-hover:text-gray-700 transition-colors editable-field">
+                  {notebook.title}
+                </h1>
+                <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-70 transition-all duration-300">
+                  <Edit2 className="h-4 w-4 text-gray-500" />
+                  <span className="text-xs text-gray-500 font-medium">Click to edit</span>
+                </div>
+              </div>
             </div>
           )}
         </div>
 
         {/* Description Section */}
-        <div className="mb-4 group">
+        <div className="mb-4">
           {editingDescription ? (
-            <div className="flex items-start space-x-2">
+            <div className="flex items-start space-x-2 edit-mode-enter">
               <textarea
                 value={tempDescription}
                 onChange={(e) => setTempDescription(e.target.value)}
@@ -519,38 +527,43 @@ const NotebookContainer: React.FC = () => {
                   if (e.key === 'Enter' && e.ctrlKey) saveDescriptionEdit()
                   if (e.key === 'Escape') cancelDescriptionEdit()
                 }}
-                className="text-gray-600 bg-transparent border-b-2 border-blue-500 focus:outline-none flex-1 resize-none"
+                className="text-gray-700 bg-white border-2 border-blue-500 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200 flex-1 resize-none shadow-sm"
                 autoFocus
                 placeholder="Enter description..."
-                rows={2}
+                rows={3}
               />
               <div className="flex flex-col space-y-1">
                 <button
                   onClick={saveDescriptionEdit}
-                  className="text-green-600 hover:text-green-700 p-1"
+                  className="bg-green-600 hover:bg-green-700 text-white p-2 rounded-md shadow-sm edit-action-button"
                   title="Save description (Ctrl+Enter)"
                 >
                   <Check className="h-4 w-4" />
                 </button>
                 <button
                   onClick={cancelDescriptionEdit}
-                  className="text-red-600 hover:text-red-700 p-1"
-                  title="Cancel editing"
+                  className="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded-md shadow-sm edit-action-button"
+                  title="Cancel editing (Escape)"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
             </div>
           ) : (
-            <div className="flex items-start space-x-2">
-              <p className="text-gray-600 flex-1">{notebook.description}</p>
-              <button
-                onClick={handleDescriptionEdit}
-                className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-600 p-1 transition-all"
-                title="Edit description"
-              >
-                <Edit2 className="h-4 w-4" />
-              </button>
+            <div 
+              className="group cursor-pointer rounded-lg hover:bg-gray-50 transition-all duration-300 p-3 -m-3"
+              onClick={handleDescriptionEdit}
+              title="Click to edit description"
+            >
+              <div className="flex items-start space-x-2">
+                <p className="text-gray-600 flex-1 group-hover:text-gray-500 transition-colors leading-relaxed editable-field">
+                  {notebook.description}
+                </p>
+                <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-70 transition-all duration-300 mt-0.5">
+                  <Edit2 className="h-4 w-4 text-gray-500" />
+                  <span className="text-xs text-gray-500 font-medium">Click to edit</span>
+                </div>
+              </div>
             </div>
           )}
         </div>

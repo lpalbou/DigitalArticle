@@ -122,6 +122,10 @@ class DataManager:
         """Get the notebook's working directory."""
         return self.notebook_dir
     
+    def get_workspace_path(self) -> str:
+        """Get the notebook's workspace path as string."""
+        return str(self.notebook_dir)
+    
     def upload_file(self, file_name: str, content: bytes) -> List[Dict[str, Any]]:
         """Upload file with ORIGINAL filename to notebook data directory."""
         file_path = self.data_dir / file_name  # NO random prefixes!

@@ -175,6 +175,37 @@ export const filesAPI = {
     const response: AxiosResponse<any[]> = await api.get(`/files/${notebookId}`)
     return response.data
   },
+
+  // Get file content
+  getContent: async (notebookId: string, filePath: string): Promise<{
+    content: string;
+    content_type: string;
+    size: number;
+  }> => {
+    const response = await api.get(`/files/${notebookId}/content`, {
+      params: { file_path: filePath }
+    })
+    return response.data
+  },
+
+  // Upload file
+  upload: async (notebookId: string, file: File): Promise<any[]> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    
+    const response: AxiosResponse<any[]> = await api.post(`/files/${notebookId}/upload`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+    return response.data
+  },
+
+  // Delete file
+  delete: async (notebookId: string, fileName: string): Promise<{ message: string }> => {
+    const response: AxiosResponse<{ message: string }> = await api.delete(`/files/${notebookId}/${fileName}`)
+    return response.data
+  },
 }
 
 // Error types for better error handling
@@ -235,6 +266,23 @@ export const downloadFile = (content: string, filename: string, mimeType: string
   link.click()
   document.body.removeChild(link)
   window.URL.revokeObjectURL(url)
+}
+
+/**
+ * Get the current system user
+ */
+export const getCurrentUser = async (): Promise<string> => {
+  try {
+    // Try to get from backend first
+    const response = await api.get('/system/user')
+    return response.data.username
+  } catch (error) {
+    // Fallback to a reasonable default if backend doesn't support it
+    console.warn('Could not get system user from backend, using fallback')
+    
+    // Use the known username as fallback
+    return 'albou' // Fallback to known user
+  }
 }
 
 export default api
