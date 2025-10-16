@@ -8,7 +8,11 @@ All notable changes to the Digital Article project will be documented in this fi
 - Renamed project from "Reverse Analytics Notebook" to "Digital Article"
 - Updated all references, documentation, and UI elements to reflect new name
 
-## [1.0.0] - 2024-01-XX
+## [0.1.0] - 2024-10-16
+- First clean and working version
+- Known bugs : save and export don't work yet
+
+## [0.0.0] - 2024-10-15
 
 ### Added
 - **Core Architecture**: Complete full-stack implementation with FastAPI backend and React frontend
