@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react'
-// import Plot from 'react-plotly.js' // Temporarily disabled
+import Plot from 'react-plotly.js'
 import { AlertCircle, CheckCircle, Image as ImageIcon, BarChart3, Table } from 'lucide-react'
 import { ExecutionResult, ExecutionStatus, TableData } from '../types'
 

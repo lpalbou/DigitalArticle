@@ -80,6 +80,8 @@ class Cell(BaseModel):
     last_result: Optional[ExecutionResult] = None
     is_executing: bool = False
     is_writing_methodology: bool = False
+    is_retrying: bool = False  # Track if auto-retry is in progress
+    retry_count: int = 0  # Number of retry attempts
     
     # Display preferences
     show_code: bool = False  # Toggle between prompt and code view

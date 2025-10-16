@@ -86,11 +86,14 @@ class ExecutionService:
         def lazy_import(module_path: str, alias: str):
             if globals_dict[alias] is None:
                 try:
+                    # Import the full module path directly
                     parts = module_path.split('.')
-                    module = __import__(module_path, fromlist=[parts[-1]])
-                    if len(parts) > 1:
-                        for part in parts[1:]:
-                            module = getattr(module, part)
+                    if len(parts) == 1:
+                        # Simple import like 'pandas'
+                        module = __import__(module_path)
+                    else:
+                        # Complex import like 'plotly.express' or 'plotly.graph_objects'
+                        module = __import__(module_path, fromlist=[parts[-1]])
                     globals_dict[alias] = module
                 except ImportError as e:
                     logger.warning(f"Failed to import {module_path}: {e}")
@@ -243,12 +246,24 @@ class ExecutionService:
         lines = code.split('\n')
         processed_lines = []
         
+        # Add plotly configuration at the beginning if plotly is used
+        has_plotly = any('plotly' in line for line in lines)
+        if has_plotly:
+            processed_lines.extend([
+                "# Configure plotly for inline display",
+                "import plotly.io as pio",
+                "pio.renderers.default = 'json'  # Capture plots as JSON instead of showing in browser",
+                ""
+            ])
+        
         for line in lines:
             # Handle common import patterns with lazy loading
             if 'import plotly.express as px' in line:
                 processed_lines.append("px = _lazy_import('plotly.express', 'px')")
             elif 'import plotly.graph_objects as go' in line:
                 processed_lines.append("go = _lazy_import('plotly.graph_objects', 'go')")
+            elif 'from plotly.subplots import make_subplots' in line:
+                processed_lines.append("from plotly.subplots import make_subplots")
             elif 'import seaborn as sns' in line:
                 processed_lines.append("sns = _lazy_import('seaborn', 'sns')")
             elif 'import scipy.stats as stats' in line:
@@ -256,6 +271,16 @@ class ExecutionService:
             elif 'from sklearn' in line:
                 # Handle sklearn imports
                 processed_lines.append(line)
+            elif '.show()' in line and ('fig' in line or 'plot' in line):
+                # Replace .show() calls with variable assignment to capture the plot
+                # This prevents plots from opening in new browser tabs
+                if '=' not in line:  # Only if it's not already assigned
+                    # Extract the figure variable name
+                    fig_var = line.split('.show()')[0].strip()
+                    processed_lines.append(f"# Capture plot for inline display instead of showing in browser")
+                    processed_lines.append(f"_captured_plot = {fig_var}")
+                else:
+                    processed_lines.append(line)
             else:
                 processed_lines.append(line)
         
@@ -322,12 +347,32 @@ class ExecutionService:
                     )
                     
                     if is_new_variable or is_modified_dataframe:
-                        # Convert DataFrame to dictionary format
+                        # Convert DataFrame to dictionary format with numpy-safe serialization
+                        def make_json_serializable(obj):
+                            """Convert numpy types to Python native types for JSON serialization."""
+                            if hasattr(obj, 'dtype'):
+                                # Handle numpy arrays and scalars
+                                if hasattr(obj, 'tolist'):
+                                    return obj.tolist()
+                                elif hasattr(obj, 'item'):
+                                    return obj.item()
+                            elif isinstance(obj, dict):
+                                return {k: make_json_serializable(v) for k, v in obj.items()}
+                            elif isinstance(obj, (list, tuple)):
+                                return [make_json_serializable(item) for item in obj]
+                            return obj
+                        
+                        # Safely convert DataFrame data
+                        safe_data = []
+                        for record in obj.to_dict('records'):
+                            safe_record = make_json_serializable(record)
+                            safe_data.append(safe_record)
+                        
                         table_data = {
                             'name': name,
-                            'shape': obj.shape,
+                            'shape': list(obj.shape),  # Convert to list for JSON serialization
                             'columns': obj.columns.tolist(),
-                            'data': obj.to_dict('records'),
+                            'data': safe_data,
                             'html': obj.to_html(classes='table table-striped'),
                             'info': {
                                 'dtypes': {col: str(dtype) for col, dtype in obj.dtypes.to_dict().items()},
@@ -356,12 +401,34 @@ class ExecutionService:
             for name, obj in self.globals_dict.items():
                 if hasattr(obj, 'to_dict') and hasattr(obj, 'data') and hasattr(obj, 'layout'):
                     # This is likely a Plotly figure
-                    plot_data = {
-                        'name': name,
-                        'figure': obj.to_dict(),
-                        'json': obj.to_json()
-                    }
-                    interactive_plots.append(plot_data)
+                    try:
+                        # Convert to JSON-serializable format
+                        figure_dict = obj.to_dict()
+                        
+                        # Make sure all numpy arrays are converted to lists
+                        def convert_numpy_in_dict(d):
+                            if isinstance(d, dict):
+                                return {k: convert_numpy_in_dict(v) for k, v in d.items()}
+                            elif isinstance(d, list):
+                                return [convert_numpy_in_dict(item) for item in d]
+                            elif hasattr(d, 'tolist'):  # numpy array
+                                return d.tolist()
+                            elif hasattr(d, 'item'):  # numpy scalar
+                                return d.item()
+                            else:
+                                return d
+                        
+                        safe_figure = convert_numpy_in_dict(figure_dict)
+                        
+                        plot_data = {
+                            'name': name,
+                            'figure': safe_figure,
+                            'json': obj.to_json()
+                        }
+                        interactive_plots.append(plot_data)
+                        logger.info(f"Captured interactive plot: {name}")
+                    except Exception as plot_error:
+                        logger.warning(f"Failed to serialize plot {name}: {plot_error}")
                     
         except Exception as e:
             logger.warning(f"Failed to capture interactive plots: {e}")
