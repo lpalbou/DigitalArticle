@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
-import { MessageSquare, Play, Code, Eye, EyeOff } from 'lucide-react'
+import { MessageSquare, Play, Eye, EyeOff } from 'lucide-react'
 import { Cell, CellType } from '../types'
 import CodeDisplay from './CodeDisplay'
 
