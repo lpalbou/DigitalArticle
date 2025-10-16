@@ -1,6 +1,12 @@
 # Changelog
 
-All notable changes to the Reverse Analytics Notebook project will be documented in this file.
+All notable changes to the Digital Article project will be documented in this file.
+
+## [Unreleased]
+
+### Changed
+- Renamed project from "Reverse Analytics Notebook" to "Digital Article"
+- Updated all references, documentation, and UI elements to reflect new name
 
 ## [1.0.0] - 2024-01-XX
 
@@ -17,7 +23,7 @@ All notable changes to the Reverse Analytics Notebook project will be documented
   - Pandas DataFrame table rendering
   - Image display capabilities
 - **Advanced Result Panels**: Sophisticated display system for execution outputs
-- **Notebook Management**: Complete CRUD operations for notebooks and cells
+- **Digital Article Management**: Complete CRUD operations for digital articles and cells
 - **Auto-save Functionality**: Automatic persistence of notebook changes
 - **Export Capabilities**: Export notebooks in JSON, HTML, and Markdown formats
 - **Error Handling**: Comprehensive error capture and display system
@@ -31,7 +37,7 @@ All notable changes to the Reverse Analytics Notebook project will be documented
 - **Data Models**: Pydantic models for type-safe data handling
 - **LLM Service**: Robust LLM integration with error handling and retries
 - **Execution Service**: Safe Python code execution with output capture
-- **Notebook Service**: Persistent storage and management of notebooks
+- **Digital Article Service**: Persistent storage and management of digital articles
 
 #### Frontend (React + TypeScript)
 - **Modern UI**: Clean, responsive interface built with Tailwind CSS
@@ -66,4 +72,4 @@ All notable changes to the Reverse Analytics Notebook project will be documented
 - **Performance Optimized**: Efficient rendering and state management
 - **User Experience**: Intuitive interface designed for non-technical users
 
-This initial release provides a complete, working implementation of the revolutionary reverse analytics notebook concept, enabling domain experts to perform sophisticated data analysis through natural language interaction.
+This initial release provides a complete, working implementation of the revolutionary digital article concept, enabling domain experts to perform sophisticated data analysis through natural language interaction.

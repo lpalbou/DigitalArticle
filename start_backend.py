@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Startup script for the Reverse Analytics Notebook backend.
+Startup script for the Digital Article backend.
 
 This script starts the FastAPI server with proper configuration.
 """
@@ -17,7 +17,7 @@ def main():
     backend_dir = Path(__file__).parent / "backend"
     os.chdir(backend_dir)
     
-    print("🚀 Starting Reverse Analytics Notebook Backend...")
+    print("🚀 Starting Digital Article Backend...")
     print(f"📁 Working directory: {backend_dir}")
     print("🌐 Server will be available at: http://localhost:8000")
     print("📖 API documentation will be available at: http://localhost:8000/docs")

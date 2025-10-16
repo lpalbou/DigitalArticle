@@ -1,4 +1,4 @@
-# Reverse Analytics Notebook
+# Digital Article
 
 A novel analytics notebook where biologists interact with natural language prompts instead of code. The system generates Python code from prompts and displays results while keeping the technical complexity hidden.
 

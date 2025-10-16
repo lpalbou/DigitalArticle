@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Startup script for the Reverse Analytics Notebook frontend.
+ * Startup script for the Digital Article frontend.
  * 
  * This script starts the Vite development server.
  */
@@ -11,7 +11,7 @@ const fs = require('fs')
 
 const frontendDir = path.join(__dirname, 'frontend')
 
-console.log('🚀 Starting Reverse Analytics Notebook Frontend...')
+console.log('🚀 Starting Digital Article Frontend...')
 console.log(`📁 Working directory: ${frontendDir}`)
 
 // Check if node_modules exists

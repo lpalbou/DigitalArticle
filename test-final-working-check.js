@@ -79,7 +79,7 @@ async function testFinalWorkingCheck() {
     if (overallSuccess) {
       console.log('\n🎉🎉🎉 COMPLETE SUCCESS! 🎉🎉🎉');
       console.log('=====================================');
-      console.log('🧬 THE REVERSE ANALYTICS NOTEBOOK IS WORKING!');
+      console.log('🧬 THE DIGITAL ARTICLE IS WORKING!');
       console.log('');
       console.log('✅ Biologists can enter natural language prompts');
       console.log('✅ LLM generates correct Python code');

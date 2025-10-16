@@ -1,4 +1,4 @@
-"""Data models for the Reverse Analytics Notebook."""
+"""Data models for the Digital Article."""
 
 from .notebook import Notebook, Cell, ExecutionResult, CellType, ExecutionStatus
 

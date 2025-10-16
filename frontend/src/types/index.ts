@@ -113,6 +113,11 @@ export interface CellExecuteRequest {
   force_regenerate?: boolean
 }
 
+export interface CellExecuteResponse {
+  cell: Cell
+  result: ExecutionResult
+}
+
 export interface NotebookCreateRequest {
   title?: string
   description?: string

@@ -1,5 +1,5 @@
 """
-Data Manager for the Reverse Analytics Notebook.
+Data Manager for the Digital Article.
 
 This service handles data file management, storage, and access for notebook execution.
 It provides a centralized way to manage datasets that biologists upload or reference.

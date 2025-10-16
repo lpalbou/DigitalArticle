@@ -1,1 +1,1 @@
-"""API routes for the Reverse Analytics Notebook."""
+"""API routes for the Digital Article."""

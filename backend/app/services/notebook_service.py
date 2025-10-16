@@ -379,7 +379,7 @@ print("LLM service is currently unavailable, using fallback code.")
         
         return False
     
-    def execute_cell(self, request: CellExecuteRequest) -> Optional[ExecutionResult]:
+    def execute_cell(self, request: CellExecuteRequest) -> Optional[tuple[Cell, ExecutionResult]]:
         """
         Execute a cell (generate code from prompt if needed and run it).
         
@@ -468,7 +468,7 @@ print("LLM service is currently unavailable, using fallback code.")
             self._save_notebook(notebook)
             
             logger.info(f"Executed cell {cell.id} with status {result.status}")
-            return result
+            return cell, result
             
         except Exception as e:
             # Handle execution errors
@@ -484,7 +484,7 @@ print("LLM service is currently unavailable, using fallback code.")
             self._save_notebook(notebook)
             
             logger.error(f"Failed to execute cell {cell.id}: {e}")
-            return error_result
+            return cell, error_result
     
     def _build_execution_context(self, notebook: Notebook, current_cell: Cell) -> Dict[str, Any]:
         """

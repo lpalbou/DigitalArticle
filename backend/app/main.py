@@ -1,5 +1,5 @@
 """
-FastAPI main application for the Reverse Analytics Notebook.
+FastAPI main application for the Digital Article.
 
 This application provides a REST API for managing notebook cells, executing Python code,
 and integrating with LLM services for prompt-to-code conversion.
@@ -18,7 +18,7 @@ from .api import cells, notebooks, llm
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Reverse Analytics Notebook API",
+    title="Digital Article API",
     description="API for managing analytics notebooks with natural language prompts",
     version="1.0.0"
 )
@@ -65,7 +65,7 @@ app.include_router(llm.router, prefix="/api/llm", tags=["llm"])
 @app.get("/")
 async def root():
     """Health check endpoint."""
-    return {"message": "Reverse Analytics Notebook API", "status": "running"}
+    return {"message": "Digital Article API", "status": "running"}
 
 @app.get("/health")
 async def health_check():

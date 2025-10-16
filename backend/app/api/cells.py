@@ -10,7 +10,7 @@ from fastapi.responses import Response
 from abstractcore.utils.structured_logging import get_logger
 
 from ..models.notebook import (
-    Cell, ExecutionResult, CellCreateRequest, CellUpdateRequest, CellExecuteRequest
+    Cell, ExecutionResult, CellCreateRequest, CellUpdateRequest, CellExecuteRequest, CellExecuteResponse
 )
 from ..services.shared import notebook_service
 
@@ -27,7 +27,7 @@ async def create_cell(request: CellCreateRequest):
         if not cell:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Notebook {request.notebook_id} not found"
+                detail=f"Digital Article {request.notebook_id} not found"
             )
         return cell
     except Exception as e:
@@ -73,20 +73,22 @@ async def delete_cell(notebook_id: str, cell_id: str):
         )
 
 
-@router.post("/execute", response_model=ExecutionResult)
+@router.post("/execute", response_model=CellExecuteResponse)
 async def execute_cell(request: CellExecuteRequest):
     """Execute a cell (generate code from prompt if needed and run it)."""
     try:
         logger.info(f"Executing cell: {request.cell_id}")
-        result = notebook_service.execute_cell(request)
-        if not result:
+        execution_result = notebook_service.execute_cell(request)
+        if not execution_result:
             logger.error(f"Cell {request.cell_id} not found in notebook service")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Cell {request.cell_id} not found"
             )
+        
+        cell, result = execution_result
         logger.info(f"Cell execution completed with status: {result.status}")
-        return result
+        return CellExecuteResponse(cell=cell, result=result)
     except HTTPException:
         raise
     except Exception as e:
@@ -109,7 +111,7 @@ async def get_cell_variables(notebook_id: str, cell_id: str):
         if not notebook:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Notebook {notebook_id} not found"
+                detail=f"Digital Article {notebook_id} not found"
             )
         
         cell = notebook.get_cell(cell_id)
@@ -139,7 +141,7 @@ async def clear_execution_context(notebook_id: str):
         if not notebook:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Notebook {notebook_id} not found"
+                detail=f"Digital Article {notebook_id} not found"
             )
         
         # Clear the execution namespace

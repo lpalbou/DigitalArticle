@@ -50,7 +50,7 @@ async def get_notebook(notebook_id: str):
     if not notebook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Notebook {notebook_id} not found"
+            detail=f"Digital Article {notebook_id} not found"
         )
     return notebook
 
@@ -62,7 +62,7 @@ async def update_notebook(notebook_id: str, request: NotebookUpdateRequest):
     if not notebook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Notebook {notebook_id} not found"
+            detail=f"Digital Article {notebook_id} not found"
         )
     return notebook
 
@@ -74,7 +74,7 @@ async def delete_notebook(notebook_id: str):
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Notebook {notebook_id} not found"
+            detail=f"Digital Article {notebook_id} not found"
         )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -93,7 +93,7 @@ async def export_notebook(notebook_id: str, format: str = "json"):
         if content is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Notebook {notebook_id} not found"
+                detail=f"Digital Article {notebook_id} not found"
             )
         
         media_type = {

@@ -1,5 +1,5 @@
 /**
- * API client service for communicating with the Reverse Analytics Notebook backend.
+ * API client service for communicating with the Digital Article backend.
  * Provides methods for managing notebooks, cells, and LLM operations.
  */
 
@@ -13,6 +13,7 @@ import {
   CellCreateRequest,
   CellUpdateRequest,
   CellExecuteRequest,
+  CellExecuteResponse,
   CodeGenerationRequest,
   CodeExplanationRequest,
   CodeImprovementRequest
@@ -110,8 +111,8 @@ export const cellAPI = {
   },
 
   // Execute a cell
-  execute: async (request: CellExecuteRequest): Promise<ExecutionResult> => {
-    const response: AxiosResponse<ExecutionResult> = await api.post('/cells/execute', request)
+  execute: async (request: CellExecuteRequest): Promise<CellExecuteResponse> => {
+    const response: AxiosResponse<CellExecuteResponse> = await api.post('/cells/execute', request)
     return response.data
   },
 

@@ -1,5 +1,5 @@
 """
-Fixed Data Manager for the Reverse Analytics Notebook.
+Fixed Data Manager for the Digital Article.
 
 Proper structure: backend/notebook_workspace/data/{notebook_id}/{filename}
 No more random prefixes - preserve original filenames!

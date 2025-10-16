@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Plus, Save, Download, AlertCircle } from 'lucide-react'
+import { Plus, AlertCircle } from 'lucide-react'
 import Header from './Header'
 import FileContextPanel from './FileContextPanel'
 import NotebookCell from './NotebookCell'
@@ -88,8 +88,8 @@ const NotebookContainer: React.FC = () => {
 
     try {
       const request: NotebookCreateRequest = {
-        title: 'Untitled Notebook',
-        description: 'A new reverse analytics notebook',
+        title: 'Untitled Digital Article',
+        description: 'A new digital article',
         author: 'User'
       }
       
@@ -248,21 +248,21 @@ const NotebookContainer: React.FC = () => {
     })
 
     try {
-      const result = await cellAPI.execute({
+      const response = await cellAPI.execute({
         cell_id: cellId,
         force_regenerate: forceRegenerate
       })
 
-      // Update cell with execution result
+      // Update cell with both the updated cell data AND execution result
       setNotebook(prev => {
         if (!prev) return prev
 
         const newCells = prev.cells.map(cell => 
           cell.id === cellId 
             ? { 
-                ...cell, 
+                ...response.cell, // Use the updated cell from the backend (includes generated code!)
                 is_executing: false,
-                last_result: result,
+                last_result: response.result,
                 execution_count: cell.execution_count + 1
               }
             : cell
@@ -335,7 +335,7 @@ const NotebookContainer: React.FC = () => {
         <div className="error-message">
           <div className="flex items-center space-x-2 mb-2">
             <AlertCircle className="h-5 w-5" />
-            <span className="font-medium">Error Loading Notebook</span>
+            <span className="font-medium">Error Loading Digital Article</span>
           </div>
           <p>{error}</p>
           <div className="mt-4">
@@ -367,7 +367,6 @@ const NotebookContainer: React.FC = () => {
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <Header
-          notebookTitle={notebook.title}
           onNewNotebook={createNewNotebook}
           onSaveNotebook={saveNotebook}
           onExportNotebook={exportNotebook}
@@ -390,7 +389,7 @@ const NotebookContainer: React.FC = () => {
         </div>
       )}
 
-      {/* Notebook Metadata */}
+      {/* Digital Article Metadata */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6 p-6">
         <h1 className="text-2xl font-bold mb-2">{notebook.title}</h1>
         <p className="text-gray-600 mb-4">{notebook.description}</p>

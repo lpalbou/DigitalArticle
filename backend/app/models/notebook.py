@@ -1,5 +1,5 @@
 """
-Data models for the Reverse Analytics Notebook.
+Data models for the Digital Article.
 
 These Pydantic models define the core data structures for notebooks, cells, and execution results.
 They ensure type safety and provide serialization/deserialization capabilities.
@@ -97,7 +97,7 @@ class Notebook(BaseModel):
     """A complete notebook containing multiple cells."""
     
     id: UUID = Field(default_factory=uuid4)
-    title: str = "Untitled Notebook"
+    title: str = "Untitled Digital Article"
     description: str = ""
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
@@ -204,9 +204,15 @@ class CellExecuteRequest(BaseModel):
     prompt: Optional[str] = None  # Prompt to generate code from
 
 
+class CellExecuteResponse(BaseModel):
+    """Response model for cell execution containing both the updated cell and execution result."""
+    cell: 'Cell'
+    result: ExecutionResult
+
+
 class NotebookCreateRequest(BaseModel):
     """Request model for creating a new notebook."""
-    title: str = "Untitled Notebook"
+    title: str = "Untitled Digital Article"
     description: str = ""
     author: str = ""
     llm_model: str = "qwen/qwen3-next-80b"

@@ -1,6 +1,6 @@
-# Test Examples for Reverse Analytics Notebook
+# Test Examples for Digital Article
 
-This document provides example prompts you can use to test the functionality of the Reverse Analytics Notebook.
+This document provides example prompts you can use to test the functionality of the Digital Article.
 
 ## Sample Data
 
