@@ -172,12 +172,32 @@ export const handleAPIError = (error: any): APIError => {
   if (error.response) {
     // Server responded with an error status
     const message = error.response.data?.detail || error.response.statusText || 'Unknown server error'
+    
+    // Log full error details to console for debugging
+    console.error('🚨 API Error Details:', {
+      status: error.response.status,
+      message: message,
+      fullResponse: error.response.data,
+      url: error.response.config?.url
+    })
+    
+    // If we have a detailed error response, use that as the message
+    if (error.response.data && typeof error.response.data === 'object' && error.response.data.stack_trace) {
+      return new APIError(
+        `EXECUTION ERROR:\n${error.response.data.error_message}\n\nSTACK TRACE:\n${error.response.data.stack_trace}`,
+        error.response.status,
+        error.response.data
+      )
+    }
+    
     return new APIError(message, error.response.status, error.response.data)
   } else if (error.request) {
     // Request was made but no response received
+    console.error('🚨 Network Error:', error.request)
     return new APIError('Network error: Unable to connect to server')
   } else {
     // Something else happened
+    console.error('🚨 Unknown Error:', error.message)
     return new APIError(error.message || 'Unknown error occurred')
   }
 }

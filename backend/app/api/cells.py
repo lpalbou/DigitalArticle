@@ -74,17 +74,26 @@ async def delete_cell(notebook_id: str, cell_id: str):
 async def execute_cell(request: CellExecuteRequest):
     """Execute a cell (generate code from prompt if needed and run it)."""
     try:
-        result = await notebook_service.execute_cell(request)
+        logger.info(f"Executing cell: {request.cell_id}")
+        result = notebook_service.execute_cell(request)
         if not result:
+            logger.error(f"Cell {request.cell_id} not found in notebook service")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Cell {request.cell_id} not found"
             )
+        logger.info(f"Cell execution completed with status: {result.status}")
         return result
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Cell execution failed with exception: {e}")
+        import traceback
+        full_traceback = traceback.format_exc()
+        logger.error(f"Full traceback: {full_traceback}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to execute cell: {str(e)}"
+            detail=f"Failed to execute cell: {str(e)}\n\nFull traceback:\n{full_traceback}"
         )
 
 

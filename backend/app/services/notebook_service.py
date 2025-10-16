@@ -34,12 +34,24 @@ class NotebookService:
         Args:
             notebooks_dir: Directory to store notebook files
         """
-        self.notebooks_dir = Path(notebooks_dir)
+        # Ensure notebooks directory is relative to project root, not current working directory
+        if not os.path.isabs(notebooks_dir):
+            # Get the project root (4 levels up from this file)
+            project_root = Path(__file__).parent.parent.parent.parent
+            self.notebooks_dir = project_root / notebooks_dir
+        else:
+            self.notebooks_dir = Path(notebooks_dir)
+            
         self.notebooks_dir.mkdir(exist_ok=True)
+        logger.info(f"Notebook service using directory: {self.notebooks_dir}")
         
         # Initialize services
         self.llm_service = LLMService()
         self.execution_service = ExecutionService()
+        
+        # Get data manager for file context
+        from .data_manager import get_data_manager
+        self.data_manager = get_data_manager()
         
         # In-memory notebook cache
         self._notebooks: Dict[str, Notebook] = {}
@@ -107,36 +119,17 @@ class NotebookService:
             context['notebook_title'] = notebook.title
             context['cell_type'] = cell.cell_type.value
             
-            # Add information about available data files (from data directory)
-            context['files'] = [
-                {
-                    'name': 'gene_expression.csv',
-                    'path': 'data/gene_expression.csv',
-                    'type': 'csv',
-                    'preview': {
-                        'rows': 20,
-                        'columns': ['Gene_ID', 'Sample_1', 'Sample_2', 'Sample_3', 'Control_1', 'Control_2', 'Control_3'],
-                        'shape': [20, 7]
-                    }
-                },
-                {
-                    'name': 'patient_data.csv',
-                    'path': 'data/patient_data.csv',
-                    'type': 'csv',
-                    'preview': {
-                        'rows': 20,
-                        'columns': ['Patient_ID', 'Age', 'Gender', 'Condition', 'Treatment_Response', 'Biomarker_Level'],
-                        'shape': [20, 6]
-                    }
-                }
-            ]
+            # Add information about available data files from data manager
+            execution_context = self.data_manager.get_execution_context()
+            context.update(execution_context)
             
             # Add variables from execution service if available
             try:
                 variables = self.execution_service.get_variable_info()
                 if variables:
                     context['available_variables'] = variables
-            except:
+            except Exception as e:
+                logger.warning(f"Could not get variable info: {e}")
                 pass
                 
             logger.info(f"Built execution context with files info and variables")
@@ -365,7 +358,7 @@ print("LLM service is currently unavailable, using fallback code.")
         
         return False
     
-    async def execute_cell(self, request: CellExecuteRequest) -> Optional[ExecutionResult]:
+    def execute_cell(self, request: CellExecuteRequest) -> Optional[ExecutionResult]:
         """
         Execute a cell (generate code from prompt if needed and run it).
         

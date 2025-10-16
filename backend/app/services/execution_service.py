@@ -32,23 +32,19 @@ class ExecutionService:
     
     def __init__(self):
         """Initialize the execution service."""
-        # Set up data directory access
+        from .data_manager import get_data_manager
+        
+        # Get the data manager to set up workspace
+        self.data_manager = get_data_manager()
+        
+        # Set working directory to the workspace root
         import os
-        from pathlib import Path
+        os.chdir(str(self.data_manager.workspace_root))
         
-        # Get the project root directory
-        self.project_root = Path(__file__).parent.parent.parent.parent
-        self.data_dir = self.project_root / "data"
-        
-        # Ensure data directory exists
-        self.data_dir.mkdir(exist_ok=True)
-        
-        # Set working directory for code execution to project root
-        # so that 'data/file.csv' paths work correctly
-        os.chdir(str(self.project_root))
-        
-        logger.info(f"Execution working directory: {os.getcwd()}")
-        logger.info(f"Data directory: {self.data_dir}")
+        logger.info(f"Execution service initialized:")
+        logger.info(f"  Working directory: {os.getcwd()}")
+        logger.info(f"  Data directory: {self.data_manager.data_dir}")
+        logger.info(f"  Available files: {len(self.data_manager.list_available_files())}")
         
         self.globals_dict = self._initialize_globals()
         self.execution_count = 0
@@ -130,19 +126,58 @@ class ExecutionService:
             logger.info(f"Successfully executed cell {cell_id}")
             
         except Exception as e:
-            # Capture error information
+            # Capture COMPLETE error information
+            full_traceback = traceback.format_exc()
+            stderr_content = stderr_buffer.getvalue()
+            
             result.status = ExecutionStatus.ERROR
             result.error_type = type(e).__name__
             result.error_message = str(e)
-            result.traceback = traceback.format_exc()
-            result.stderr = stderr_buffer.getvalue() + result.traceback
+            result.traceback = full_traceback
+            result.stderr = stderr_content + "\n\nFULL PYTHON STACK TRACE:\n" + full_traceback
             
-            logger.error(f"Execution failed for cell {cell_id}: {e}")
+            logger.error(f"🚨 PYTHON EXECUTION FAILED for cell {cell_id}")
+            logger.error(f"🚨 Exception: {e}")
+            logger.error(f"🚨 Working directory: {os.getcwd()}")
+            logger.error(f"🚨 Code that failed: {code}")
+            logger.error(f"🚨 COMPLETE STACK TRACE:\n{full_traceback}")
+            logger.error(f"🚨 Stderr output: {stderr_content}")
+            
+            # Also check environment
+            logger.error(f"🚨 Data directory exists: {os.path.exists('data')}")
+            if os.path.exists('data'):
+                logger.error(f"🚨 Files in data: {os.listdir('data')}")
+            else:
+                logger.error(f"🚨 NO DATA DIRECTORY FOUND!")
+                logger.error(f"🚨 Current directory contents: {os.listdir('.')}")
+                
+            # Re-raise the exception so the global handler can catch it and show full details
+            raise e
         
         finally:
             result.execution_time = time.time() - start_time
             
         return result
+    
+    def get_variable_info(self) -> Dict[str, Any]:
+        """Get information about variables in the current execution context."""
+        try:
+            variables = {}
+            for name, value in self.globals_dict.items():
+                if not name.startswith('_') and not callable(value):
+                    try:
+                        # Get basic info about the variable
+                        var_type = type(value).__name__
+                        if hasattr(value, 'shape'):  # pandas DataFrame, numpy array
+                            variables[name] = f"{var_type} {getattr(value, 'shape', 'N/A')}"
+                        else:
+                            variables[name] = var_type
+                    except:
+                        variables[name] = "unknown"
+            return variables
+        except Exception as e:
+            logger.warning(f"Failed to get variable info: {e}")
+            return {}
     
     def _preprocess_code(self, code: str) -> str:
         """

@@ -69,6 +69,9 @@ class LLMService:
         user_prompt = self._build_user_prompt(prompt, context)
         
         try:
+            logger.info(f"🚨 CALLING LLM with prompt: {prompt[:100]}...")
+            logger.info(f"🚨 System prompt length: {len(system_prompt)}")
+            
             response = self.llm.generate(
                 user_prompt,
                 system_prompt=system_prompt,
@@ -76,9 +79,12 @@ class LLMService:
                 temperature=0.1  # Low temperature for consistent code generation
             )
             
+            logger.info(f"🚨 LLM RAW RESPONSE: {response.content}")
+            
             # Extract code from the response
             code = self._extract_code_from_response(response.content)
             
+            logger.info(f"🚨 EXTRACTED CODE: {code}")
             logger.info(f"Generated code for prompt: {prompt[:50]}...")
             return code
             
@@ -95,10 +101,11 @@ class LLMService:
         base_prompt = """You are a data analysis assistant that converts natural language requests into Python code.
 
 CRITICAL DATA PATH INFORMATION:
-- ALL data files are located in the 'data/' directory
+- ALL data files are located in the 'data/' directory (relative to working directory)
 - ALWAYS use paths like: 'data/filename.csv' 
 - NEVER use bare filenames like 'filename.csv'
-- The working directory is set to the project root where 'data/' exists
+- The working directory contains a 'data/' subdirectory with all datasets
+- Files are managed by the data manager and guaranteed to be accessible
 
 RULES:
 1. Generate ONLY executable Python code - no explanations or markdown

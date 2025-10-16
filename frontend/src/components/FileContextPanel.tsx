@@ -218,11 +218,18 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ onFilesChange }) =>
                   className="bg-gray-50 border border-gray-200 rounded-lg p-3 hover:bg-gray-100 transition-colors"
                 >
                   <div className="flex items-start justify-between">
-                    <div className="flex items-start space-x-2 flex-1 min-w-0">
+                      <div className="flex items-start space-x-2 flex-1 min-w-0">
                       {getFileIcon(file.type)}
-                      <div className="flex-1 min-w-0">
+                      <div 
+                        className="flex-1 min-w-0 cursor-pointer hover:bg-blue-50 p-1 rounded"
+                        onClick={() => {
+                          // Show file preview in a simple modal or expand
+                          alert(`File: ${file.name}\nPath: ${file.path}\nType: ${file.type}\nSize: ${formatFileSize(file.size)}\n\nPreview:\n- Rows: ${file.preview?.rows || 'Unknown'}\n- Columns: ${file.preview?.columns?.join(', ') || 'Unknown'}`);
+                        }}
+                        title="Click to view file details"
+                      >
                         <h4 className="text-sm font-medium text-gray-900 truncate">
-                          {file.name}
+                          📁 {file.name}
                         </h4>
                         <p className="text-xs text-gray-500 truncate">
                           {file.path}
