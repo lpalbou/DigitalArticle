@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Plus, AlertCircle } from 'lucide-react'
+import { Plus, AlertCircle, Edit2, Check, X } from 'lucide-react'
 import Header from './Header'
 import FileContextPanel from './FileContextPanel'
 import NotebookCell from './NotebookCell'
@@ -38,8 +38,12 @@ const NotebookContainer: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
   const [executingCells, setExecutingCells] = useState<Set<string>>(new Set())
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
-  const [contextFiles, setContextFiles] = useState<FileInfo[]>([])
+  const [, setContextFiles] = useState<FileInfo[]>([])
   const [fileRefreshTrigger, setFileRefreshTrigger] = useState(0)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [editingDescription, setEditingDescription] = useState(false)
+  const [tempTitle, setTempTitle] = useState('')
+  const [tempDescription, setTempDescription] = useState('')
 
   // Load notebook on component mount or ID change
   useEffect(() => {
@@ -338,6 +342,44 @@ const NotebookContainer: React.FC = () => {
     addCell(cellType, cellId)
   }, [addCell])
 
+  const handleTitleEdit = useCallback(() => {
+    if (!notebook) return
+    setTempTitle(notebook.title)
+    setEditingTitle(true)
+  }, [notebook])
+
+  const handleDescriptionEdit = useCallback(() => {
+    if (!notebook) return
+    setTempDescription(notebook.description)
+    setEditingDescription(true)
+  }, [notebook])
+
+  const saveTitleEdit = useCallback(async () => {
+    if (!notebook || !tempTitle.trim()) return
+    
+    setNotebook(prev => prev ? { ...prev, title: tempTitle.trim() } : prev)
+    setEditingTitle(false)
+    setHasUnsavedChanges(true)
+  }, [notebook, tempTitle])
+
+  const saveDescriptionEdit = useCallback(async () => {
+    if (!notebook || !tempDescription.trim()) return
+    
+    setNotebook(prev => prev ? { ...prev, description: tempDescription.trim() } : prev)
+    setEditingDescription(false)
+    setHasUnsavedChanges(true)
+  }, [notebook, tempDescription])
+
+  const cancelTitleEdit = useCallback(() => {
+    setEditingTitle(false)
+    setTempTitle('')
+  }, [])
+
+  const cancelDescriptionEdit = useCallback(() => {
+    setEditingDescription(false)
+    setTempDescription('')
+  }, [])
+
   // Memoized values
   const hasCells = useMemo(() => notebook?.cells && notebook.cells.length > 0, [notebook])
 
@@ -391,12 +433,14 @@ const NotebookContainer: React.FC = () => {
 
       {/* Content with top padding to account for fixed header */}
       <div className="pt-16">
-        {/* Files in Context Panel */}
-        <FileContextPanel 
-          notebookId={notebook?.id}
-          onFilesChange={setContextFiles}
-          refreshTrigger={fileRefreshTrigger}
-        />
+        {/* Files in Context Panel - constrained to same width as notebook */}
+        <div className="max-w-6xl mx-auto">
+          <FileContextPanel 
+            notebookId={notebook?.id}
+            onFilesChange={setContextFiles}
+            refreshTrigger={fileRefreshTrigger}
+          />
+        </div>
       
       <div className="max-w-6xl mx-auto">
 
@@ -419,8 +463,98 @@ const NotebookContainer: React.FC = () => {
 
       {/* Digital Article Metadata */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6 p-6">
-        <h1 className="text-2xl font-bold mb-2">{notebook.title}</h1>
-        <p className="text-gray-600 mb-4">{notebook.description}</p>
+        {/* Title Section */}
+        <div className="mb-2 group">
+          {editingTitle ? (
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                value={tempTitle}
+                onChange={(e) => setTempTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') saveTitleEdit()
+                  if (e.key === 'Escape') cancelTitleEdit()
+                }}
+                className="text-2xl font-bold bg-transparent border-b-2 border-blue-500 focus:outline-none flex-1"
+                autoFocus
+                placeholder="Enter title..."
+              />
+              <button
+                onClick={saveTitleEdit}
+                className="text-green-600 hover:text-green-700 p-1"
+                title="Save title"
+              >
+                <Check className="h-4 w-4" />
+              </button>
+              <button
+                onClick={cancelTitleEdit}
+                className="text-red-600 hover:text-red-700 p-1"
+                title="Cancel editing"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-2">
+              <h1 className="text-2xl font-bold flex-1">{notebook.title}</h1>
+              <button
+                onClick={handleTitleEdit}
+                className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-600 p-1 transition-all"
+                title="Edit title"
+              >
+                <Edit2 className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Description Section */}
+        <div className="mb-4 group">
+          {editingDescription ? (
+            <div className="flex items-start space-x-2">
+              <textarea
+                value={tempDescription}
+                onChange={(e) => setTempDescription(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.ctrlKey) saveDescriptionEdit()
+                  if (e.key === 'Escape') cancelDescriptionEdit()
+                }}
+                className="text-gray-600 bg-transparent border-b-2 border-blue-500 focus:outline-none flex-1 resize-none"
+                autoFocus
+                placeholder="Enter description..."
+                rows={2}
+              />
+              <div className="flex flex-col space-y-1">
+                <button
+                  onClick={saveDescriptionEdit}
+                  className="text-green-600 hover:text-green-700 p-1"
+                  title="Save description (Ctrl+Enter)"
+                >
+                  <Check className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={cancelDescriptionEdit}
+                  className="text-red-600 hover:text-red-700 p-1"
+                  title="Cancel editing"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start space-x-2">
+              <p className="text-gray-600 flex-1">{notebook.description}</p>
+              <button
+                onClick={handleDescriptionEdit}
+                className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-600 p-1 transition-all"
+                title="Edit description"
+              >
+                <Edit2 className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
+
         <div className="flex items-center justify-between text-sm text-gray-500">
           <span>Author: {notebook.author}</span>
           <span>

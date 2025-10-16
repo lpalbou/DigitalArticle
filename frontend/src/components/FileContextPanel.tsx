@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { Upload, File, X, Database, BarChart3, FileText, Eye, Info } from 'lucide-react'
+import { Upload, File, X, Database, BarChart3, FileText, Eye } from 'lucide-react'
 import { filesAPI, handleAPIError } from '../services/api'
 
 interface FileInfo {
@@ -149,10 +149,10 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
         </div>
         
         <div className="flex items-center space-x-2">
-          {/* Upload Button */}
-          <label className="btn btn-secondary text-sm px-3 py-1 cursor-pointer">
-            <Upload className="h-4 w-4 mr-1" />
-            Upload
+          {/* Upload Button - Improved UI/UX with blue styling */}
+          <label className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors cursor-pointer shadow-sm">
+            <Upload className="h-4 w-4 mr-2" />
+            Upload Files
             <input
               type="file"
               multiple
@@ -162,7 +162,7 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
             />
           </label>
           
-          <button className="text-gray-400 hover:text-gray-600">
+          <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors" title="Toggle view">
             <Eye className="h-4 w-4" />
           </button>
         </div>
@@ -183,54 +183,43 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
               <p className="text-xs">Drag & drop files here or use the upload button</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {contextFiles.map((file, index) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
+              {contextFiles.map((file) => (
                 <div 
                   key={file.path}
-                  className="bg-gray-50 border border-gray-200 rounded-lg p-3 hover:bg-gray-100 transition-colors"
+                  className="bg-gray-50 border border-gray-200 rounded-md p-2 hover:bg-gray-100 transition-colors group"
                 >
-                  <div className="flex items-start justify-between">
-                      <div className="flex items-start space-x-2 flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2 flex-1 min-w-0">
                       {getFileIcon(file.type)}
                       <div 
-                        className="flex-1 min-w-0 cursor-pointer hover:bg-blue-50 p-1 rounded"
+                        className="flex-1 min-w-0 cursor-pointer hover:text-blue-600 transition-colors"
                         onClick={() => {
                           // Show file preview in a simple modal or expand
                           alert(`File: ${file.name}\nPath: ${file.path}\nType: ${file.type}\nSize: ${formatFileSize(file.size)}\n\nPreview:\n- Rows: ${file.preview?.rows || 'Unknown'}\n- Columns: ${file.preview?.columns?.join(', ') || 'Unknown'}`);
                         }}
                         title="Click to view file details"
                       >
-                        <h4 className="text-sm font-medium text-gray-900 truncate">
-                          📁 {file.name}
+                        <h4 className="text-xs font-medium text-gray-900 truncate">
+                          {file.name}
                         </h4>
-                        <p className="text-xs text-gray-500 truncate">
-                          {file.path}
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {formatFileSize(file.size)}
-                        </p>
-                        
-                        {/* File Preview Info */}
-                        {file.preview && (
-                          <div className="mt-2 text-xs text-gray-600 bg-white px-2 py-1 rounded border">
-                            <div className="flex items-center space-x-1 mb-1">
-                              <Info className="h-3 w-3" />
-                              <span>{file.preview.shape[0]} rows × {file.preview.shape[1]} cols</span>
-                            </div>
-                            <div className="text-gray-500 truncate">
-                              Columns: {file.preview.columns.slice(0, 3).join(', ')}
-                              {file.preview.columns.length > 3 && `... +${file.preview.columns.length - 3} more`}
-                            </div>
-                          </div>
-                        )}
+                        <div className="flex items-center space-x-1 text-xs text-gray-500">
+                          <span>{formatFileSize(file.size)}</span>
+                          {file.preview && (
+                            <>
+                              <span>•</span>
+                              <span>{file.preview.shape[0]}×{file.preview.shape[1]}</span>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                     
                     <button
                       onClick={() => removeFile(file.path)}
-                      className="text-gray-400 hover:text-red-600 ml-2 flex-shrink-0"
+                      className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-600 transition-all flex-shrink-0"
                     >
-                      <X className="h-4 w-4" />
+                      <X className="h-3 w-3" />
                     </button>
                   </div>
                 </div>

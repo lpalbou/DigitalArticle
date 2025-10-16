@@ -4,22 +4,46 @@ A novel analytics notebook where biologists interact with natural language promp
 
 ## Quick Start
 
-### Backend (FastAPI)
+### Installation
+Install the Digital Article CLI package to get the `da-backend` and `da-frontend` commands:
+
+```bash
+# Install in development mode (from project root)
+pip install -e .
+
+# Or install from PyPI (when published)
+pip install digital-article-cli
+```
+
+### Usage
+After installation, you can use these commands from anywhere:
+
+```bash
+# Start backend server (kills any existing process on port 8000)
+da-backend
+
+# Start frontend server (kills any existing process on port 5173)  
+da-frontend
+```
+
+The commands will automatically:
+- 🔍 Find your Digital Article project directory
+- 🧹 Kill any existing processes on the required ports
+- 📦 Install missing dependencies (uvicorn for backend, npm packages for frontend)
+- 🚀 Start the servers with auto-reload enabled
+
+### Manual Setup (Alternative)
+#### Backend (FastAPI)
 ```bash
 # Kill any existing process on port 8000
 lsof -ti:8000 | xargs kill -9 2>/dev/null || true
 
 # Start backend
 cd backend
-python -m uvicorn app.main:app --reload --port 8000 --log-level debug
-
-
-lsof -ti:8000 | xargs kill -9 2>/dev/null || true && cd /Users/albou/projects/reverse-notebook/backend && python -m uvicorn app.main:app --reload --port 8000
-
-lsof -ti:5173 | xargs kill -9 2>/dev/null || true && cd /Users/albou/projects/reverse-notebook/frontend/ && npm run dev
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend (React)
+#### Frontend (React)
 ```bash
 # Kill any existing process on port 5173
 lsof -ti:5173 | xargs kill -9 2>/dev/null || true
