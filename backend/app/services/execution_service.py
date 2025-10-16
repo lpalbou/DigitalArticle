@@ -138,6 +138,13 @@ class ExecutionService:
             plt.clf()
             plt.close('all')
             
+            # Track variables before execution to only capture new DataFrames
+            pre_execution_vars = set(self.globals_dict.keys())
+            pre_execution_dataframes = {
+                name: obj for name, obj in self.globals_dict.items() 
+                if isinstance(obj, pd.DataFrame) and not name.startswith('_')
+            }
+            
             # Add lazy imports to code if needed
             processed_code = self._preprocess_code(code)
             
@@ -152,7 +159,7 @@ class ExecutionService:
             
             # Capture visualizations and rich outputs
             result.plots = self._capture_plots()
-            result.tables = self._capture_tables()
+            result.tables = self._capture_tables(pre_execution_vars, pre_execution_dataframes)
             result.interactive_plots = self._capture_interactive_plots()
             
             self.execution_count += 1
@@ -289,9 +296,13 @@ class ExecutionService:
         
         return plots
     
-    def _capture_tables(self) -> List[Dict[str, Any]]:
+    def _capture_tables(self, pre_execution_vars: set = None, pre_execution_dataframes: dict = None) -> List[Dict[str, Any]]:
         """
-        Capture pandas DataFrames and other tabular data.
+        Capture pandas DataFrames and other tabular data created by the current execution.
+        
+        Args:
+            pre_execution_vars: Set of variable names that existed before execution
+            pre_execution_dataframes: Dict of DataFrames that existed before execution
         
         Returns:
             List of table data as dictionaries
@@ -302,19 +313,29 @@ class ExecutionService:
             # Look for DataFrames in the global namespace
             for name, obj in self.globals_dict.items():
                 if isinstance(obj, pd.DataFrame) and not name.startswith('_'):
-                    # Convert DataFrame to dictionary format
-                    table_data = {
-                        'name': name,
-                        'shape': obj.shape,
-                        'columns': obj.columns.tolist(),
-                        'data': obj.to_dict('records'),
-                        'html': obj.to_html(classes='table table-striped'),
-                        'info': {
-                            'dtypes': {col: str(dtype) for col, dtype in obj.dtypes.to_dict().items()},
-                            'memory_usage': {col: int(usage) for col, usage in obj.memory_usage(deep=True).to_dict().items()}
+                    # Only capture DataFrames that are new or have been modified
+                    is_new_variable = pre_execution_vars is None or name not in pre_execution_vars
+                    is_modified_dataframe = (
+                        pre_execution_dataframes is not None and 
+                        name in pre_execution_dataframes and 
+                        not obj.equals(pre_execution_dataframes[name])
+                    )
+                    
+                    if is_new_variable or is_modified_dataframe:
+                        # Convert DataFrame to dictionary format
+                        table_data = {
+                            'name': name,
+                            'shape': obj.shape,
+                            'columns': obj.columns.tolist(),
+                            'data': obj.to_dict('records'),
+                            'html': obj.to_html(classes='table table-striped'),
+                            'info': {
+                                'dtypes': {col: str(dtype) for col, dtype in obj.dtypes.to_dict().items()},
+                                'memory_usage': {col: int(usage) for col, usage in obj.memory_usage(deep=True).to_dict().items()}
+                            }
                         }
-                    }
-                    tables.append(table_data)
+                        tables.append(table_data)
+                        logger.info(f"Captured {'new' if is_new_variable else 'modified'} DataFrame: {name} {obj.shape}")
                     
         except Exception as e:
             logger.warning(f"Failed to capture tables: {e}")
