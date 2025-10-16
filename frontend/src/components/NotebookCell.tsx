@@ -55,16 +55,6 @@ const NotebookCell: React.FC<NotebookCellProps> = ({
 
         {/* Cell Actions */}
         <div className="flex items-center space-x-2">
-          {/* Cell Type Selector */}
-          <select
-            value={cell.cell_type}
-            onChange={(e) => handleUpdateCell({ cell_type: e.target.value as CellType })}
-            className="text-xs border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value={CellType.PROMPT}>Prompt</option>
-            <option value={CellType.CODE}>Code</option>
-            <option value={CellType.MARKDOWN}>Markdown</option>
-          </select>
 
           {/* More Actions Menu */}
           <div className="relative group">

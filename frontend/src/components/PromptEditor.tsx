@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { MessageSquare, Play, Code, Eye, EyeOff } from 'lucide-react'
 import { Cell, CellType } from '../types'
+import CodeDisplay from './CodeDisplay'
 
 interface PromptEditorProps {
   cell: Cell
@@ -38,13 +39,14 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
 
   // Auto-enter editing mode for prompt cells and update local content
   useEffect(() => {
-    if (cell.cell_type === CellType.PROMPT) {
+    if (cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.METHODOLOGY) {
       setIsEditing(true)
     }
     
     // Update local content when cell type changes
     const newContent = 
       cell.cell_type === CellType.PROMPT ? cell.prompt : 
+      cell.cell_type === CellType.METHODOLOGY ? (cell.markdown || '') :
       cell.cell_type === CellType.CODE ? cell.code :
       cell.markdown
     setLocalContent(newContent)
@@ -55,6 +57,8 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     
     if (cell.cell_type === CellType.PROMPT) {
       updates.prompt = localContent
+    } else if (cell.cell_type === CellType.METHODOLOGY) {
+      updates.markdown = localContent
     } else if (cell.cell_type === CellType.CODE) {
       updates.code = localContent
     } else {
@@ -68,6 +72,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   const handleCancel = useCallback(() => {
     setLocalContent(
       cell.cell_type === CellType.PROMPT ? cell.prompt : 
+      cell.cell_type === CellType.METHODOLOGY ? (cell.markdown || '') :
       cell.cell_type === CellType.CODE ? cell.code :
       cell.markdown
     )
@@ -77,7 +82,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
       e.preventDefault()
-      if (cell.cell_type !== CellType.MARKDOWN) {
+      if (cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.CODE) {
         handleSave()
         onExecuteCell(cell.id)
       } else {
@@ -92,11 +97,58 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     onUpdateCell({ show_code: !cell.show_code })
   }, [cell.show_code, onUpdateCell])
 
-  const currentContent = cell.show_code && cell.code ? cell.code : localContent
+  // Determine what content to show based on cell type
+  const currentContent = (() => {
+    if (cell.cell_type === CellType.PROMPT) {
+      return cell.prompt || localContent
+    } else if (cell.cell_type === CellType.METHODOLOGY) {
+      return cell.markdown || localContent
+    } else if (cell.cell_type === CellType.CODE) {
+      return cell.code || localContent
+    } else {
+      return localContent // fallback
+    }
+  })()
+  
   const showToggle = cell.cell_type === CellType.PROMPT && cell.code
+  const isShowingCode = cell.cell_type === CellType.CODE
 
   return (
     <div className="w-full">
+      {/* Cell Type Tabs */}
+      <div className="flex space-x-1 mb-3">
+        <button
+          onClick={() => onUpdateCell({ cell_type: CellType.PROMPT })}
+          className={`px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${
+            cell.cell_type === CellType.PROMPT
+              ? 'bg-blue-500 text-white shadow-md'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          Prompt
+        </button>
+        <button
+          onClick={() => onUpdateCell({ cell_type: CellType.METHODOLOGY })}
+          className={`px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${
+            cell.cell_type === CellType.METHODOLOGY
+              ? 'bg-green-500 text-white shadow-md'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          Methodology
+        </button>
+        <button
+          onClick={() => onUpdateCell({ cell_type: CellType.CODE })}
+          className={`px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${
+            cell.cell_type === CellType.CODE
+              ? 'bg-purple-500 text-white shadow-md'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          Code
+        </button>
+      </div>
+
       {/* Cell Type Indicator and Controls */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center space-x-2">
@@ -124,7 +176,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
           )}
 
           {/* Execute Button */}
-          {cell.cell_type !== CellType.MARKDOWN && (
+          {(cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.CODE) && (
             <button
               onClick={() => onExecuteCell(cell.id)}
               disabled={isExecuting}
@@ -164,6 +216,8 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               placeholder={
                 cell.cell_type === CellType.PROMPT 
                   ? "Describe what you want to analyze in natural language..."
+                  : cell.cell_type === CellType.METHODOLOGY
+                  ? "Describe your methodology and approach..."
                   : cell.cell_type === CellType.CODE
                   ? "Enter Python code..."
                   : "Enter markdown content..."
@@ -191,18 +245,25 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
           <div
             onClick={() => setIsEditing(true)}
             className={`
-              cursor-pointer p-4 border border-gray-200 rounded-md hover:border-gray-300
-              ${cell.show_code && cell.code ? 'bg-gray-900 text-gray-100 font-mono text-sm' : 'bg-white'}
+              cursor-pointer border border-gray-200 rounded-md hover:border-gray-300
+              ${isShowingCode ? 'p-0' : 'p-4 bg-white'}
             `}
           >
-            {cell.show_code && cell.code ? (
-              <pre className="whitespace-pre-wrap">{cell.code}</pre>
+            {isShowingCode ? (
+              <CodeDisplay 
+                code={currentContent || '# No code generated yet'} 
+                language="python"
+                height="auto"
+                theme="vs-dark"
+              />
             ) : (
               <div className="whitespace-pre-wrap">
                 {currentContent || (
                   <span className="text-gray-400 italic">
                     {cell.cell_type === CellType.PROMPT 
                       ? "Click to add a prompt..."
+                      : cell.cell_type === CellType.METHODOLOGY
+                      ? "Click to add methodology..."
                       : cell.cell_type === CellType.CODE
                       ? "Click to add code..."
                       : "Click to add markdown..."}

@@ -1,6 +1,7 @@
 // Enums for values that components can reference
 export enum CellType {
   PROMPT = 'prompt',
+  METHODOLOGY = 'methodology',
   CODE = 'code', 
   MARKDOWN = 'markdown'
 }
