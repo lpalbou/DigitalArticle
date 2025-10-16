@@ -14,7 +14,7 @@ const CodeDisplay: React.FC<CodeDisplayProps> = ({
   language = 'python',
   readOnly = true,
   height = '200px',
-  theme = 'vs-dark'
+  theme = 'vs-light'
 }) => {
   // Calculate height based on content if height is 'auto'
   const calculatedHeight = height === 'auto' 
@@ -36,8 +36,8 @@ const CodeDisplay: React.FC<CodeDisplayProps> = ({
           lineNumbers: 'on',
           glyphMargin: false,
           folding: false,
-          lineDecorationsWidth: 0,
-          lineNumbersMinChars: 3,
+          lineDecorationsWidth: 10,
+          lineNumbersMinChars: 4,
           renderLineHighlight: 'none',
           scrollbar: {
             vertical: 'auto',
@@ -46,11 +46,12 @@ const CodeDisplay: React.FC<CodeDisplayProps> = ({
             horizontalScrollbarSize: 8
           },
           wordWrap: 'on',
-          automaticLayout: true
+          automaticLayout: true,
+          padding: { left: 8, right: 8 }
         }}
         loading={
-          <div className="flex items-center justify-center h-full bg-gray-900 text-gray-300">
-            <div className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-transparent rounded-full mr-2" />
+          <div className="flex items-center justify-center h-full bg-white text-gray-600">
+            <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full mr-2" />
             Loading editor...
           </div>
         }

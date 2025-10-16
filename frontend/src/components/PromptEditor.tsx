@@ -37,18 +37,20 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     adjustTextareaHeight()
   }, [localContent, adjustTextareaHeight])
 
-  // Auto-enter editing mode for prompt cells and update local content
+  // Auto-enter editing mode for prompt and methodology cells only
   useEffect(() => {
     if (cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.METHODOLOGY) {
       setIsEditing(true)
+    } else {
+      setIsEditing(false) // Code and other types don't need editing mode
     }
     
     // Update local content when cell type changes
     const newContent = 
-      cell.cell_type === CellType.PROMPT ? cell.prompt : 
+      cell.cell_type === CellType.PROMPT ? (cell.prompt || '') : 
       cell.cell_type === CellType.METHODOLOGY ? (cell.markdown || '') :
-      cell.cell_type === CellType.CODE ? cell.code :
-      cell.markdown
+      cell.cell_type === CellType.CODE ? (cell.code || '') :
+      (cell.markdown || '')
     setLocalContent(newContent)
   }, [cell.cell_type, cell.prompt, cell.code, cell.markdown])
 
@@ -100,13 +102,13 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   // Determine what content to show based on cell type
   const currentContent = (() => {
     if (cell.cell_type === CellType.PROMPT) {
-      return cell.prompt || localContent
+      return isEditing ? localContent : (cell.prompt || '')
     } else if (cell.cell_type === CellType.METHODOLOGY) {
-      return cell.markdown || localContent
+      return isEditing ? localContent : (cell.markdown || '')
     } else if (cell.cell_type === CellType.CODE) {
-      return cell.code || localContent
+      return cell.code || '' // Always show the actual generated code
     } else {
-      return localContent // fallback
+      return isEditing ? localContent : (cell.markdown || '')
     }
   })()
   
@@ -206,7 +208,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               autoFocus
             />
           </div>
-        ) : (isEditing || !currentContent) ? (
+        ) : (isEditing && cell.cell_type !== CellType.CODE) ? (
           <div className="space-y-2">
             <textarea
               ref={textareaRef}
@@ -226,35 +228,22 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               style={{ minHeight: '100px' }}
               autoFocus
             />
-            <div className="flex items-center justify-end space-x-2">
-              <button
-                onClick={handleCancel}
-                className="btn btn-secondary text-xs px-3 py-1"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                className="btn btn-primary text-xs px-3 py-1"
-              >
-                Save
-              </button>
-            </div>
           </div>
         ) : (
           <div
-            onClick={() => setIsEditing(true)}
+            onClick={() => cell.cell_type !== CellType.CODE && setIsEditing(true)}
             className={`
-              cursor-pointer border border-gray-200 rounded-md hover:border-gray-300
+              ${cell.cell_type !== CellType.CODE ? 'cursor-pointer hover:border-gray-300' : ''} border border-gray-200 rounded-md
               ${isShowingCode ? 'p-0' : 'p-4 bg-white'}
             `}
           >
             {isShowingCode ? (
               <CodeDisplay 
+                key={`code-${cell.id}-${cell.cell_type}`}
                 code={currentContent || '# No code generated yet'} 
                 language="python"
                 height="auto"
-                theme="vs-dark"
+                theme="vs-light"
               />
             ) : (
               <div className="whitespace-pre-wrap">

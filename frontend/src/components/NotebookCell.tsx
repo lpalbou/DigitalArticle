@@ -36,21 +36,6 @@ const NotebookCell: React.FC<NotebookCellProps> = ({
       {/* Cell Header */}
       <div className="cell-header">
         <div className="flex items-center space-x-2">
-          <span className="text-xs font-mono text-gray-500">
-            [{cell.execution_count || ' '}]
-          </span>
-          {isRunning && (
-            <div className="flex items-center space-x-1 text-xs text-blue-600">
-              <div className="animate-spin h-3 w-3 border border-blue-600 border-t-transparent rounded-full" />
-              <span>Running</span>
-            </div>
-          )}
-          {cell.last_result?.status === ExecutionStatus.ERROR && (
-            <span className="text-xs text-red-600 font-medium">Error</span>
-          )}
-          {cell.last_result?.status === ExecutionStatus.SUCCESS && !isRunning && (
-            <span className="text-xs text-green-600 font-medium">Success</span>
-          )}
         </div>
 
         {/* Cell Actions */}
