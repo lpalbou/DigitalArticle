@@ -1,4 +1,4 @@
-"""Services for the Reverse Analytics Notebook."""
+"""Services for the Digital Article."""
 
 from .llm_service import LLMService
 from .execution_service import ExecutionService

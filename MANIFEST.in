@@ -1,0 +1,15 @@
+# Include the README and license
+include README.md
+include LICENSE*
+
+# Include the package data
+recursive-include digital_article_cli *.py
+recursive-include digital_article_cli *.pyi
+
+# Exclude development and build files
+exclude .gitignore
+exclude .pre-commit-config.yaml
+exclude pyproject.toml.bak
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * .DS_Store

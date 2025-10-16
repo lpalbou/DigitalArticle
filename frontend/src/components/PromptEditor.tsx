@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
-import { MessageSquare, Play, Code, Eye, EyeOff } from 'lucide-react'
+import { Play, Copy, Check } from 'lucide-react'
 import { Cell, CellType } from '../types'
+import CodeDisplay from './CodeDisplay'
 
 interface PromptEditorProps {
   cell: Cell
@@ -18,9 +19,11 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   const [isEditing, setIsEditing] = useState(false)
   const [localContent, setLocalContent] = useState(
     cell.cell_type === CellType.PROMPT ? cell.prompt : 
+    cell.cell_type === CellType.METHODOLOGY ? (cell.scientific_explanation || '') :
     cell.cell_type === CellType.CODE ? cell.code :
     cell.markdown
   )
+  const [copySuccess, setCopySuccess] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Auto-resize textarea
@@ -36,25 +39,30 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     adjustTextareaHeight()
   }, [localContent, adjustTextareaHeight])
 
-  // Auto-enter editing mode for prompt cells and update local content
+  // Auto-enter editing mode for prompt cells only (methodology is read-only)
   useEffect(() => {
     if (cell.cell_type === CellType.PROMPT) {
       setIsEditing(true)
+    } else {
+      setIsEditing(false) // Code, methodology and other types don't need editing mode
     }
     
     // Update local content when cell type changes
     const newContent = 
-      cell.cell_type === CellType.PROMPT ? cell.prompt : 
-      cell.cell_type === CellType.CODE ? cell.code :
-      cell.markdown
+      cell.cell_type === CellType.PROMPT ? (cell.prompt || '') : 
+      cell.cell_type === CellType.METHODOLOGY ? (cell.scientific_explanation || '') :
+      cell.cell_type === CellType.CODE ? (cell.code || '') :
+      (cell.markdown || '')
     setLocalContent(newContent)
-  }, [cell.cell_type, cell.prompt, cell.code, cell.markdown])
+  }, [cell.cell_type, cell.prompt, cell.code, cell.markdown, cell.scientific_explanation])
 
   const handleSave = useCallback(() => {
     const updates: Partial<Cell> = {}
     
     if (cell.cell_type === CellType.PROMPT) {
       updates.prompt = localContent
+    } else if (cell.cell_type === CellType.METHODOLOGY) {
+      updates.markdown = localContent
     } else if (cell.cell_type === CellType.CODE) {
       updates.code = localContent
     } else {
@@ -68,6 +76,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   const handleCancel = useCallback(() => {
     setLocalContent(
       cell.cell_type === CellType.PROMPT ? cell.prompt : 
+      cell.cell_type === CellType.METHODOLOGY ? (cell.scientific_explanation || '') :
       cell.cell_type === CellType.CODE ? cell.code :
       cell.markdown
     )
@@ -75,9 +84,9 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   }, [cell])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
       e.preventDefault()
-      if (cell.cell_type !== CellType.MARKDOWN) {
+      if (cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.CODE) {
         handleSave()
         onExecuteCell(cell.id)
       } else {
@@ -88,50 +97,132 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     }
   }, [cell.cell_type, cell.id, handleSave, handleCancel, onExecuteCell])
 
-  const toggleCodeView = useCallback(() => {
-    onUpdateCell({ show_code: !cell.show_code })
-  }, [cell.show_code, onUpdateCell])
 
-  const currentContent = cell.show_code && cell.code ? cell.code : localContent
-  const showToggle = cell.cell_type === CellType.PROMPT && cell.code
+  // Determine what content to show based on cell type
+  const currentContent = (() => {
+    if (cell.cell_type === CellType.PROMPT) {
+      return isEditing ? localContent : (cell.prompt || '')
+    } else if (cell.cell_type === CellType.METHODOLOGY) {
+      return isEditing ? localContent : (cell.scientific_explanation || '')
+    } else if (cell.cell_type === CellType.CODE) {
+      return cell.code || '' // Always show the actual generated code
+    } else {
+      return isEditing ? localContent : (cell.markdown || '')
+    }
+  })()
+
+  // Get content type name for better user feedback
+  const getContentTypeName = () => {
+    switch (cell.cell_type) {
+      case CellType.PROMPT:
+        return 'prompt'
+      case CellType.CODE:
+        return 'code'
+      case CellType.METHODOLOGY:
+        return 'methodology'
+      default:
+        return 'content'
+    }
+  }
+
+  const handleCopy = useCallback(async () => {
+    if (!currentContent.trim()) {
+      console.warn('No content to copy')
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(currentContent)
+      setCopySuccess(true)
+      setTimeout(() => setCopySuccess(false), 2000) // Reset after 2 seconds
+      console.log(`Copied ${getContentTypeName()} to clipboard (${currentContent.length} characters)`)
+    } catch (err) {
+      console.error('Failed to copy text: ', err)
+      // Fallback for older browsers
+      try {
+        const textArea = document.createElement('textarea')
+        textArea.value = currentContent
+        document.body.appendChild(textArea)
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
+        setCopySuccess(true)
+        setTimeout(() => setCopySuccess(false), 2000)
+        console.log(`Copied ${getContentTypeName()} to clipboard using fallback (${currentContent.length} characters)`)
+      } catch (fallbackErr) {
+        console.error('Fallback copy failed: ', fallbackErr)
+      }
+    }
+  }, [currentContent, getContentTypeName])
 
   return (
     <div className="w-full">
-      {/* Cell Type Indicator and Controls */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center space-x-1 text-sm text-gray-500">
-            <MessageSquare className="h-4 w-4" />
-            <span className="capitalize">{cell.cell_type}</span>
-            {cell.execution_count > 0 && (
-              <span className="text-xs bg-gray-100 px-2 py-1 rounded">
-                Run {cell.execution_count}
-              </span>
-            )}
-          </div>
+      {/* Cell Type Tabs with Run Button */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex space-x-1">
+          <button
+            onClick={() => onUpdateCell({ cell_type: CellType.PROMPT })}
+            className={`px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${
+              cell.cell_type === CellType.PROMPT
+                ? 'bg-blue-500 text-white shadow-md'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Prompt
+          </button>
+          <button
+            onClick={() => onUpdateCell({ cell_type: CellType.CODE })}
+            className={`px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${
+              cell.cell_type === CellType.CODE
+                ? 'bg-purple-500 text-white shadow-md'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Code
+          </button>
+          <button
+            onClick={() => onUpdateCell({ cell_type: CellType.METHODOLOGY })}
+            className={`px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${
+              cell.cell_type === CellType.METHODOLOGY
+                ? 'bg-green-500 text-white shadow-md'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Methodology
+          </button>
         </div>
 
+        {/* Controls on the right */}
         <div className="flex items-center space-x-2">
-          {/* Toggle Code/Prompt View */}
-          {showToggle && (
-            <button
-              onClick={toggleCodeView}
-              className="p-1 text-gray-500 hover:text-gray-700 rounded"
-              title={cell.show_code ? 'Show Prompt' : 'Show Code'}
-            >
-              {cell.show_code ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
+          {/* Execution Count Badge */}
+          {cell.execution_count > 0 && (
+            <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">
+              Run {cell.execution_count}
+            </span>
           )}
 
+          {/* Copy Button */}
+          <button
+            onClick={handleCopy}
+            className={`p-1 text-gray-500 hover:text-gray-700 rounded copy-button ${copySuccess ? 'copy-success' : ''}`}
+            title={copySuccess ? `Copied ${getContentTypeName()}!` : `Copy ${getContentTypeName()} to clipboard`}
+          >
+            {copySuccess ? (
+              <Check className="h-4 w-4 text-green-600" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+          </button>
+
           {/* Execute Button */}
-          {cell.cell_type !== CellType.MARKDOWN && (
+          {(cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.CODE) && (
             <button
               onClick={() => onExecuteCell(cell.id)}
               disabled={isExecuting}
-              className="btn btn-primary flex items-center space-x-1 text-xs px-2 py-1"
-              title="Execute Cell (Ctrl+Enter)"
+              className="btn btn-primary flex items-center space-x-2 text-sm px-4 py-2 font-medium"
+              title="Execute Cell (Shift+Enter or Ctrl+Enter)"
             >
-              <Play className="h-3 w-3" />
+              <Play className="h-4 w-4" />
               <span>{isExecuting ? 'Running...' : 'Run'}</span>
             </button>
           )}
@@ -154,7 +245,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               autoFocus
             />
           </div>
-        ) : (isEditing || !currentContent) ? (
+        ) : (isEditing && cell.cell_type !== CellType.CODE) ? (
           <div className="space-y-2">
             <textarea
               ref={textareaRef}
@@ -164,6 +255,8 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               placeholder={
                 cell.cell_type === CellType.PROMPT 
                   ? "Describe what you want to analyze in natural language..."
+                  : cell.cell_type === CellType.METHODOLOGY
+                  ? "Describe your methodology and approach..."
                   : cell.cell_type === CellType.CODE
                   ? "Enter Python code..."
                   : "Enter markdown content..."
@@ -172,37 +265,31 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               style={{ minHeight: '100px' }}
               autoFocus
             />
-            <div className="flex items-center justify-end space-x-2">
-              <button
-                onClick={handleCancel}
-                className="btn btn-secondary text-xs px-3 py-1"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                className="btn btn-primary text-xs px-3 py-1"
-              >
-                Save
-              </button>
-            </div>
           </div>
         ) : (
           <div
-            onClick={() => setIsEditing(true)}
+            onClick={() => cell.cell_type === CellType.PROMPT && setIsEditing(true)}
             className={`
-              cursor-pointer p-4 border border-gray-200 rounded-md hover:border-gray-300
-              ${cell.show_code && cell.code ? 'bg-gray-900 text-gray-100 font-mono text-sm' : 'bg-white'}
+              ${cell.cell_type === CellType.PROMPT ? 'cursor-pointer hover:border-gray-300' : ''} border border-gray-200 rounded-md
+              ${cell.cell_type === CellType.CODE ? 'p-0' : 'p-4 bg-white'}
             `}
           >
-            {cell.show_code && cell.code ? (
-              <pre className="whitespace-pre-wrap">{cell.code}</pre>
+            {cell.cell_type === CellType.CODE ? (
+              <CodeDisplay 
+                key={`code-${cell.id}-${cell.cell_type}`}
+                code={currentContent || '# No code generated yet'} 
+                language="python"
+                height="auto"
+                theme="vs-light"
+              />
             ) : (
               <div className="whitespace-pre-wrap">
                 {currentContent || (
                   <span className="text-gray-400 italic">
                     {cell.cell_type === CellType.PROMPT 
                       ? "Click to add a prompt..."
+                      : cell.cell_type === CellType.METHODOLOGY
+                      ? "Scientific explanation will appear here after code execution..."
                       : cell.cell_type === CellType.CODE
                       ? "Click to add code..."
                       : "Click to add markdown..."}
@@ -219,6 +306,14 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
         <div className="mt-2 flex items-center space-x-2 text-sm text-blue-600">
           <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full" />
           <span>Generating and executing code...</span>
+        </div>
+      )}
+      
+      {/* Methodology Writing Indicator */}
+      {cell.is_writing_methodology && (
+        <div className="mt-2 flex items-center space-x-2 text-sm text-green-600">
+          <div className="animate-spin h-4 w-4 border-2 border-green-600 border-t-transparent rounded-full" />
+          <span>Writing methodology...</span>
         </div>
       )}
     </div>

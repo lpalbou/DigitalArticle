@@ -9,7 +9,7 @@ This directory contains datasets available for analysis in the reverse notebook.
 - `gene_expression.csv` - Gene expression data with 20 genes across 6 samples
 - `patient_data.csv` - Clinical patient data with treatment responses and biomarkers
 
-## Usage in Notebooks
+## Usage in Digital Articles
 
 These files are automatically available in the execution environment. Use these paths in your analysis:
 

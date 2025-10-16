@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Plus, Save, Download, AlertCircle } from 'lucide-react'
+import { Plus, AlertCircle, Edit2, Check, X } from 'lucide-react'
 import Header from './Header'
 import FileContextPanel from './FileContextPanel'
 import NotebookCell from './NotebookCell'
-import { notebookAPI, cellAPI, handleAPIError, downloadFile } from '../services/api'
+import { notebookAPI, cellAPI, handleAPIError, downloadFile, getCurrentUser } from '../services/api'
 import { 
   Notebook, 
   Cell, 
@@ -38,7 +38,12 @@ const NotebookContainer: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
   const [executingCells, setExecutingCells] = useState<Set<string>>(new Set())
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
-  const [contextFiles, setContextFiles] = useState<FileInfo[]>([])
+  const [, setContextFiles] = useState<FileInfo[]>([])
+  const [fileRefreshTrigger, setFileRefreshTrigger] = useState(0)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [editingDescription, setEditingDescription] = useState(false)
+  const [tempTitle, setTempTitle] = useState('')
+  const [tempDescription, setTempDescription] = useState('')
 
   // Load notebook on component mount or ID change
   useEffect(() => {
@@ -87,10 +92,13 @@ const NotebookContainer: React.FC = () => {
     setError(null)
 
     try {
+      // Get the current user from the system
+      const currentUser = await getCurrentUser()
+      
       const request: NotebookCreateRequest = {
-        title: 'Untitled Notebook',
-        description: 'A new reverse analytics notebook',
-        author: 'User'
+        title: 'Untitled Digital Article',
+        description: 'A new digital article',
+        author: currentUser
       }
       
       const newNotebook = await notebookAPI.create(request)
@@ -230,6 +238,7 @@ const NotebookContainer: React.FC = () => {
     }
   }, [notebook])
 
+
   const executeCell = useCallback(async (cellId: string, forceRegenerate: boolean = false) => {
     if (!notebook) return
 
@@ -248,28 +257,47 @@ const NotebookContainer: React.FC = () => {
     })
 
     try {
-      const result = await cellAPI.execute({
+      const response = await cellAPI.execute({
         cell_id: cellId,
         force_regenerate: forceRegenerate
       })
 
-      // Update cell with execution result
+      // Check if we should auto-switch to methodology tab
+      const shouldSwitchToMethodology = response.cell.scientific_explanation && 
+                                       response.cell.scientific_explanation.trim()
+
+      // Log the response to debug methodology
+      console.log('🔬 EXECUTION RESPONSE:', response)
+      console.log('🔬 CELL DATA:', response.cell)
+      console.log('🔬 SCIENTIFIC EXPLANATION:', response.cell.scientific_explanation)
+      console.log('🔬 SHOULD SWITCH TO METHODOLOGY:', shouldSwitchToMethodology)
+
+      // Update cell with both the updated cell data AND execution result
       setNotebook(prev => {
         if (!prev) return prev
 
         const newCells = prev.cells.map(cell => 
           cell.id === cellId 
             ? { 
-                ...cell, 
+                ...response.cell, // Use the updated cell from the backend (includes generated code!)
                 is_executing: false,
-                last_result: result,
-                execution_count: cell.execution_count + 1
+                last_result: response.result,
+                execution_count: cell.execution_count + 1,
+                // Auto-switch to Methodology tab if scientific explanation was generated
+                cell_type: shouldSwitchToMethodology ? CellType.METHODOLOGY : response.cell.cell_type
               }
             : cell
         )
 
         return { ...prev, cells: newCells }
       })
+
+      // Refresh files after successful execution (files might have been created/modified)
+      setFileRefreshTrigger(prev => prev + 1)
+
+      if (shouldSwitchToMethodology) {
+        console.log('🔬 Auto-switched to Methodology tab')
+      }
 
     } catch (err) {
       const apiError = handleAPIError(err)
@@ -317,6 +345,44 @@ const NotebookContainer: React.FC = () => {
     addCell(cellType, cellId)
   }, [addCell])
 
+  const handleTitleEdit = useCallback(() => {
+    if (!notebook) return
+    setTempTitle(notebook.title)
+    setEditingTitle(true)
+  }, [notebook])
+
+  const handleDescriptionEdit = useCallback(() => {
+    if (!notebook) return
+    setTempDescription(notebook.description)
+    setEditingDescription(true)
+  }, [notebook])
+
+  const saveTitleEdit = useCallback(async () => {
+    if (!notebook || !tempTitle.trim()) return
+    
+    setNotebook(prev => prev ? { ...prev, title: tempTitle.trim() } : prev)
+    setEditingTitle(false)
+    setHasUnsavedChanges(true)
+  }, [notebook, tempTitle])
+
+  const saveDescriptionEdit = useCallback(async () => {
+    if (!notebook || !tempDescription.trim()) return
+    
+    setNotebook(prev => prev ? { ...prev, description: tempDescription.trim() } : prev)
+    setEditingDescription(false)
+    setHasUnsavedChanges(true)
+  }, [notebook, tempDescription])
+
+  const cancelTitleEdit = useCallback(() => {
+    setEditingTitle(false)
+    setTempTitle('')
+  }, [])
+
+  const cancelDescriptionEdit = useCallback(() => {
+    setEditingDescription(false)
+    setTempDescription('')
+  }, [])
+
   // Memoized values
   const hasCells = useMemo(() => notebook?.cells && notebook.cells.length > 0, [notebook])
 
@@ -335,7 +401,7 @@ const NotebookContainer: React.FC = () => {
         <div className="error-message">
           <div className="flex items-center space-x-2 mb-2">
             <AlertCircle className="h-5 w-5" />
-            <span className="font-medium">Error Loading Notebook</span>
+            <span className="font-medium">Error Loading Digital Article</span>
           </div>
           <p>{error}</p>
           <div className="mt-4">
@@ -361,17 +427,25 @@ const NotebookContainer: React.FC = () => {
 
   return (
     <>
-      {/* Files in Context Panel */}
-      <FileContextPanel onFilesChange={setContextFiles} />
+      {/* Header */}
+      <Header
+        onNewNotebook={createNewNotebook}
+        onSaveNotebook={saveNotebook}
+        onExportNotebook={exportNotebook}
+      />
+
+      {/* Content with top padding to account for fixed header */}
+      <div className="pt-16">
+        {/* Files in Context Panel - constrained to same width as notebook */}
+        <div className="max-w-6xl mx-auto">
+          <FileContextPanel 
+            notebookId={notebook?.id}
+            onFilesChange={setContextFiles}
+            refreshTrigger={fileRefreshTrigger}
+          />
+        </div>
       
       <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <Header
-          notebookTitle={notebook.title}
-          onNewNotebook={createNewNotebook}
-          onSaveNotebook={saveNotebook}
-          onExportNotebook={exportNotebook}
-        />
 
       {/* Error Display */}
       {error && (
@@ -390,10 +464,110 @@ const NotebookContainer: React.FC = () => {
         </div>
       )}
 
-      {/* Notebook Metadata */}
+      {/* Digital Article Metadata */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6 p-6">
-        <h1 className="text-2xl font-bold mb-2">{notebook.title}</h1>
-        <p className="text-gray-600 mb-4">{notebook.description}</p>
+        {/* Title Section */}
+        <div className="mb-2">
+          {editingTitle ? (
+            <div className="flex items-center space-x-2 edit-mode-enter">
+              <input
+                type="text"
+                value={tempTitle}
+                onChange={(e) => setTempTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') saveTitleEdit()
+                  if (e.key === 'Escape') cancelTitleEdit()
+                }}
+                className="text-2xl font-bold bg-white border-2 border-blue-500 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200 flex-1 shadow-sm"
+                autoFocus
+                placeholder="Enter title..."
+              />
+              <button
+                onClick={saveTitleEdit}
+                className="bg-green-600 hover:bg-green-700 text-white p-2 rounded-md shadow-sm edit-action-button"
+                title="Save title (Enter)"
+              >
+                <Check className="h-4 w-4" />
+              </button>
+              <button
+                onClick={cancelTitleEdit}
+                className="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded-md shadow-sm edit-action-button"
+                title="Cancel editing (Escape)"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <div 
+              className="group cursor-pointer rounded-lg hover:bg-gray-50 transition-all duration-300 p-3 -m-3"
+              onClick={handleTitleEdit}
+              title="Click to edit title"
+            >
+              <div className="flex items-center space-x-2">
+                <h1 className="text-2xl font-bold flex-1 text-gray-900 group-hover:text-gray-700 transition-colors editable-field">
+                  {notebook.title}
+                </h1>
+                <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-70 transition-all duration-300">
+                  <Edit2 className="h-4 w-4 text-gray-500" />
+                  <span className="text-xs text-gray-500 font-medium">Click to edit</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Description Section */}
+        <div className="mb-4">
+          {editingDescription ? (
+            <div className="flex items-start space-x-2 edit-mode-enter">
+              <textarea
+                value={tempDescription}
+                onChange={(e) => setTempDescription(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.ctrlKey) saveDescriptionEdit()
+                  if (e.key === 'Escape') cancelDescriptionEdit()
+                }}
+                className="text-gray-700 bg-white border-2 border-blue-500 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200 flex-1 resize-none shadow-sm"
+                autoFocus
+                placeholder="Enter description..."
+                rows={3}
+              />
+              <div className="flex flex-col space-y-1">
+                <button
+                  onClick={saveDescriptionEdit}
+                  className="bg-green-600 hover:bg-green-700 text-white p-2 rounded-md shadow-sm edit-action-button"
+                  title="Save description (Ctrl+Enter)"
+                >
+                  <Check className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={cancelDescriptionEdit}
+                  className="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded-md shadow-sm edit-action-button"
+                  title="Cancel editing (Escape)"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div 
+              className="group cursor-pointer rounded-lg hover:bg-gray-50 transition-all duration-300 p-3 -m-3"
+              onClick={handleDescriptionEdit}
+              title="Click to edit description"
+            >
+              <div className="flex items-start space-x-2">
+                <p className="text-gray-600 flex-1 group-hover:text-gray-500 transition-colors leading-relaxed editable-field">
+                  {notebook.description}
+                </p>
+                <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-70 transition-all duration-300 mt-0.5">
+                  <Edit2 className="h-4 w-4 text-gray-500" />
+                  <span className="text-xs text-gray-500 font-medium">Click to edit</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="flex items-center justify-between text-sm text-gray-500">
           <span>Author: {notebook.author}</span>
           <span>
@@ -441,6 +615,7 @@ const NotebookContainer: React.FC = () => {
             </button>
           </div>
         )}
+      </div>
       </div>
       </div>
     </>

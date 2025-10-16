@@ -1,5 +1,5 @@
 """
-FastAPI main application for the Reverse Analytics Notebook.
+FastAPI main application for the Digital Article.
 
 This application provides a REST API for managing notebook cells, executing Python code,
 and integrating with LLM services for prompt-to-code conversion.
@@ -13,15 +13,23 @@ import logging
 import os
 from pathlib import Path
 
-from .api import cells, notebooks, llm
+from .api import cells, notebooks, llm, files, system
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Reverse Analytics Notebook API",
+    title="Digital Article API",
     description="API for managing analytics notebooks with natural language prompts",
     version="1.0.0"
 )
+
+# Add request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"🌐 HTTP {request.method} {request.url.path}")
+    response = await call_next(request)
+    logger.info(f"🌐 Response: {response.status_code}")
+    return response
 
 # Global exception handler to show FULL Python execution errors
 @app.exception_handler(Exception)
@@ -61,11 +69,13 @@ app.add_middleware(
 app.include_router(cells.router, prefix="/api/cells", tags=["cells"])
 app.include_router(notebooks.router, prefix="/api/notebooks", tags=["notebooks"])
 app.include_router(llm.router, prefix="/api/llm", tags=["llm"])
+app.include_router(files.router, prefix="/api/files", tags=["files"])
+app.include_router(system.router, prefix="/api/system", tags=["system"])
 
 @app.get("/")
 async def root():
     """Health check endpoint."""
-    return {"message": "Reverse Analytics Notebook API", "status": "running"}
+    return {"message": "Digital Article API", "status": "running"}
 
 @app.get("/health")
 async def health_check():

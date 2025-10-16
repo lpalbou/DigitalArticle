@@ -319,3 +319,103 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
         except Exception as e:
             logger.error(f"Code improvement failed: {e}")
             raise LLMError(f"Failed to improve code: {e}")
+    
+    def generate_scientific_explanation(self, prompt: str, code: str, execution_result: Dict[str, Any]) -> str:
+        """
+        Generate a scientific article-style explanation of what was done and why.
+        
+        Args:
+            prompt: The original natural language prompt
+            code: The generated Python code
+            execution_result: The result of code execution (stdout, plots, etc.)
+            
+        Returns:
+            Scientific article-style explanation text
+            
+        Raises:
+            LLMError: If explanation generation fails
+        """
+        if not self.llm:
+            raise LLMError("LLM not initialized")
+        
+        # Build the system prompt for scientific writing
+        system_prompt = """You are a scientific writing assistant that creates high-impact scientific article sections.
+
+TASK: Write a clear, professional scientific explanation of a data analysis step.
+
+STYLE REQUIREMENTS:
+- Write in the style of a high-impact scientific journal (Nature, Science, Cell)
+- Use present tense for describing what is being done
+- Use past tense for describing results obtained
+- Be concise but comprehensive
+- Use technical language appropriately
+- Focus on methodology and findings
+- Avoid first person (I, we) - use passive voice or third person
+
+STRUCTURE:
+1. Brief context of what analysis is being performed and why
+2. Methodology: Describe the approach taken
+3. Results: Summarize key findings from the execution
+
+EXAMPLE OUTPUT:
+"To assess the distribution of gene expression levels across samples, a comprehensive statistical analysis was performed. The dataset containing 20 genes across 6 experimental conditions was loaded and examined for basic descriptive statistics. The analysis revealed a mean expression level of 15.3 ± 4.2 across all genes, with significant variability observed between experimental conditions (CV = 28%). These findings suggest heterogeneous expression patterns that warrant further investigation through differential expression analysis."
+
+GUIDELINES:
+- Keep paragraphs focused and coherent
+- Use quantitative results when available
+- Mention statistical measures and sample sizes
+- Connect findings to broader scientific context
+- Maintain objective, analytical tone
+- Length: 2-4 sentences, maximum 150 words"""
+
+        # Build the user prompt with all context
+        user_prompt = f"""Generate a scientific article-style explanation for this analysis:
+
+ORIGINAL REQUEST: {prompt}
+
+CODE EXECUTED:
+```python
+{code}
+```
+
+EXECUTION RESULTS:
+- Status: {'Success' if execution_result.get('status') == 'success' else 'Error'}
+- Output: {execution_result.get('stdout', 'No output')}
+- Plots generated: {'Yes' if execution_result.get('plots') else 'No'}
+- Tables generated: {'Yes' if execution_result.get('tables') else 'No'}
+
+Write a scientific explanation of what was done and the results obtained:"""
+
+        try:
+            print("🔬 LLM SERVICE: Starting scientific explanation generation...")
+            logger.info("Generating scientific explanation...")
+            
+            print("🔬 LLM SERVICE: About to call self.llm.generate...")
+            import time
+            start_time = time.time()
+            response = self.llm.generate(
+                user_prompt,
+                system_prompt=system_prompt,
+                max_tokens=300,  # Shorter for concise explanations
+                temperature=0.2  # Slightly higher for more natural writing
+            )
+            elapsed_time = time.time() - start_time
+            print(f"🔬 LLM SERVICE: LLM call took {elapsed_time:.1f} seconds")
+            print(f"🔬 LLM SERVICE: Got response: {type(response)}")
+            print(f"🔬 LLM SERVICE: Response content: {response.content[:100]}...")
+            
+            explanation = response.content.strip()
+            print(f"🔬 LLM SERVICE: Final explanation: {len(explanation)} characters")
+            logger.info(f"Generated scientific explanation: {len(explanation)} characters")
+            return explanation
+            
+        except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
+            print(f"🔬 LLM SERVICE: API error: {e}")
+            logger.error(f"LLM API error during explanation generation: {e}")
+            raise LLMError(f"LLM API error: {e}")
+        except Exception as e:
+            print(f"🔬 LLM SERVICE: Exception: {e}")
+            import traceback
+            print(f"🔬 LLM SERVICE: Traceback: {traceback.format_exc()}")
+            logger.error(f"Scientific explanation generation failed: {e}")
+            raise LLMError(f"Failed to generate scientific explanation: {e}")

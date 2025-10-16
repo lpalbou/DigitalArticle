@@ -1,5 +1,5 @@
 """
-Data models for the Reverse Analytics Notebook.
+Data models for the Digital Article.
 
 These Pydantic models define the core data structures for notebooks, cells, and execution results.
 They ensure type safety and provide serialization/deserialization capabilities.
@@ -10,6 +10,7 @@ from enum import Enum
 from typing import Dict, List, Optional, Any, Union
 from uuid import UUID, uuid4
 
+import numpy as np
 from pydantic import BaseModel, Field
 
 
@@ -18,6 +19,7 @@ class CellType(str, Enum):
     PROMPT = "prompt"  # Natural language prompt cells
     CODE = "code"      # Raw code cells (for advanced users)
     MARKDOWN = "markdown"  # Documentation cells
+    METHODOLOGY = "methodology"  # Scientific methodology explanations
 
 
 class ExecutionStatus(str, Enum):
@@ -52,7 +54,10 @@ class ExecutionResult(BaseModel):
     class Config:
         """Pydantic configuration."""
         json_encoders = {
-            datetime: lambda v: v.isoformat()
+            datetime: lambda v: v.isoformat(),
+            np.dtype: lambda v: str(v),
+            np.generic: lambda v: v.item(),
+            np.ndarray: lambda v: v.tolist()
         }
 
 
@@ -68,11 +73,13 @@ class Cell(BaseModel):
     prompt: str = ""  # Natural language prompt
     code: str = ""    # Generated or manually written Python code
     markdown: str = ""  # Markdown content for documentation cells
+    scientific_explanation: str = ""  # AI-generated scientific article-style explanation
     
     # Execution state
     execution_count: int = 0
     last_result: Optional[ExecutionResult] = None
     is_executing: bool = False
+    is_writing_methodology: bool = False
     
     # Display preferences
     show_code: bool = False  # Toggle between prompt and code view
@@ -93,7 +100,7 @@ class Notebook(BaseModel):
     """A complete notebook containing multiple cells."""
     
     id: UUID = Field(default_factory=uuid4)
-    title: str = "Untitled Notebook"
+    title: str = "Untitled Digital Article"
     description: str = ""
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
@@ -115,7 +122,10 @@ class Notebook(BaseModel):
         """Pydantic configuration."""
         json_encoders = {
             datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v)
+            UUID: lambda v: str(v),
+            np.dtype: lambda v: str(v),
+            np.generic: lambda v: v.item(),
+            np.ndarray: lambda v: v.tolist()
         }
     
     def add_cell(self, cell_type: CellType = CellType.PROMPT, content: str = "") -> Cell:
@@ -191,12 +201,21 @@ class CellUpdateRequest(BaseModel):
 class CellExecuteRequest(BaseModel):
     """Request model for executing a cell."""
     cell_id: UUID
+    notebook_id: Optional[UUID] = None  # Notebook ID for context
     force_regenerate: bool = False  # Force LLM to regenerate code even if it exists
+    code: Optional[str] = None  # Direct code to execute (overrides stored code)
+    prompt: Optional[str] = None  # Prompt to generate code from
+
+
+class CellExecuteResponse(BaseModel):
+    """Response model for cell execution containing both the updated cell and execution result."""
+    cell: 'Cell'
+    result: ExecutionResult
 
 
 class NotebookCreateRequest(BaseModel):
     """Request model for creating a new notebook."""
-    title: str = "Untitled Notebook"
+    title: str = "Untitled Digital Article"
     description: str = ""
     author: str = ""
     llm_model: str = "qwen/qwen3-next-80b"

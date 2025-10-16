@@ -1,5 +1,5 @@
 /**
- * API client service for communicating with the Reverse Analytics Notebook backend.
+ * API client service for communicating with the Digital Article backend.
  * Provides methods for managing notebooks, cells, and LLM operations.
  */
 
@@ -13,6 +13,7 @@ import {
   CellCreateRequest,
   CellUpdateRequest,
   CellExecuteRequest,
+  CellExecuteResponse,
   CodeGenerationRequest,
   CodeExplanationRequest,
   CodeImprovementRequest
@@ -21,7 +22,7 @@ import {
 // Create axios instance with base configuration
 const api = axios.create({
   baseURL: '/api',
-  timeout: 30000, // 30 second timeout
+  timeout: 120000, // 120 second timeout (2 minutes) to handle LLM calls
   headers: {
     'Content-Type': 'application/json',
   },
@@ -110,8 +111,20 @@ export const cellAPI = {
   },
 
   // Execute a cell
-  execute: async (request: CellExecuteRequest): Promise<ExecutionResult> => {
-    const response: AxiosResponse<ExecutionResult> = await api.post('/cells/execute', request)
+  execute: async (request: CellExecuteRequest): Promise<CellExecuteResponse> => {
+    const response: AxiosResponse<CellExecuteResponse> = await api.post('/cells/execute', request)
+    return response.data
+  },
+
+  // Get cell status (including methodology writing status)
+  getStatus: async (cellId: string): Promise<{
+    cell_id: string;
+    is_executing: boolean;
+    is_writing_methodology: boolean;
+    has_scientific_explanation: boolean;
+    scientific_explanation: string;
+  }> => {
+    const response = await api.get(`/cells/${cellId}/status`)
     return response.data
   },
 
@@ -151,6 +164,46 @@ export const llmAPI = {
   // Get LLM status
   getStatus: async (): Promise<{ provider: string; model: string; status: string }> => {
     const response: AxiosResponse<{ provider: string; model: string; status: string }> = await api.get('/llm/status')
+    return response.data
+  },
+}
+
+// Files API
+export const filesAPI = {
+  // List files for a notebook
+  list: async (notebookId: string): Promise<any[]> => {
+    const response: AxiosResponse<any[]> = await api.get(`/files/${notebookId}`)
+    return response.data
+  },
+
+  // Get file content
+  getContent: async (notebookId: string, filePath: string): Promise<{
+    content: string;
+    content_type: string;
+    size: number;
+  }> => {
+    const response = await api.get(`/files/${notebookId}/content`, {
+      params: { file_path: filePath }
+    })
+    return response.data
+  },
+
+  // Upload file
+  upload: async (notebookId: string, file: File): Promise<any[]> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    
+    const response: AxiosResponse<any[]> = await api.post(`/files/${notebookId}/upload`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+    return response.data
+  },
+
+  // Delete file
+  delete: async (notebookId: string, fileName: string): Promise<{ message: string }> => {
+    const response: AxiosResponse<{ message: string }> = await api.delete(`/files/${notebookId}/${fileName}`)
     return response.data
   },
 }
@@ -213,6 +266,23 @@ export const downloadFile = (content: string, filename: string, mimeType: string
   link.click()
   document.body.removeChild(link)
   window.URL.revokeObjectURL(url)
+}
+
+/**
+ * Get the current system user
+ */
+export const getCurrentUser = async (): Promise<string> => {
+  try {
+    // Try to get from backend first
+    const response = await api.get('/system/user')
+    return response.data.username
+  } catch (error) {
+    // Fallback to a reasonable default if backend doesn't support it
+    console.warn('Could not get system user from backend, using fallback')
+    
+    // Use the known username as fallback
+    return 'albou' // Fallback to known user
+  }
 }
 
 export default api

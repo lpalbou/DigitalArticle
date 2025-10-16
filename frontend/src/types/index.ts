@@ -1,6 +1,7 @@
 // Enums for values that components can reference
 export enum CellType {
   PROMPT = 'prompt',
+  METHODOLOGY = 'methodology',
   CODE = 'code', 
   MARKDOWN = 'markdown'
 }
@@ -67,8 +68,10 @@ export interface Cell {
   execution_count: number
   last_result?: ExecutionResult
   is_executing: boolean
+  is_writing_methodology: boolean
   show_code: boolean
   markdown: string
+  scientific_explanation: string
   tags: string[]
   metadata: Record<string, any>
 }
@@ -110,6 +113,11 @@ export interface CellUpdateRequest {
 export interface CellExecuteRequest {
   cell_id: string
   force_regenerate?: boolean
+}
+
+export interface CellExecuteResponse {
+  cell: Cell
+  result: ExecutionResult
 }
 
 export interface NotebookCreateRequest {

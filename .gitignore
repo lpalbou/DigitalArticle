@@ -207,3 +207,5 @@ notebooks/
 .DS_Store
 .vscode/
 .idea/
+
+backend/notebook_workspace/

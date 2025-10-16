@@ -34,30 +34,51 @@ class NotebookService:
         Args:
             notebooks_dir: Directory to store notebook files
         """
-        # Ensure notebooks directory is relative to project root, not current working directory
-        if not os.path.isabs(notebooks_dir):
-            # Get the project root (4 levels up from this file)
-            project_root = Path(__file__).parent.parent.parent.parent
-            self.notebooks_dir = project_root / notebooks_dir
-        else:
-            self.notebooks_dir = Path(notebooks_dir)
+        logger.info("🚀 INITIALIZING NOTEBOOK SERVICE")
+        
+        try:
+            # Ensure notebooks directory is relative to project root, not current working directory
+            if not os.path.isabs(notebooks_dir):
+                # Get the project root (4 levels up from this file)
+                project_root = Path(__file__).parent.parent.parent.parent
+                self.notebooks_dir = project_root / notebooks_dir
+            else:
+                self.notebooks_dir = Path(notebooks_dir)
+                
+            self.notebooks_dir.mkdir(exist_ok=True)
+            logger.info(f"✅ Notebook service using directory: {self.notebooks_dir}")
             
-        self.notebooks_dir.mkdir(exist_ok=True)
-        logger.info(f"Notebook service using directory: {self.notebooks_dir}")
-        
-        # Initialize services
-        self.llm_service = LLMService()
-        self.execution_service = ExecutionService()
-        
-        # Get data manager for file context
-        from .data_manager import get_data_manager
-        self.data_manager = get_data_manager()
-        
-        # In-memory notebook cache
-        self._notebooks: Dict[str, Notebook] = {}
-        
-        # Load existing notebooks
-        self._load_notebooks()
+            # Initialize services
+            logger.info("🔄 Initializing LLM service...")
+            self.llm_service = LLMService()
+            logger.info("✅ LLM service initialized")
+            
+            logger.info("🔄 Initializing execution service...")
+            self.execution_service = ExecutionService()
+            logger.info("✅ Execution service initialized")
+            
+            # Get data manager for file context
+            logger.info("🔄 Getting data manager...")
+            from .data_manager_clean import get_data_manager
+            self.data_manager = get_data_manager()
+            logger.info("✅ Data manager initialized")
+            
+            # In-memory notebook cache
+            self._notebooks: Dict[str, Notebook] = {}
+            
+            # Load existing notebooks
+            logger.info("🔄 Loading existing notebooks...")
+            self._load_notebooks()
+            logger.info(f"✅ Loaded {len(self._notebooks)} notebooks")
+            
+            logger.info("🎉 NOTEBOOK SERVICE INITIALIZATION COMPLETE")
+            
+        except Exception as e:
+            logger.error(f"💥 FAILED TO INITIALIZE NOTEBOOK SERVICE: {e}")
+            logger.error(f"💥 Exception type: {type(e)}")
+            import traceback
+            logger.error(f"💥 Full traceback:\n{traceback.format_exc()}")
+            raise
     
     def _load_notebooks(self):
         """Load all notebooks from disk."""
@@ -187,6 +208,22 @@ print("LLM service is currently unavailable, using fallback code.")
             Notebook or None if not found
         """
         return self._notebooks.get(notebook_id)
+    
+    def get_cell(self, cell_id: str) -> Optional[Cell]:
+        """
+        Get a cell by ID across all notebooks.
+        
+        Args:
+            cell_id: Cell UUID
+            
+        Returns:
+            Cell or None if not found
+        """
+        for notebook in self._notebooks.values():
+            cell = notebook.get_cell(cell_id)
+            if cell:
+                return cell
+        return None
     
     def list_notebooks(self) -> List[Notebook]:
         """
@@ -358,7 +395,7 @@ print("LLM service is currently unavailable, using fallback code.")
         
         return False
     
-    def execute_cell(self, request: CellExecuteRequest) -> Optional[ExecutionResult]:
+    def execute_cell(self, request: CellExecuteRequest) -> Optional[tuple[Cell, ExecutionResult]]:
         """
         Execute a cell (generate code from prompt if needed and run it).
         
@@ -368,6 +405,10 @@ print("LLM service is currently unavailable, using fallback code.")
         Returns:
             Execution result or None if cell not found
         """
+        print(f"📋 NOTEBOOK SERVICE: execute_cell called for {request.cell_id}")
+        print(f"📋 NOTEBOOK SERVICE: force_regenerate = {request.force_regenerate}")
+        logger.info(f"📋 NOTEBOOK SERVICE: execute_cell called for {request.cell_id}")
+        logger.info(f"📋 NOTEBOOK SERVICE: force_regenerate = {request.force_regenerate}")
         # Find the cell
         cell = None
         notebook = None
@@ -386,6 +427,14 @@ print("LLM service is currently unavailable, using fallback code.")
         try:
             # Mark cell as executing
             cell.is_executing = True
+            
+            # Handle direct code execution
+            if request.code:
+                cell.code = request.code
+                cell.updated_at = datetime.now()
+            elif request.prompt:
+                cell.prompt = request.prompt
+                cell.updated_at = datetime.now()
             
             # Generate code if needed
             if not cell.code or request.force_regenerate:
@@ -423,7 +472,8 @@ print("LLM service is currently unavailable, using fallback code.")
             
             # Execute code if available
             if cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE):
-                result = self.execution_service.execute_code(cell.code, str(cell.id))
+                # Set up notebook-specific context for execution
+                result = self.execution_service.execute_code(cell.code, str(cell.id), str(notebook.id))
                 cell.execution_count += 1
             else:
                 # For markdown cells or empty cells
@@ -434,11 +484,62 @@ print("LLM service is currently unavailable, using fallback code.")
             cell.is_executing = False
             notebook.updated_at = datetime.now()
             
+            # Generate scientific explanation for successful prompt cells
+            print(f"🔬 ALWAYS CHECKING scientific explanation conditions:")
+            print(f"   - Result status: {result.status} (SUCCESS={ExecutionStatus.SUCCESS})")
+            print(f"   - Cell type: {cell.cell_type} (PROMPT={CellType.PROMPT})")
+            print(f"   - Has prompt: {bool(cell.prompt)} ('{cell.prompt[:50] if cell.prompt else 'None'}...')")
+            print(f"   - Has code: {bool(cell.code)} ('{cell.code[:50] if cell.code else 'None'}...')")
+            logger.info(f"🔬 ALWAYS CHECKING scientific explanation conditions:")
+            logger.info(f"   - Result status: {result.status} (SUCCESS={ExecutionStatus.SUCCESS})")
+            logger.info(f"   - Cell type: {cell.cell_type} (PROMPT={CellType.PROMPT})")
+            logger.info(f"   - Has prompt: {bool(cell.prompt)} ('{cell.prompt[:50] if cell.prompt else 'None'}...')")
+            logger.info(f"   - Has code: {bool(cell.code)} ('{cell.code[:50] if cell.code else 'None'}...')")
+            
+            if (result.status == ExecutionStatus.SUCCESS and 
+                cell.cell_type == CellType.PROMPT and 
+                cell.prompt and cell.code):
+                
+                print("🔬 GENERATING SCIENTIFIC EXPLANATION SYNCHRONOUSLY...")
+                logger.info("🔬 GENERATING SCIENTIFIC EXPLANATION SYNCHRONOUSLY...")
+                
+                try:
+                    # Prepare execution result data for LLM
+                    execution_data = {
+                        'status': 'success',
+                        'stdout': result.stdout,
+                        'plots': result.plots,
+                        'tables': result.tables,
+                        'interactive_plots': result.interactive_plots
+                    }
+                    
+                    print("🔬 About to call LLM service for methodology...")
+                    explanation = self.llm_service.generate_scientific_explanation(
+                        cell.prompt, 
+                        cell.code, 
+                        execution_data
+                    )
+                    print(f"🔬 LLM returned explanation: {len(explanation)} chars")
+                    print(f"🔬 Explanation content: {explanation[:200]}...")
+                    
+                    # Update cell with explanation
+                    cell.scientific_explanation = explanation
+                    print(f"🔬 Cell updated with explanation: {len(cell.scientific_explanation)} chars")
+                    
+                except Exception as e:
+                    print(f"🔬 ERROR generating scientific explanation: {e}")
+                    import traceback
+                    print(f"🔬 Traceback: {traceback.format_exc()}")
+                    logger.error(f"Error generating scientific explanation: {e}")
+                    cell.scientific_explanation = ""
+            else:
+                logger.info("🔬 Skipping scientific explanation generation (conditions not met)")
+            
             # Save notebook
             self._save_notebook(notebook)
             
             logger.info(f"Executed cell {cell.id} with status {result.status}")
-            return result
+            return cell, result
             
         except Exception as e:
             # Handle execution errors
@@ -454,7 +555,7 @@ print("LLM service is currently unavailable, using fallback code.")
             self._save_notebook(notebook)
             
             logger.error(f"Failed to execute cell {cell.id}: {e}")
-            return error_result
+            return cell, error_result
     
     def _build_execution_context(self, notebook: Notebook, current_cell: Cell) -> Dict[str, Any]:
         """
