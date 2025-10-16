@@ -75,7 +75,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   }, [cell])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
       e.preventDefault()
       if (cell.cell_type !== CellType.MARKDOWN) {
         handleSave()
@@ -128,10 +128,10 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
             <button
               onClick={() => onExecuteCell(cell.id)}
               disabled={isExecuting}
-              className="btn btn-primary flex items-center space-x-1 text-xs px-2 py-1"
-              title="Execute Cell (Ctrl+Enter)"
+              className="btn btn-primary flex items-center space-x-2 text-sm px-4 py-2 font-medium"
+              title="Execute Cell (Shift+Enter or Ctrl+Enter)"
             >
-              <Play className="h-3 w-3" />
+              <Play className="h-4 w-4" />
               <span>{isExecuting ? 'Running...' : 'Run'}</span>
             </button>
           )}

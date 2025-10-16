@@ -10,6 +10,7 @@ from enum import Enum
 from typing import Dict, List, Optional, Any, Union
 from uuid import UUID, uuid4
 
+import numpy as np
 from pydantic import BaseModel, Field
 
 
@@ -52,7 +53,10 @@ class ExecutionResult(BaseModel):
     class Config:
         """Pydantic configuration."""
         json_encoders = {
-            datetime: lambda v: v.isoformat()
+            datetime: lambda v: v.isoformat(),
+            np.dtype: lambda v: str(v),
+            np.generic: lambda v: v.item(),
+            np.ndarray: lambda v: v.tolist()
         }
 
 
@@ -115,7 +119,10 @@ class Notebook(BaseModel):
         """Pydantic configuration."""
         json_encoders = {
             datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v)
+            UUID: lambda v: str(v),
+            np.dtype: lambda v: str(v),
+            np.generic: lambda v: v.item(),
+            np.ndarray: lambda v: v.tolist()
         }
     
     def add_cell(self, cell_type: CellType = CellType.PROMPT, content: str = "") -> Cell:
@@ -191,7 +198,10 @@ class CellUpdateRequest(BaseModel):
 class CellExecuteRequest(BaseModel):
     """Request model for executing a cell."""
     cell_id: UUID
+    notebook_id: Optional[UUID] = None  # Notebook ID for context
     force_regenerate: bool = False  # Force LLM to regenerate code even if it exists
+    code: Optional[str] = None  # Direct code to execute (overrides stored code)
+    prompt: Optional[str] = None  # Prompt to generate code from
 
 
 class NotebookCreateRequest(BaseModel):

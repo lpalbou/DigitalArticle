@@ -408,6 +408,14 @@ print("LLM service is currently unavailable, using fallback code.")
             # Mark cell as executing
             cell.is_executing = True
             
+            # Handle direct code execution
+            if request.code:
+                cell.code = request.code
+                cell.updated_at = datetime.now()
+            elif request.prompt:
+                cell.prompt = request.prompt
+                cell.updated_at = datetime.now()
+            
             # Generate code if needed
             if not cell.code or request.force_regenerate:
                 if cell.cell_type == CellType.PROMPT and cell.prompt:
@@ -444,7 +452,8 @@ print("LLM service is currently unavailable, using fallback code.")
             
             # Execute code if available
             if cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE):
-                result = self.execution_service.execute_code(cell.code, str(cell.id))
+                # Set up notebook-specific context for execution
+                result = self.execution_service.execute_code(cell.code, str(cell.id), str(notebook.id))
                 cell.execution_count += 1
             else:
                 # For markdown cells or empty cells

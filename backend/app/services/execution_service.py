@@ -102,7 +102,7 @@ class ExecutionService:
         
         return globals_dict
     
-    def execute_code(self, code: str, cell_id: str) -> ExecutionResult:
+    def execute_code(self, code: str, cell_id: str, notebook_id: Optional[str] = None) -> ExecutionResult:
         """
         Execute Python code and capture all outputs.
         
@@ -115,6 +115,19 @@ class ExecutionService:
         """
         result = ExecutionResult()
         start_time = time.time()
+        
+        # Use notebook-specific data manager if provided
+        if notebook_id:
+            from .data_manager_clean import get_data_manager
+            notebook_data_manager = get_data_manager(notebook_id)
+            working_dir = notebook_data_manager.get_working_directory()
+        else:
+            working_dir = self.data_manager.get_working_directory()
+        
+        # Ensure we're in the correct working directory for this notebook
+        import os
+        if str(working_dir) != os.getcwd():
+            os.chdir(str(working_dir))
         
         # Prepare output capture
         stdout_buffer = io.StringIO()
@@ -297,8 +310,8 @@ class ExecutionService:
                         'data': obj.to_dict('records'),
                         'html': obj.to_html(classes='table table-striped'),
                         'info': {
-                            'dtypes': obj.dtypes.to_dict(),
-                            'memory_usage': obj.memory_usage(deep=True).to_dict()
+                            'dtypes': {col: str(dtype) for col, dtype in obj.dtypes.to_dict().items()},
+                            'memory_usage': {col: int(usage) for col, usage in obj.memory_usage(deep=True).to_dict().items()}
                         }
                     }
                     tables.append(table_data)
