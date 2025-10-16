@@ -1,0 +1,633 @@
+"""
+Notebook Service for managing notebook persistence and operations.
+
+This service handles saving, loading, and managing notebook files,
+as well as coordinating between LLM and execution services.
+"""
+
+import json
+import os
+import uuid
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+from datetime import datetime
+import logging
+
+from ..models.notebook import (
+    Notebook, Cell, CellType, ExecutionResult, ExecutionStatus,
+    NotebookCreateRequest, NotebookUpdateRequest,
+    CellCreateRequest, CellUpdateRequest, CellExecuteRequest
+)
+from .llm_service import LLMService
+from .execution_service import ExecutionService
+
+logger = logging.getLogger(__name__)
+
+
+class NotebookService:
+    """Service for managing notebooks and coordinating cell operations."""
+    
+    def __init__(self, notebooks_dir: str = "notebooks"):
+        """
+        Initialize the notebook service.
+        
+        Args:
+            notebooks_dir: Directory to store notebook files
+        """
+        self.notebooks_dir = Path(notebooks_dir)
+        self.notebooks_dir.mkdir(exist_ok=True)
+        
+        # Initialize services
+        self.llm_service = LLMService()
+        self.execution_service = ExecutionService()
+        
+        # In-memory notebook cache
+        self._notebooks: Dict[str, Notebook] = {}
+        
+        # Load existing notebooks
+        self._load_notebooks()
+    
+    def _load_notebooks(self):
+        """Load all notebooks from disk."""
+        try:
+            for notebook_file in self.notebooks_dir.glob("*.json"):
+                try:
+                    with open(notebook_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    notebook = Notebook(**data)
+                    self._notebooks[str(notebook.id)] = notebook
+                    logger.info(f"Loaded notebook: {notebook.title}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to load notebook {notebook_file}: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Failed to load notebooks: {e}")
+    
+    def create_notebook(self, request: NotebookCreateRequest) -> Notebook:
+        """
+        Create a new notebook.
+        
+        Args:
+            request: Notebook creation parameters
+            
+        Returns:
+            Created notebook
+        """
+        notebook = Notebook(
+            title=request.title,
+            description=request.description,
+            author=request.author,
+            llm_model=request.llm_model,
+            llm_provider=request.llm_provider
+        )
+        
+        # Add a default empty prompt cell for immediate use
+        default_cell = notebook.add_cell(
+            cell_type=CellType.PROMPT,
+            content=""
+        )
+        
+        # Cache and save
+        notebook_id = str(notebook.id)
+        self._notebooks[notebook_id] = notebook
+        self._save_notebook(notebook)
+        
+        logger.info(f"Created new notebook: {notebook.title} with ID: {notebook_id}")
+        logger.info(f"Notebooks in cache: {list(self._notebooks.keys())}")
+        return notebook
+    
+    def _build_execution_context(self, notebook: Notebook, cell: Cell) -> Dict[str, Any]:
+        """Build execution context for LLM code generation."""
+        context = {}
+        
+        try:
+            # Add basic notebook info
+            context['notebook_title'] = notebook.title
+            context['cell_type'] = cell.cell_type.value
+            
+            # Add information about available data files (from data directory)
+            context['files'] = [
+                {
+                    'name': 'gene_expression.csv',
+                    'path': 'data/gene_expression.csv',
+                    'type': 'csv',
+                    'preview': {
+                        'rows': 20,
+                        'columns': ['Gene_ID', 'Sample_1', 'Sample_2', 'Sample_3', 'Control_1', 'Control_2', 'Control_3'],
+                        'shape': [20, 7]
+                    }
+                },
+                {
+                    'name': 'patient_data.csv',
+                    'path': 'data/patient_data.csv',
+                    'type': 'csv',
+                    'preview': {
+                        'rows': 20,
+                        'columns': ['Patient_ID', 'Age', 'Gender', 'Condition', 'Treatment_Response', 'Biomarker_Level'],
+                        'shape': [20, 6]
+                    }
+                }
+            ]
+            
+            # Add variables from execution service if available
+            try:
+                variables = self.execution_service.get_variable_info()
+                if variables:
+                    context['available_variables'] = variables
+            except:
+                pass
+                
+            logger.info(f"Built execution context with files info and variables")
+            return context
+            
+        except Exception as e:
+            logger.warning(f"Error building execution context: {e}")
+            return {}
+    
+    def _generate_fallback_code(self, prompt: str) -> str:
+        """Generate simple fallback code when LLM is unavailable."""
+        if "gene_expression" in prompt.lower():
+            return """
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Load the gene expression data
+df = pd.read_csv('data/gene_expression.csv')
+print("Dataset shape:", df.shape)
+print("\\nColumns:", df.columns.tolist())
+print("\\nFirst 5 rows:")
+print(df.head())
+
+# Basic analysis
+print("\\nBasic statistics:")
+print(df.describe())
+"""
+        elif "patient" in prompt.lower():
+            return """
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Load patient data
+df = pd.read_csv('data/patient_data.csv')
+print("Dataset shape:", df.shape)
+print("\\nFirst 5 rows:")
+print(df.head())
+"""
+        else:
+            return """
+# Simple analysis
+print("Hello! This is a basic analysis.")
+print("LLM service is currently unavailable, using fallback code.")
+"""
+    
+    def get_notebook(self, notebook_id: str) -> Optional[Notebook]:
+        """
+        Get a notebook by ID.
+        
+        Args:
+            notebook_id: Notebook UUID
+            
+        Returns:
+            Notebook or None if not found
+        """
+        return self._notebooks.get(notebook_id)
+    
+    def list_notebooks(self) -> List[Notebook]:
+        """
+        Get all notebooks.
+        
+        Returns:
+            List of all notebooks
+        """
+        return list(self._notebooks.values())
+    
+    def update_notebook(self, notebook_id: str, request: NotebookUpdateRequest) -> Optional[Notebook]:
+        """
+        Update notebook metadata.
+        
+        Args:
+            notebook_id: Notebook UUID
+            request: Update parameters
+            
+        Returns:
+            Updated notebook or None if not found
+        """
+        notebook = self._notebooks.get(notebook_id)
+        if not notebook:
+            return None
+        
+        # Update fields
+        if request.title is not None:
+            notebook.title = request.title
+        if request.description is not None:
+            notebook.description = request.description
+        if request.author is not None:
+            notebook.author = request.author
+        if request.tags is not None:
+            notebook.tags = request.tags
+        if request.llm_model is not None:
+            notebook.llm_model = request.llm_model
+        if request.llm_provider is not None:
+            notebook.llm_provider = request.llm_provider
+        
+        notebook.updated_at = datetime.now()
+        self._save_notebook(notebook)
+        
+        logger.info(f"Updated notebook: {notebook.title}")
+        return notebook
+    
+    def delete_notebook(self, notebook_id: str) -> bool:
+        """
+        Delete a notebook.
+        
+        Args:
+            notebook_id: Notebook UUID
+            
+        Returns:
+            True if deleted, False if not found
+        """
+        if notebook_id not in self._notebooks:
+            return False
+        
+        notebook = self._notebooks[notebook_id]
+        
+        # Remove from cache
+        del self._notebooks[notebook_id]
+        
+        # Remove file
+        notebook_file = self.notebooks_dir / f"{notebook_id}.json"
+        if notebook_file.exists():
+            notebook_file.unlink()
+        
+        logger.info(f"Deleted notebook: {notebook.title}")
+        return True
+    
+    def create_cell(self, request: CellCreateRequest) -> Optional[Cell]:
+        """
+        Create a new cell in a notebook.
+        
+        Args:
+            request: Cell creation parameters
+            
+        Returns:
+            Created cell or None if notebook not found
+        """
+        notebook = self._notebooks.get(str(request.notebook_id))
+        if not notebook:
+            return None
+        
+        cell = notebook.add_cell(request.cell_type, request.content)
+        self._save_notebook(notebook)
+        
+        logger.info(f"Created new {request.cell_type} cell in notebook {notebook.title}")
+        return cell
+    
+    def update_cell(self, notebook_id: str, cell_id: str, request: CellUpdateRequest) -> Optional[Cell]:
+        """
+        Update a cell.
+        
+        Args:
+            notebook_id: Notebook UUID
+            cell_id: Cell UUID
+            request: Update parameters
+            
+        Returns:
+            Updated cell or None if not found
+        """
+        notebook = self._notebooks.get(notebook_id)
+        if not notebook:
+            logger.error(f"Notebook {notebook_id} not found")
+            return None
+        
+        # Debug: Log available cells
+        logger.info(f"Looking for cell {cell_id} in notebook {notebook_id}")
+        logger.info(f"Available cells: {[str(c.id) for c in notebook.cells]}")
+        
+        try:
+            cell_uuid = uuid.UUID(cell_id)
+            cell = notebook.get_cell(cell_uuid)
+            if not cell:
+                logger.error(f"Cell {cell_id} not found in notebook {notebook_id}")
+                return None
+        except ValueError as e:
+            logger.error(f"Invalid UUID format for cell_id {cell_id}: {e}")
+            return None
+        
+        # Update fields
+        if request.prompt is not None:
+            cell.prompt = request.prompt
+        if request.code is not None:
+            cell.code = request.code
+        if request.markdown is not None:
+            cell.markdown = request.markdown
+        if request.show_code is not None:
+            cell.show_code = request.show_code
+        if request.tags is not None:
+            cell.tags = request.tags
+        if request.metadata is not None:
+            cell.metadata = request.metadata
+            
+        # Handle cell type changes
+        if hasattr(request, 'cell_type') and request.cell_type is not None:
+            old_type = cell.cell_type
+            cell.cell_type = request.cell_type
+            logger.info(f"Changed cell type from {old_type} to {request.cell_type}")
+        
+        cell.updated_at = datetime.now()
+        notebook.updated_at = datetime.now()
+        self._save_notebook(notebook)
+        
+        logger.info(f"Updated cell {cell_id} in notebook {notebook.title}")
+        return cell
+    
+    def delete_cell(self, notebook_id: str, cell_id: str) -> bool:
+        """
+        Delete a cell from a notebook.
+        
+        Args:
+            notebook_id: Notebook UUID
+            cell_id: Cell UUID
+            
+        Returns:
+            True if deleted, False if not found
+        """
+        notebook = self._notebooks.get(notebook_id)
+        if not notebook:
+            return False
+        
+        if notebook.remove_cell(uuid.UUID(cell_id)):
+            self._save_notebook(notebook)
+            logger.info(f"Deleted cell {cell_id} from notebook {notebook.title}")
+            return True
+        
+        return False
+    
+    async def execute_cell(self, request: CellExecuteRequest) -> Optional[ExecutionResult]:
+        """
+        Execute a cell (generate code from prompt if needed and run it).
+        
+        Args:
+            request: Execution request parameters
+            
+        Returns:
+            Execution result or None if cell not found
+        """
+        # Find the cell
+        cell = None
+        notebook = None
+        
+        for nb in self._notebooks.values():
+            found_cell = nb.get_cell(request.cell_id)
+            if found_cell:
+                cell = found_cell
+                notebook = nb
+                break
+        
+        if not cell or not notebook:
+            logger.error(f"Cell {request.cell_id} not found")
+            return None
+        
+        try:
+            # Mark cell as executing
+            cell.is_executing = True
+            
+            # Generate code if needed
+            if not cell.code or request.force_regenerate:
+                if cell.cell_type == CellType.PROMPT and cell.prompt:
+                    logger.info(f"Generating code for prompt: {cell.prompt[:100]}...")
+                    
+                    try:
+                        # Build context for LLM
+                        try:
+                            context = self._build_execution_context(notebook, cell)
+                            logger.info(f"Built context with {len(context)} items")
+                        except Exception as context_error:
+                            logger.warning(f"Context building failed: {context_error}, using empty context")
+                            context = {}
+                        
+                        # Update LLM service configuration
+                        if notebook.llm_provider != self.llm_service.provider or notebook.llm_model != self.llm_service.model:
+                            logger.info(f"Updating LLM service: {notebook.llm_provider}/{notebook.llm_model}")
+                            self.llm_service = LLMService(notebook.llm_provider, notebook.llm_model)
+                        
+                        # Generate code
+                        logger.info("Calling LLM service for code generation...")
+                        generated_code = self.llm_service.generate_code_from_prompt(cell.prompt, context)
+                        cell.code = generated_code
+                        cell.updated_at = datetime.now()
+                        logger.info(f"Successfully generated {len(generated_code)} characters of code")
+                        
+                    except Exception as e:
+                        logger.error(f"LLM code generation failed: {e}")
+                        import traceback
+                        logger.error(f"LLM error traceback: {traceback.format_exc()}")
+                        # Provide fallback code for basic analysis
+                        cell.code = self._generate_fallback_code(cell.prompt)
+                        logger.info("Using fallback code generation")
+            
+            # Execute code if available
+            if cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE):
+                result = self.execution_service.execute_code(cell.code, str(cell.id))
+                cell.execution_count += 1
+            else:
+                # For markdown cells or empty cells
+                result = ExecutionResult(status=ExecutionStatus.SUCCESS)
+            
+            # Update cell with result
+            cell.last_result = result
+            cell.is_executing = False
+            notebook.updated_at = datetime.now()
+            
+            # Save notebook
+            self._save_notebook(notebook)
+            
+            logger.info(f"Executed cell {cell.id} with status {result.status}")
+            return result
+            
+        except Exception as e:
+            # Handle execution errors
+            error_result = ExecutionResult(
+                status=ExecutionStatus.ERROR,
+                error_type=type(e).__name__,
+                error_message=str(e),
+                traceback=str(e)
+            )
+            
+            cell.last_result = error_result
+            cell.is_executing = False
+            self._save_notebook(notebook)
+            
+            logger.error(f"Failed to execute cell {cell.id}: {e}")
+            return error_result
+    
+    def _build_execution_context(self, notebook: Notebook, current_cell: Cell) -> Dict[str, Any]:
+        """
+        Build context information for code generation.
+        
+        Args:
+            notebook: Current notebook
+            current_cell: Cell being executed
+            
+        Returns:
+            Context dictionary for LLM
+        """
+        context = {}
+        
+        # Get available variables from execution service
+        variables = self.execution_service.get_variable_info()
+        if variables:
+            context['available_variables'] = variables
+        
+        # Get previous cells context
+        previous_cells = []
+        for cell in notebook.cells:
+            if cell.id == current_cell.id:
+                break
+            if cell.cell_type in (CellType.PROMPT, CellType.CODE) and cell.code:
+                previous_cells.append({
+                    'type': cell.cell_type,
+                    'prompt': cell.prompt if cell.cell_type == CellType.PROMPT else None,
+                    'code': cell.code,
+                    'success': cell.last_result.status == ExecutionStatus.SUCCESS if cell.last_result else None
+                })
+        
+        if previous_cells:
+            context['previous_cells'] = previous_cells
+        
+        return context
+    
+    def _save_notebook(self, notebook: Notebook):
+        """
+        Save a notebook to disk.
+        
+        Args:
+            notebook: Notebook to save
+        """
+        try:
+            notebook_file = self.notebooks_dir / f"{notebook.id}.json"
+            
+            with open(notebook_file, 'w', encoding='utf-8') as f:
+                json.dump(
+                    notebook.dict(),
+                    f,
+                    indent=2,
+                    ensure_ascii=False,
+                    default=str  # Handle UUID and datetime serialization
+                )
+            
+        except Exception as e:
+            logger.error(f"Failed to save notebook {notebook.title}: {e}")
+    
+    def export_notebook(self, notebook_id: str, format: str = "json") -> Optional[str]:
+        """
+        Export a notebook in various formats.
+        
+        Args:
+            notebook_id: Notebook UUID
+            format: Export format (json, html, markdown)
+            
+        Returns:
+            Exported content or None if notebook not found
+        """
+        notebook = self._notebooks.get(notebook_id)
+        if not notebook:
+            return None
+        
+        if format == "json":
+            return json.dumps(notebook.dict(), indent=2, default=str)
+        elif format == "markdown":
+            return self._export_to_markdown(notebook)
+        elif format == "html":
+            return self._export_to_html(notebook)
+        else:
+            raise ValueError(f"Unsupported export format: {format}")
+    
+    def _export_to_markdown(self, notebook: Notebook) -> str:
+        """Export notebook to Markdown format."""
+        md_lines = [
+            f"# {notebook.title}",
+            "",
+            notebook.description,
+            "",
+            f"**Author:** {notebook.author}",
+            f"**Created:** {notebook.created_at.isoformat()}",
+            f"**Updated:** {notebook.updated_at.isoformat()}",
+            ""
+        ]
+        
+        for i, cell in enumerate(notebook.cells, 1):
+            md_lines.append(f"## Cell {i}")
+            
+            if cell.cell_type == CellType.PROMPT:
+                md_lines.extend([
+                    "**Prompt:**",
+                    cell.prompt,
+                    "",
+                    "**Generated Code:**",
+                    f"```python",
+                    cell.code,
+                    "```",
+                    ""
+                ])
+            elif cell.cell_type == CellType.CODE:
+                md_lines.extend([
+                    "**Code:**",
+                    f"```python",
+                    cell.code,
+                    "```",
+                    ""
+                ])
+            elif cell.cell_type == CellType.MARKDOWN:
+                md_lines.extend([cell.markdown, ""])
+            
+            # Add execution results if available
+            if cell.last_result and cell.last_result.status == ExecutionStatus.SUCCESS:
+                if cell.last_result.stdout:
+                    md_lines.extend([
+                        "**Output:**",
+                        "```",
+                        cell.last_result.stdout,
+                        "```",
+                        ""
+                    ])
+        
+        return "\n".join(md_lines)
+    
+    def _export_to_html(self, notebook: Notebook) -> str:
+        """Export notebook to HTML format."""
+        # This would be implemented with a proper HTML template
+        # For now, return basic HTML structure
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>{notebook.title}</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 40px; }}
+                .cell {{ margin: 20px 0; padding: 15px; border: 1px solid #ddd; }}
+                .prompt {{ background-color: #f8f9fa; }}
+                .code {{ background-color: #f1f3f4; font-family: monospace; }}
+                .output {{ background-color: #e8f5e8; }}
+            </style>
+        </head>
+        <body>
+            <h1>{notebook.title}</h1>
+            <p>{notebook.description}</p>
+            <p><strong>Author:</strong> {notebook.author}</p>
+        """
+        
+        for i, cell in enumerate(notebook.cells, 1):
+            if cell.cell_type == CellType.PROMPT:
+                html += f"""
+                <div class="cell">
+                    <h3>Cell {i} - Prompt</h3>
+                    <div class="prompt">{cell.prompt}</div>
+                    <div class="code"><pre>{cell.code}</pre></div>
+                </div>
+                """
+        
+        html += "</body></html>"
+        return html
