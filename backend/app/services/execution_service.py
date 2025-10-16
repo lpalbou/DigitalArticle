@@ -32,20 +32,39 @@ class ExecutionService:
     
     def __init__(self):
         """Initialize the execution service."""
-        from .data_manager_clean import get_data_manager
+        logger.info("🚀 INITIALIZING EXECUTION SERVICE")
         
-        # Get the data manager to set up workspace  
-        self.data_manager = get_data_manager()
-        
-        # Set working directory to the notebook working directory
-        import os
-        working_dir = self.data_manager.get_working_directory()
-        os.chdir(str(working_dir))
-        
-        logger.info(f"Execution service initialized:")
-        logger.info(f"  Working directory: {os.getcwd()}")
-        logger.info(f"  Data directory: {self.data_manager.data_dir}")
-        logger.info(f"  Available files: {len(self.data_manager.list_available_files())}")
+        try:
+            from .data_manager_clean import get_data_manager
+            logger.info("✅ Imported data_manager_clean")
+            
+            # Get the data manager to set up workspace  
+            self.data_manager = get_data_manager()
+            logger.info(f"✅ Got data manager: {type(self.data_manager)}")
+            
+            # Set working directory to the notebook working directory
+            import os
+            working_dir = self.data_manager.get_working_directory()
+            logger.info(f"📁 Setting working directory to: {working_dir}")
+            os.chdir(str(working_dir))
+            logger.info(f"✅ Changed to working directory: {os.getcwd()}")
+            
+            logger.info(f"📊 Execution service initialized:")
+            logger.info(f"   Working directory: {os.getcwd()}")
+            logger.info(f"   Data directory: {self.data_manager.data_dir}")
+            logger.info(f"   Data dir exists: {os.path.exists(self.data_manager.data_dir)}")
+            logger.info(f"   Available files: {len(self.data_manager.list_available_files())}")
+            
+            files = self.data_manager.list_available_files()
+            for file in files:
+                logger.info(f"     - {file['name']} at {file['path']}")
+                
+        except Exception as e:
+            logger.error(f"💥 FAILED TO INITIALIZE EXECUTION SERVICE: {e}")
+            logger.error(f"💥 Exception type: {type(e)}")
+            import traceback
+            logger.error(f"💥 Full traceback:\n{traceback.format_exc()}")
+            raise
         
         self.globals_dict = self._initialize_globals()
         self.execution_count = 0
@@ -127,9 +146,11 @@ class ExecutionService:
             logger.info(f"Successfully executed cell {cell_id}")
             
         except Exception as e:
+            logger.error(f"💥 EXECUTION EXCEPTION CAUGHT: {type(e).__name__}: {e}")
+            
             # Capture COMPLETE error information
             full_traceback = traceback.format_exc()
-            stderr_content = stderr_buffer.getvalue()
+            stderr_content = stderr_buffer.getvalue() if 'stderr_buffer' in locals() else ""
             
             result.status = ExecutionStatus.ERROR
             result.error_type = type(e).__name__
@@ -137,23 +158,32 @@ class ExecutionService:
             result.traceback = full_traceback
             result.stderr = stderr_content + "\n\nFULL PYTHON STACK TRACE:\n" + full_traceback
             
-            logger.error(f"🚨 PYTHON EXECUTION FAILED for cell {cell_id}")
-            logger.error(f"🚨 Exception: {e}")
-            logger.error(f"🚨 Working directory: {os.getcwd()}")
-            logger.error(f"🚨 Code that failed: {code}")
-            logger.error(f"🚨 COMPLETE STACK TRACE:\n{full_traceback}")
-            logger.error(f"🚨 Stderr output: {stderr_content}")
+            logger.error(f"💥 PYTHON EXECUTION FAILED for cell {cell_id}")
+            logger.error(f"💥 Exception type: {type(e).__name__}")
+            logger.error(f"💥 Exception message: {str(e)}")
+            logger.error(f"💥 Working directory: {os.getcwd()}")
+            logger.error(f"💥 Code that failed:\n{code}")
+            logger.error(f"💥 COMPLETE STACK TRACE:\n{full_traceback}")
+            logger.error(f"💥 Stderr output: {stderr_content}")
             
-            # Also check environment
-            logger.error(f"🚨 Data directory exists: {os.path.exists('data')}")
+            # Environment debugging
+            logger.error(f"🔍 ENVIRONMENT DEBUG:")
+            logger.error(f"   Current directory: {os.getcwd()}")
+            logger.error(f"   Data directory exists: {os.path.exists('data')}")
             if os.path.exists('data'):
-                logger.error(f"🚨 Files in data: {os.listdir('data')}")
+                logger.error(f"   Files in data: {os.listdir('data')}")
             else:
-                logger.error(f"🚨 NO DATA DIRECTORY FOUND!")
-                logger.error(f"🚨 Current directory contents: {os.listdir('.')}")
+                logger.error(f"   NO DATA DIRECTORY FOUND!")
+                logger.error(f"   Current directory contents: {os.listdir('.')}")
                 
-            # Re-raise the exception so the global handler can catch it and show full details
-            raise e
+            # Check Python environment
+            import sys
+            logger.error(f"🐍 PYTHON ENVIRONMENT:")
+            logger.error(f"   Python executable: {sys.executable}")
+            logger.error(f"   Python path: {sys.path[:3]}...")  # First 3 entries
+            
+            # Don't re-raise - return the error result instead
+            logger.error(f"💥 Returning error result instead of re-raising")
         
         finally:
             result.execution_time = time.time() - start_time

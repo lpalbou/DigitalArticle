@@ -34,30 +34,51 @@ class NotebookService:
         Args:
             notebooks_dir: Directory to store notebook files
         """
-        # Ensure notebooks directory is relative to project root, not current working directory
-        if not os.path.isabs(notebooks_dir):
-            # Get the project root (4 levels up from this file)
-            project_root = Path(__file__).parent.parent.parent.parent
-            self.notebooks_dir = project_root / notebooks_dir
-        else:
-            self.notebooks_dir = Path(notebooks_dir)
+        logger.info("🚀 INITIALIZING NOTEBOOK SERVICE")
+        
+        try:
+            # Ensure notebooks directory is relative to project root, not current working directory
+            if not os.path.isabs(notebooks_dir):
+                # Get the project root (4 levels up from this file)
+                project_root = Path(__file__).parent.parent.parent.parent
+                self.notebooks_dir = project_root / notebooks_dir
+            else:
+                self.notebooks_dir = Path(notebooks_dir)
+                
+            self.notebooks_dir.mkdir(exist_ok=True)
+            logger.info(f"✅ Notebook service using directory: {self.notebooks_dir}")
             
-        self.notebooks_dir.mkdir(exist_ok=True)
-        logger.info(f"Notebook service using directory: {self.notebooks_dir}")
-        
-        # Initialize services
-        self.llm_service = LLMService()
-        self.execution_service = ExecutionService()
-        
-        # Get data manager for file context
-        from .data_manager_clean import get_data_manager
-        self.data_manager = get_data_manager()
-        
-        # In-memory notebook cache
-        self._notebooks: Dict[str, Notebook] = {}
-        
-        # Load existing notebooks
-        self._load_notebooks()
+            # Initialize services
+            logger.info("🔄 Initializing LLM service...")
+            self.llm_service = LLMService()
+            logger.info("✅ LLM service initialized")
+            
+            logger.info("🔄 Initializing execution service...")
+            self.execution_service = ExecutionService()
+            logger.info("✅ Execution service initialized")
+            
+            # Get data manager for file context
+            logger.info("🔄 Getting data manager...")
+            from .data_manager_clean import get_data_manager
+            self.data_manager = get_data_manager()
+            logger.info("✅ Data manager initialized")
+            
+            # In-memory notebook cache
+            self._notebooks: Dict[str, Notebook] = {}
+            
+            # Load existing notebooks
+            logger.info("🔄 Loading existing notebooks...")
+            self._load_notebooks()
+            logger.info(f"✅ Loaded {len(self._notebooks)} notebooks")
+            
+            logger.info("🎉 NOTEBOOK SERVICE INITIALIZATION COMPLETE")
+            
+        except Exception as e:
+            logger.error(f"💥 FAILED TO INITIALIZE NOTEBOOK SERVICE: {e}")
+            logger.error(f"💥 Exception type: {type(e)}")
+            import traceback
+            logger.error(f"💥 Full traceback:\n{traceback.format_exc()}")
+            raise
     
     def _load_notebooks(self):
         """Load all notebooks from disk."""
