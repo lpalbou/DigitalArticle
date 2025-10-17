@@ -89,6 +89,14 @@ export const notebookAPI = {
     })
     return response.data
   },
+
+  exportPDF: async (notebookId: string, includeCode: boolean = false): Promise<Blob> => {
+    const response: AxiosResponse<Blob> = await api.get(`/notebooks/${notebookId}/export`, {
+      params: { format: 'pdf', include_code: includeCode },
+      responseType: 'blob'
+    })
+    return response.data
+  },
 }
 
 // Cell API

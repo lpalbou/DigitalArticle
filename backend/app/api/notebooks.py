@@ -80,29 +80,49 @@ async def delete_notebook(notebook_id: str):
 
 
 @router.get("/{notebook_id}/export")
-async def export_notebook(notebook_id: str, format: str = "json"):
+async def export_notebook(notebook_id: str, format: str = "json", include_code: bool = False):
     """Export a notebook in various formats."""
-    if format not in ["json", "html", "markdown"]:
+    if format not in ["json", "html", "markdown", "pdf"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Format must be one of: json, html, markdown"
+            detail="Format must be one of: json, html, markdown, pdf"
         )
     
     try:
-        content = notebook_service.export_notebook(notebook_id, format)
-        if content is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Digital Article {notebook_id} not found"
+        if format == "pdf":
+            # Handle PDF export separately
+            content = notebook_service.export_notebook_pdf(notebook_id, include_code)
+            if content is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Digital Article {notebook_id} not found"
+                )
+            
+            # Get notebook for filename
+            notebook = notebook_service.get_notebook(notebook_id)
+            filename = f"{notebook.title.replace(' ', '_')}.pdf" if notebook else f"notebook_{notebook_id}.pdf"
+            
+            return Response(
+                content=content,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
             )
-        
-        media_type = {
-            "json": "application/json",
-            "html": "text/html",
-            "markdown": "text/markdown"
-        }[format]
-        
-        return Response(content=content, media_type=media_type)
+        else:
+            # Handle other formats
+            content = notebook_service.export_notebook(notebook_id, format)
+            if content is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Digital Article {notebook_id} not found"
+                )
+            
+            media_type = {
+                "json": "application/json",
+                "html": "text/html",
+                "markdown": "text/markdown"
+            }[format]
+            
+            return Response(content=content, media_type=media_type)
         
     except Exception as e:
         raise HTTPException(

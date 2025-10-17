@@ -20,6 +20,7 @@ from ..models.notebook import (
 )
 from .llm_service import LLMService
 from .execution_service import ExecutionService
+from .pdf_service_advanced import AdvancedPDFService
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,10 @@ class NotebookService:
             logger.info("🔄 Initializing execution service...")
             self.execution_service = ExecutionService()
             logger.info("✅ Execution service initialized")
+            
+            logger.info("🔄 Initializing advanced PDF service...")
+            self.pdf_service = AdvancedPDFService()
+            logger.info("✅ Advanced PDF service initialized")
             
             # Get data manager for file context
             logger.info("🔄 Getting data manager...")
@@ -806,3 +811,27 @@ Please provide corrected Python code that fixes this error while still fulfillin
         
         html += "</body></html>"
         return html
+    
+    def export_notebook_pdf(self, notebook_id: str, include_code: bool = False) -> Optional[bytes]:
+        """
+        Export a notebook to PDF format.
+        
+        Args:
+            notebook_id: Notebook UUID
+            include_code: Whether to include generated code in the PDF
+            
+        Returns:
+            PDF content as bytes or None if notebook not found
+        """
+        notebook = self._notebooks.get(notebook_id)
+        if not notebook:
+            return None
+        
+        try:
+            logger.info(f"Exporting notebook {notebook_id} to PDF (include_code={include_code})")
+            pdf_bytes = self.pdf_service.generate_pdf(notebook, include_code)
+            logger.info(f"PDF export successful: {len(pdf_bytes)} bytes")
+            return pdf_bytes
+        except Exception as e:
+            logger.error(f"Failed to export notebook {notebook_id} to PDF: {e}")
+            raise

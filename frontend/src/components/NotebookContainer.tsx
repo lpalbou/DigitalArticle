@@ -151,15 +151,42 @@ const NotebookContainer: React.FC = () => {
       const jsonContent = await notebookAPI.export(notebook.id, 'json')
       downloadFile(jsonContent, `${notebook.title}.json`, 'application/json')
       
-      // Show success message briefly
       setError(null)
-      setSuccessMessage('Notebook exported successfully!')
+      setSuccessMessage('Notebook exported as JSON successfully!')
       setTimeout(() => {
         setSuccessMessage(null)
       }, 3000)
     } catch (err) {
       const apiError = handleAPIError(err)
       setError(`Export failed: ${apiError.message}`)
+      setSuccessMessage(null)
+    }
+  }, [notebook])
+
+  const exportNotebookPDF = useCallback(async (includeCode: boolean) => {
+    if (!notebook) return
+
+    try {
+      const pdfBlob = await notebookAPI.exportPDF(notebook.id, includeCode)
+      
+      // Create download link
+      const url = window.URL.createObjectURL(pdfBlob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${notebook.title.replace(/[^a-z0-9]/gi, '_')}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      
+      setError(null)
+      setSuccessMessage(`PDF exported successfully${includeCode ? ' (with code)' : ''}!`)
+      setTimeout(() => {
+        setSuccessMessage(null)
+      }, 3000)
+    } catch (err) {
+      const apiError = handleAPIError(err)
+      setError(`PDF export failed: ${apiError.message}`)
       setSuccessMessage(null)
     }
   }, [notebook])
@@ -450,6 +477,7 @@ const NotebookContainer: React.FC = () => {
         onNewNotebook={createNewNotebook}
         onSaveNotebook={saveNotebook}
         onExportNotebook={exportNotebook}
+        onExportPDF={exportNotebookPDF}
       />
 
       {/* Content with top padding to account for fixed header */}
