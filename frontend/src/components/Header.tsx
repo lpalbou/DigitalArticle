@@ -7,13 +7,15 @@ interface HeaderProps {
   onSaveNotebook?: () => void
   onExportNotebook?: () => void
   onExportPDF?: (includeCode: boolean) => void
+  isGeneratingPDF?: boolean
 }
 
 const Header: React.FC<HeaderProps> = ({
   onNewNotebook,
   onSaveNotebook,
   onExportNotebook,
-  onExportPDF
+  onExportPDF,
+  isGeneratingPDF = false
 }) => {
   const [showConfirmModal, setShowConfirmModal] = useState(false)
   const [showExportDropdown, setShowExportDropdown] = useState(false)
@@ -70,9 +72,10 @@ const Header: React.FC<HeaderProps> = ({
                   onClick={() => setShowExportDropdown(!showExportDropdown)}
                   className="btn btn-secondary flex items-center space-x-2"
                   title="Export Digital Article"
+                  disabled={isGeneratingPDF}
                 >
                   <Download className="h-4 w-4" />
-                  <span>Export</span>
+                  <span>{isGeneratingPDF ? 'Generating...' : 'Export'}</span>
                   <ChevronDown className="h-4 w-4" />
                 </button>
 

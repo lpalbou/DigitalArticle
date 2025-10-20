@@ -22,7 +22,7 @@ import {
 // Create axios instance with base configuration
 const api = axios.create({
   baseURL: '/api',
-  timeout: 120000, // 120 second timeout (2 minutes) to handle LLM calls
+  // No timeout - allow operations to run as long as needed
   headers: {
     'Content-Type': 'application/json',
   },

@@ -4,6 +4,7 @@ import { Plus, AlertCircle, Edit2, Check, X } from 'lucide-react'
 import Header from './Header'
 import FileContextPanel from './FileContextPanel'
 import NotebookCell from './NotebookCell'
+import PDFGenerationModal from './PDFGenerationModal'
 import { notebookAPI, cellAPI, handleAPIError, downloadFile, getCurrentUser } from '../services/api'
 import { 
   Notebook, 
@@ -45,6 +46,10 @@ const NotebookContainer: React.FC = () => {
   const [editingDescription, setEditingDescription] = useState(false)
   const [tempTitle, setTempTitle] = useState('')
   const [tempDescription, setTempDescription] = useState('')
+  
+  // PDF generation state
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
+  const [pdfGenerationStage, setPdfGenerationStage] = useState<'analyzing' | 'generating_content' | 'creating_pdf' | 'complete'>('analyzing')
 
   // Load notebook on component mount or ID change
   useEffect(() => {
@@ -167,27 +172,45 @@ const NotebookContainer: React.FC = () => {
     if (!notebook) return
 
     try {
+      setIsGeneratingPDF(true)
+      setError(null)
+      
+      // Stage 1: Analyzing
+      setPdfGenerationStage('analyzing')
+      await new Promise(resolve => setTimeout(resolve, 1000)) // Simulate analysis time
+      
+      // Stage 2: Generating content
+      setPdfGenerationStage('generating_content')
+      await new Promise(resolve => setTimeout(resolve, 1500)) // Simulate LLM processing
+      
+      // Stage 3: Creating PDF
+      setPdfGenerationStage('creating_pdf')
       const pdfBlob = await notebookAPI.exportPDF(notebook.id, includeCode)
+      
+      // Stage 4: Complete
+      setPdfGenerationStage('complete')
       
       // Create download link
       const url = window.URL.createObjectURL(pdfBlob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `${notebook.title.replace(/[^a-z0-9]/gi, '_')}.pdf`
+      link.download = `${notebook.title.replace(/[^a-z0-9]/gi, '_')}_scientific.pdf`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
       
-      setError(null)
-      setSuccessMessage(`PDF exported successfully${includeCode ? ' (with code)' : ''}!`)
+      setSuccessMessage(`Scientific PDF generated successfully${includeCode ? ' (with code)' : ''}!`)
       setTimeout(() => {
         setSuccessMessage(null)
-      }, 3000)
+        setIsGeneratingPDF(false)
+      }, 2000)
+      
     } catch (err) {
       const apiError = handleAPIError(err)
-      setError(`PDF export failed: ${apiError.message}`)
+      setError(`PDF generation failed: ${apiError.message}`)
       setSuccessMessage(null)
+      setIsGeneratingPDF(false)
     }
   }, [notebook])
 
@@ -478,6 +501,13 @@ const NotebookContainer: React.FC = () => {
         onSaveNotebook={saveNotebook}
         onExportNotebook={exportNotebook}
         onExportPDF={exportNotebookPDF}
+        isGeneratingPDF={isGeneratingPDF}
+      />
+
+      {/* PDF Generation Modal */}
+      <PDFGenerationModal
+        isVisible={isGeneratingPDF}
+        stage={pdfGenerationStage}
       />
 
       {/* Content with top padding to account for fixed header */}

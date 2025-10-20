@@ -20,7 +20,7 @@ from ..models.notebook import (
 )
 from .llm_service import LLMService
 from .execution_service import ExecutionService
-from .pdf_service_advanced import AdvancedPDFService
+from .pdf_service_scientific import ScientificPDFService
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +58,9 @@ class NotebookService:
             self.execution_service = ExecutionService()
             logger.info("✅ Execution service initialized")
             
-            logger.info("🔄 Initializing advanced PDF service...")
-            self.pdf_service = AdvancedPDFService()
-            logger.info("✅ Advanced PDF service initialized")
+            logger.info("🔄 Initializing scientific PDF service...")
+            self.pdf_service = ScientificPDFService()
+            logger.info("✅ Scientific PDF service initialized")
             
             # Get data manager for file context
             logger.info("🔄 Getting data manager...")
@@ -482,22 +482,25 @@ print("LLM service is currently unavailable, using fallback code.")
                 cell.execution_count += 1
                 
                 # Auto-retry logic: if execution failed and we have a prompt or generated code, try to fix it with LLM
+                max_retries = 3
                 should_auto_retry = (
                     result.status == ExecutionStatus.ERROR and 
                     (cell.cell_type == CellType.PROMPT or 
                      (cell.cell_type in (CellType.CODE, CellType.METHODOLOGY) and cell.prompt)) and
                     cell.prompt and 
-                    not request.force_regenerate  # Only retry once to avoid infinite loops
+                    cell.retry_count < max_retries and  # Allow up to 3 retries
+                    not request.force_regenerate
                 )
                 
-                if should_auto_retry:
+                # Auto-retry loop with up to max_retries attempts
+                while should_auto_retry:
                     # Set retry status
                     cell.is_retrying = True
                     cell.retry_count += 1
                     
-                    logger.info(f"🔄 EXECUTION FAILED - Attempting auto-retry #{cell.retry_count} with LLM for cell {cell.id}")
+                    logger.info(f"🔄 EXECUTION FAILED - Attempting auto-retry #{cell.retry_count}/{max_retries} with LLM for cell {cell.id}")
                     logger.info(f"🔄 Error: {result.error_message}")
-                    print(f"🔄 AUTO-RETRY: Attempting to fix execution error for cell {cell.id}")
+                    print(f"🔄 AUTO-RETRY #{cell.retry_count}/{max_retries}: Attempting to fix execution error for cell {cell.id}")
                     
                     try:
                         # Build context for LLM including the error
@@ -513,54 +516,103 @@ print("LLM service is currently unavailable, using fallback code.")
                             'stderr': result.stderr
                         }
                         
-                        # Ask LLM to fix the code
-                        logger.info("🔄 Asking LLM to fix the failed code...")
-                        fix_prompt = f"""The following code failed to execute with an error. Please fix the code to resolve the issue.
+                        # Ask LLM to fix the code with detailed error analysis
+                        logger.info(f"🔄 Asking LLM to fix the failed code (attempt #{cell.retry_count})...")
+                        print(f"🔄 AUTO-RETRY #{cell.retry_count}: Analyzing error and generating corrected code...")
+                        
+                        fix_prompt = f"""CRITICAL CODE ERROR - IMMEDIATE FIX REQUIRED (Attempt #{cell.retry_count}/{max_retries})
 
-Original prompt: {cell.prompt}
+The Python code you generated has failed execution with a syntax/runtime error. You MUST provide a corrected version that resolves this specific error.
 
-Failed code:
+ORIGINAL TASK:
+{cell.prompt}
+
+FAILED CODE:
 ```python
 {cell.code}
 ```
 
-Error details:
-- Error type: {result.error_type}
-- Error message: {result.error_message}
-- Traceback: {result.traceback[:500]}...
+ERROR ANALYSIS:
+- Error Type: {result.error_type}
+- Error Message: {result.error_message}
+- Full Traceback: {result.traceback}
+- Standard Error: {result.stderr}
 
-Please provide corrected Python code that fixes this error while still fulfilling the original prompt."""
+SPECIFIC ERROR LOCATION:
+The error occurred in the generated code. Look carefully at the syntax.
+
+REQUIREMENTS FOR YOUR CORRECTED CODE:
+1. Fix the EXACT syntax/runtime error shown above
+2. Maintain the original functionality and purpose
+3. Ensure all variable names are properly defined
+4. Check for proper Python syntax (colons, indentation, brackets, quotes)
+5. Verify all imports are correct and available
+6. Test logic flow and variable scope
+7. Handle edge cases that might cause similar errors
+
+COMMON ERROR PATTERNS TO CHECK:
+- Missing colons after if/for/while/def statements
+- Incorrect indentation
+- Mismatched brackets/parentheses/quotes
+- Undefined variables or functions
+- Incorrect list comprehension syntax
+- Missing imports for used libraries
+- Type mismatches in operations
+- Assignment vs comparison operators (= vs ==)
+
+Please provide ONLY the corrected Python code that will execute successfully. Do not include explanations or markdown formatting - just the raw Python code."""
 
                         fixed_code = self.llm_service.generate_code_from_prompt(fix_prompt, error_context)
                         
                         if fixed_code and fixed_code != cell.code:
                             logger.info(f"🔄 LLM provided fixed code ({len(fixed_code)} chars)")
+                            print(f"🔄 UPDATED: LLM provided corrected code for retry #{cell.retry_count}")
                             cell.code = fixed_code
                             cell.updated_at = datetime.now()
                             
                             # Try executing the fixed code
                             logger.info("🔄 Executing fixed code...")
+                            print(f"🔄 EXECUTING: Testing corrected code...")
                             retry_result = self.execution_service.execute_code(cell.code, str(cell.id), str(notebook.id))
                             
                             if retry_result.status == ExecutionStatus.SUCCESS:
-                                logger.info("🔄 ✅ Auto-retry successful! Fixed code executed successfully")
-                                print(f"🔄 SUCCESS: Auto-retry fixed the error for cell {cell.id}")
+                                logger.info(f"🔄 ✅ Auto-retry #{cell.retry_count} successful! Fixed code executed successfully")
+                                print(f"🔄 SUCCESS: Auto-retry #{cell.retry_count} fixed the error for cell {cell.id}")
                                 result = retry_result
                                 cell.execution_count += 1
                                 cell.is_retrying = False  # Clear retry status on success
+                                break  # Exit retry loop on success
                             else:
-                                logger.warning(f"🔄 ❌ Auto-retry failed: {retry_result.error_message}")
-                                print(f"🔄 FAILED: Auto-retry could not fix the error for cell {cell.id}")
-                                cell.is_retrying = False  # Clear retry status on failure
-                                # Keep the original error result
+                                logger.warning(f"🔄 ❌ Auto-retry #{cell.retry_count} failed: {retry_result.error_message}")
+                                print(f"🔄 RETRY #{cell.retry_count} FAILED: {retry_result.error_message}")
+                                result = retry_result  # Update result for next iteration
                         else:
-                            logger.warning("🔄 LLM did not provide different code for retry")
+                            logger.warning(f"🔄 LLM did not provide different code for retry #{cell.retry_count}")
+                            print(f"🔄 NO CHANGE: LLM provided same code on retry #{cell.retry_count}")
+                        
+                        # Check if we should continue retrying
+                        if cell.retry_count >= max_retries:
+                            logger.warning(f"🔄 All {max_retries} retries exhausted for cell {cell.id}")
+                            print(f"🔄 EXHAUSTED: All {max_retries} auto-retry attempts failed for cell {cell.id}")
                             cell.is_retrying = False  # Clear retry status
+                            break
+                        
+                        # Update should_auto_retry for next iteration
+                        should_auto_retry = (
+                            result.status == ExecutionStatus.ERROR and 
+                            cell.retry_count < max_retries
+                        )
                             
                     except Exception as retry_error:
-                        logger.error(f"🔄 Auto-retry mechanism failed: {retry_error}")
-                        cell.is_retrying = False  # Clear retry status on exception
-                        # Keep the original error result
+                        logger.error(f"🔄 Auto-retry #{cell.retry_count} mechanism failed: {retry_error}")
+                        print(f"🔄 ERROR: Auto-retry #{cell.retry_count} mechanism failed: {retry_error}")
+                        
+                        if cell.retry_count >= max_retries:
+                            cell.is_retrying = False  # Clear retry status on exception
+                            break
+                        
+                        # Continue to next retry attempt
+                        should_auto_retry = (cell.retry_count < max_retries)
             else:
                 # For markdown cells or empty cells
                 result = ExecutionResult(status=ExecutionStatus.SUCCESS)

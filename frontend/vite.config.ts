@@ -10,6 +10,8 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        timeout: 0, // No timeout - allow operations to run as long as needed
+        proxyTimeout: 0, // No proxy timeout
       },
     },
   },

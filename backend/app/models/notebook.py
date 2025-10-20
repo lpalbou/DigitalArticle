@@ -94,7 +94,10 @@ class Cell(BaseModel):
         """Pydantic configuration."""
         json_encoders = {
             datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v)
+            UUID: lambda v: str(v),
+            np.dtype: lambda v: str(v),
+            np.generic: lambda v: v.item(),
+            np.ndarray: lambda v: v.tolist()
         }
 
 
