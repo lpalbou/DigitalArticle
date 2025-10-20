@@ -10,6 +10,8 @@
 
 Digital Article inverts the traditional computational notebook paradigm. Instead of writing code to perform analysis, you describe your analysis in natural language, and the system generates, executes, and documents the code for you—automatically creating publication-ready scientific methodology text.
 
+![Digital Article](assets/da-illustration.jpg)
+
 ### Traditional Notebook
 ```
 [Code: Data loading, cleaning, analysis]
