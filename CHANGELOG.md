@@ -1,79 +1,265 @@
 # Changelog
 
-All notable changes to the Digital Article project will be documented in this file.
+All notable changes to the Digital Article project are documented in this file.
 
-## [Unreleased]
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.0.2] - 2025-10-20
+
+### Documentation
+- **Added** comprehensive documentation suite:
+  - `docs/architecture.md` - Complete system architecture documentation with diagrams
+  - `docs/philosophy.md` - Design principles and philosophical foundations
+  - `docs/getting-started.md` - Step-by-step installation and tutorial guide
+  - `ROADMAP.md` - Detailed development roadmap through 2027
+  - Updated `README.md` - Comprehensive project overview with feature comparison
+
+### Summary
+
+This release represents the first stable beta version of Digital Article with complete documentation. The system is functional for single-user or small team deployment, featuring natural language to code generation, automatic scientific methodology writing, and rich output capture.
+
+**Current Capabilities**:
+- Natural language prompts → Python code generation via LLM
+- Automatic code execution with matplotlib/plotly/pandas output capture
+- Auto-retry error correction (up to 3 attempts with LLM self-debugging)
+- Scientific article-style methodology generation
+- Multi-format export (JSON, HTML, Markdown, PDF)
+- Workspace isolation with file management
+- Persistent execution context across cells
+
+**Known Limitations**:
+- Single-user deployment only (no authentication)
+- Code executes in same process as server (not production-safe)
+- JSON file storage (not scalable)
+- No real-time collaboration
+- See ROADMAP.md for planned improvements
+
+## [0.1.0] - 2025-10-16
 
 ### Changed
 - Renamed project from "Reverse Analytics Notebook" to "Digital Article"
 - Updated all references, documentation, and UI elements to reflect new name
 
-## [0.1.0] - 2024-10-16
-- First clean and working version
-- Known bugs : save and export don't work yet
+### Fixed
+- Save and export functionality now working
+- Improved error handling and logging
 
-## [0.0.0] - 2024-10-15
+### Known Issues
+- PDF export has occasional rendering issues with complex plots
+- Auto-retry may fail on certain syntax errors
+- File upload limited to 100MB
 
-### Added
-- **Core Architecture**: Complete full-stack implementation with FastAPI backend and React frontend
-- **LLM Integration**: AbstractCore integration with LMStudio provider using qwen/qwen3-next-80b model
-- **Natural Language Interface**: Prompt-based cell system allowing users to write analysis requests in plain English
-- **Code Generation**: Automatic Python code generation from natural language prompts
-- **Dual View Mode**: Toggle between prompt and generated code views for each cell
-- **Live Execution**: Real-time Python code execution with comprehensive output capture
-- **Rich Visualization Support**: 
-  - Matplotlib static plots
-  - Plotly interactive visualizations
-  - Pandas DataFrame table rendering
-  - Image display capabilities
-- **Advanced Result Panels**: Sophisticated display system for execution outputs
-- **Digital Article Management**: Complete CRUD operations for digital articles and cells
-- **Auto-save Functionality**: Automatic persistence of notebook changes
-- **Export Capabilities**: Export notebooks in JSON, HTML, and Markdown formats
-- **Error Handling**: Comprehensive error capture and display system
-- **Sample Data**: Included sample datasets for testing and demonstration
-- **Documentation**: Complete user guide, API documentation, and testing examples
+## [0.0.0] - 2025-10-15
 
-### Technical Components
+### Added - Initial Implementation
 
-#### Backend (FastAPI + Python)
-- **API Endpoints**: RESTful API for notebook, cell, and LLM operations
-- **Data Models**: Pydantic models for type-safe data handling
-- **LLM Service**: Robust LLM integration with error handling and retries
-- **Execution Service**: Safe Python code execution with output capture
-- **Digital Article Service**: Persistent storage and management of digital articles
+#### Core Architecture
+- **Backend**: FastAPI + Python with AbstractCore LLM integration
+- **Frontend**: React + TypeScript with Vite build system
+- **LLM Integration**: AbstractCore with LMStudio provider using qwen/qwen3-next-80b model
 
-#### Frontend (React + TypeScript)
-- **Modern UI**: Clean, responsive interface built with Tailwind CSS
-- **Component Architecture**: Modular React components for maintainability
-- **Type Safety**: Full TypeScript implementation with comprehensive type definitions
-- **API Client**: Robust HTTP client with error handling
-- **State Management**: Efficient local state management for notebook operations
+#### Natural Language Interface
+- Prompt-based cell system for natural language analysis requests
+- Automatic Python code generation from prompts
+- Dual view mode (toggle between prompt and generated code)
+- Real-time code execution with comprehensive output capture
+
+#### Visualization & Output Capture
+- Matplotlib static plots (PNG export via base64)
+- Plotly interactive visualizations (JSON serialization)
+- Pandas DataFrame rendering (HTML tables + JSON data)
+- Image display capabilities
+- Full Python stdout/stderr capture
+- Complete error tracebacks with type information
+
+#### Cell & Notebook Management
+- Complete CRUD operations for notebooks and cells
+- Multiple cell types:
+  - **Prompt cells**: Natural language → code
+  - **Code cells**: Direct Python coding
+  - **Markdown cells**: Documentation
+  - **Methodology cells**: Scientific explanations
+- Cell execution tracking (execution count, status, timing)
+- Auto-save functionality (2-second debounce)
+
+#### Export Capabilities
+- **JSON export**: Full notebook with all data
+- **HTML export**: Standalone web page with interactive plots
+- **Markdown export**: Plain text format for version control
+- **PDF export**: Scientific article style with methodology sections
+
+#### Data Management
+- Sample datasets included (gene_expression, patient_data, protein_levels, drug_response)
+- File upload and management system
+- Notebook-specific workspaces (isolated data directories)
+- Data file context panel with previews
+
+#### Error Handling & Recovery
+- Comprehensive error capture with full tracebacks
+- Auto-retry mechanism with LLM-based error fixing (up to 3 attempts)
+- Detailed error logging for debugging
+- User-friendly error messages in UI
+
+#### Developer Tools
+- CLI commands: `da-backend` and `da-frontend` for easy startup
+- Automatic port management (kills existing processes)
+- Development mode with hot reload
+- OpenAPI documentation at `/docs` endpoint
+
+#### Technical Components
+
+**Backend Services** (`backend/app/services/`):
+- `llm_service.py` - LLM code generation and explanation
+- `execution_service.py` - Python code execution sandbox
+- `notebook_service.py` - Notebook orchestration and persistence
+- `data_manager_clean.py` - Workspace and file management
+- `pdf_service_scientific.py` - Scientific PDF generation
+
+**Frontend Components** (`frontend/src/components/`):
+- `NotebookContainer.tsx` - Main notebook orchestration
+- `NotebookCell.tsx` - Individual cell rendering
+- `ResultPanel.tsx` - Rich output display
+- `FileContextPanel.tsx` - Data file management
+- `PDFGenerationModal.tsx` - Export progress UI
+
+**API Endpoints**:
+- `/api/notebooks/` - Notebook CRUD operations
+- `/api/cells/` - Cell CRUD and execution
+- `/api/llm/` - Direct LLM interactions
+- `/api/files/` - File upload/download/management
+- `/api/system/` - System information and health
 
 #### Key Features
-- **Prompt-Code Bijection**: Every prompt maps to exactly one code implementation
-- **Intelligent Code Generation**: Context-aware code generation considering previous cells
-- **Multi-format Support**: Handle various data types and visualization formats
-- **Production Ready**: Comprehensive error handling and logging
-- **Developer Friendly**: Clear project structure and development tools
 
-### Files Added
-- Complete backend implementation in `backend/app/`
-- Complete frontend implementation in `frontend/src/`
-- Sample data files in `sample_data/`
-- Configuration files (package.json, requirements.txt, etc.)
-- Documentation (README.md, test_examples.md)
-- Startup scripts for easy development
+**Prompt-Code Mapping**:
+- Every prompt generates exactly one code implementation
+- Code is always visible and editable
+- Context-aware generation (considers previous cells, available variables, data files)
+
+**Intelligent Code Generation**:
+- System prompts enforce data path conventions (`data/` directory)
+- Automatic library imports
+- Error handling with try/except blocks
+- Variable and data context injection
+
+**Multi-Format Output Support**:
+- Text: stdout/stderr streams
+- Static plots: matplotlib/seaborn (base64 PNG)
+- Interactive plots: Plotly (JSON with full interactivity)
+- Tables: Pandas DataFrames (HTML + JSON)
+- Errors: Full Python tracebacks with syntax highlighting
+
+**Scientific Methodology Generation**:
+- LLM generates article-style explanations after successful execution
+- High-impact journal writing style (Nature/Science/Cell)
+- Includes quantitative results and statistical measures
+- 2-4 sentence concise paragraphs
+
+**Production Ready Features**:
+- Comprehensive error handling throughout stack
+- Structured logging for debugging
+- Type safety with Pydantic models (backend) and TypeScript (frontend)
+- Modular architecture for extensibility
 
 ### Dependencies
-- **Python**: AbstractCore, FastAPI, Uvicorn, Pandas, Matplotlib, Plotly, NumPy, SciPy, Scikit-learn
-- **Node.js**: React, TypeScript, Vite, Tailwind CSS, Axios, Monaco Editor, Plotly.js
+
+**Python** (`requirements.txt`):
+- abstractcore[all]>=2.4.1 - LLM provider abstraction
+- fastapi>=0.104.1 - Web framework
+- uvicorn[standard]>=0.24.0 - ASGI server
+- pandas>=2.1.4, numpy>=1.26.0 - Data analysis
+- matplotlib>=3.8.2, plotly>=5.17.0, seaborn>=0.13.0 - Visualization
+- scikit-learn>=1.3.2, scipy>=1.11.4 - Machine learning and stats
+- reportlab>=4.0.7, weasyprint>=60.0 - PDF generation
+- pydantic>=2.5.2 - Data validation
+
+**Node.js** (`frontend/package.json`):
+- react@18.2.0, react-dom@18.2.0 - UI framework
+- typescript@5.2.2 - Type safety
+- vite@4.5.0 - Build tool
+- tailwindcss@3.3.6 - Styling
+- axios@1.6.2 - HTTP client
+- @monaco-editor/react@4.6.0 - Code viewer
+- plotly.js@2.27.1, react-plotly.js@2.6.0 - Interactive plots
+- marked@16.4.0 - Markdown rendering
 
 ### Architecture Highlights
-- **Modular Design**: Clear separation between services, components, and data models
-- **Scalable Structure**: Easily extensible for new features and providers
-- **Security Conscious**: Safe code execution with proper error boundaries
-- **Performance Optimized**: Efficient rendering and state management
-- **User Experience**: Intuitive interface designed for non-technical users
+- **Modular design**: Clear separation between services, components, and data models
+- **Scalable structure**: Easily extensible for new features and providers
+- **Security conscious**: Safe code execution with error boundaries
+- **Performance optimized**: Efficient rendering and state management
+- **User experience focused**: Intuitive interface for non-technical users
 
-This initial release provides a complete, working implementation of the revolutionary digital article concept, enabling domain experts to perform sophisticated data analysis through natural language interaction.
+### Files Added
+
+**Backend**:
+- Complete FastAPI application in `backend/app/`
+- Service layer with LLM, execution, and notebook services
+- Pydantic data models for type safety
+- API routers for all endpoints
+- Data manager for workspace isolation
+
+**Frontend**:
+- React application with TypeScript in `frontend/src/`
+- Component-based architecture
+- API client with error handling
+- Rich output display components
+- File management UI
+
+**Configuration**:
+- `pyproject.toml` - Python package configuration
+- `requirements.txt` - Python dependencies
+- `frontend/package.json` - Node.js dependencies
+- `frontend/tsconfig.json` - TypeScript configuration
+- `frontend/tailwind.config.js` - Tailwind CSS configuration
+
+**Data & Scripts**:
+- Sample datasets in `sample_data/`
+- CLI scripts in `digital_article_cli/`
+- Build and dist directories for package distribution
+
+### Initial Release Notes
+
+This initial release (v0.0.0) provided a complete, working implementation of the revolutionary Digital Article concept, enabling domain experts to perform sophisticated data analysis through natural language interaction. The system successfully demonstrates the "article-first" paradigm where narrative descriptions generate executable code and scientific methodology text.
+
+**Target Users**: Researchers, biologists, clinicians, data scientists who want to focus on analysis rather than coding.
+
+**Deployment**: Suitable for single-user local deployment or small team shared server. Not yet ready for production multi-user environments.
+
+---
+
+## Future Plans
+
+See [ROADMAP.md](ROADMAP.md) for detailed development plans through 2027.
+
+**Near-term priorities**:
+- Enhanced error diagnostics
+- Domain-specific prompt templates
+- Version control for cells
+- Improved scientific methodology generation
+- Comprehensive test coverage
+
+**Medium-term goals**:
+- Multi-user authentication
+- Database storage (PostgreSQL)
+- Real-time collaboration
+- Containerized code execution
+
+**Long-term vision**:
+- LLM-suggested analysis strategies
+- Active learning from user corrections
+- Plugin architecture
+- Enterprise features (SSO, compliance, HA)
+
+---
+
+## Notes
+
+- This project follows semantic versioning
+- Breaking changes will be clearly documented
+- Beta versions (1.x) may have breaking changes between minor versions
+- Stable versions (2.x+) will maintain backward compatibility within major versions
+
+For detailed change history, see git commit log.
+For bug reports and feature requests, see GitHub Issues.
