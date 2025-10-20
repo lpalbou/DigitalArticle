@@ -7,9 +7,11 @@ name = "digital-article-cli"
 version = "1.0.0"
 description = "Command-line tools for Digital Article notebook application"
 readme = "README.md"
-license = "MIT"
 authors = [
-    {name = "Digital Article Team", email = "team@digitalarticle.dev"}
+    {name = "Laurent-Philippe Albou", email = "contact@abstractcore.ai"}
+]
+maintainers = [
+    {name = "Laurent-Philippe Albou", email = "contact@abstractcore.ai"}
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -42,10 +44,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/digitalarticle/digital-article"
-Documentation = "https://docs.digitalarticle.dev"
-Repository = "https://github.com/digitalarticle/digital-article.git"
-"Bug Tracker" = "https://github.com/digitalarticle/digital-article/issues"
+Homepage = "https://github.com/lpalbou/digitalarticle"
+Documentation = "https://github.com/lpalbou/digitalarticle"
+Repository = "https://github.com/lpalbou/digitalarticle.git"
+"Bug Tracker" = "https://github.com/lpalbou/digitalarticle/issues"
 
 [project.scripts]
 da-backend = "digital_article_cli.backend:main"

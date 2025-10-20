@@ -3,7 +3,6 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![React 18](https://img.shields.io/badge/react-18.2-blue.svg)](https://reactjs.org/)
 [![FastAPI](https://img.shields.io/badge/fastapi-0.104+-green.svg)](https://fastapi.tiangolo.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > Transform computational notebooks from code-first to article-first. Write what you want to analyze in natural language; let AI generate the code.
 
@@ -302,9 +301,9 @@ If you use Digital Article in your research, please cite:
 ```bibtex
 @software{digital_article_2025,
   title = {Digital Article: Natural Language Computational Notebooks},
-  author = {Digital Article Team},
+  author = {Laurent-Philippe Albou},
   year = {2025},
-  url = {https://github.com/yourusername/reverse-notebook}
+  url = {https://github.com/lpalbou/digitalarticle}
 }
 ```
 
@@ -317,9 +316,9 @@ If you use Digital Article in your research, please cite:
 
 ## Support and Contact
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/reverse-notebook/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/reverse-notebook/discussions)
-- **Email**: team@digitalarticle.dev
+- **Issues**: [GitHub Issues](https://github.com/lpalbou/digitalarticle/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/lpalbou/digitalarticle/discussions)
+- **Email**: contact@abstractcore.ai
 
 ---
 
