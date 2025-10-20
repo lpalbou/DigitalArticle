@@ -71,6 +71,67 @@ class ExecutionService:
     
     def _initialize_globals(self) -> Dict[str, Any]:
         """Initialize the global namespace for code execution."""
+
+        # Import datetime for helper functions
+        from datetime import timedelta, datetime, date
+
+        # Helper function: Safe timedelta that handles numpy types
+        def safe_timedelta(**kwargs):
+            """
+            Create timedelta with automatic numpy type conversion.
+
+            Usage:
+                safe_timedelta(days=numpy_int64_value)
+                safe_timedelta(hours=5, minutes=30)
+            """
+            converted_kwargs = {}
+            for key, value in kwargs.items():
+                # Convert numpy types to Python native types
+                if hasattr(value, 'item'):  # numpy scalar
+                    converted_kwargs[key] = value.item()
+                elif isinstance(value, (np.integer, np.floating)):
+                    converted_kwargs[key] = value.item()
+                else:
+                    converted_kwargs[key] = value
+            return timedelta(**converted_kwargs)
+
+        # Helper function: Convert numpy types to Python types
+        def to_python_type(value):
+            """
+            Convert numpy types to Python native types.
+
+            Usage:
+                python_int = to_python_type(numpy_int64_value)
+                python_list = to_python_type(numpy_array)
+            """
+            # Check array/series types first (they also have .item() but for single elements)
+            if isinstance(value, np.ndarray):
+                return value.tolist()
+            elif isinstance(value, pd.Series):
+                return value.tolist()
+            elif isinstance(value, pd.DataFrame):
+                return value.to_dict('records')
+            elif hasattr(value, 'item') and not isinstance(value, (np.ndarray, pd.Series)):
+                # numpy scalar has .item()
+                return value.item()
+            elif isinstance(value, (np.integer, np.floating, np.bool_)):
+                return value.item()
+            else:
+                return value
+
+        # Helper function: Safe int/float conversion
+        def safe_int(value):
+            """Convert value to int, handling numpy types."""
+            if hasattr(value, 'item'):
+                return int(value.item())
+            return int(value)
+
+        def safe_float(value):
+            """Convert value to float, handling numpy types."""
+            if hasattr(value, 'item'):
+                return float(value.item())
+            return float(value)
+
         globals_dict = {
             '__builtins__': __builtins__,
             'pd': pd,
@@ -80,8 +141,17 @@ class ExecutionService:
             'go': None,  # Will import plotly.graph_objects lazily
             'sns': None,  # Will import seaborn lazily
             'stats': None,  # Will import scipy.stats lazily
+            # Add datetime types
+            'timedelta': timedelta,
+            'datetime': datetime,
+            'date': date,
+            # Add helper functions for type safety
+            'safe_timedelta': safe_timedelta,
+            'to_python_type': to_python_type,
+            'safe_int': safe_int,
+            'safe_float': safe_float,
         }
-        
+
         # Lazy import function for heavy libraries
         def lazy_import(module_path: str, alias: str):
             if globals_dict[alias] is None:
@@ -99,10 +169,13 @@ class ExecutionService:
                     logger.warning(f"Failed to import {module_path}: {e}")
                     globals_dict[alias] = None
             return globals_dict[alias]
-        
+
         # Add lazy import helpers
         globals_dict['_lazy_import'] = lazy_import
-        
+
+        logger.info("✅ Initialized execution globals with type safety helpers")
+        logger.info("   Available helpers: safe_timedelta, to_python_type, safe_int, safe_float")
+
         return globals_dict
     
     def execute_code(self, code: str, cell_id: str, notebook_id: Optional[str] = None) -> ExecutionResult:

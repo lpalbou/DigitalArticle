@@ -138,6 +138,40 @@ AVAILABLE LIBRARIES:
 - seaborn as sns
 - scipy.stats as stats
 - sklearn (all modules)
+- datetime, timedelta, date (from datetime module)
+
+TYPE SAFETY HELPERS (automatically available):
+- safe_timedelta(days=value) - Creates timedelta with automatic numpy type conversion
+- to_python_type(value) - Converts numpy/pandas types to Python native types
+- safe_int(value) - Converts to int, handling numpy types
+- safe_float(value) - Converts to float, handling numpy types
+
+IMPORTANT - NumPy Type Conversion:
+When using numpy or pandas operations that return numeric types (np.random.randint, series.sum(), etc.),
+these return numpy types (numpy.int64, numpy.float64) which are NOT compatible with Python built-ins like timedelta, range, etc.
+
+SOLUTION:
+- Use safe_timedelta() instead of timedelta() when value comes from numpy/pandas
+- Use int()/float() conversion: timedelta(days=int(np_value))
+- Use pandas vectorized methods: pd.to_timedelta() instead of loops with timedelta()
+
+EXAMPLES:
+```python
+# WRONG - Will fail with numpy types
+days = np.random.randint(1, 30)
+td = timedelta(days=days)  # TypeError!
+
+# RIGHT - Convert numpy type
+days = int(np.random.randint(1, 30))
+td = timedelta(days=days)
+
+# BETTER - Use helper
+days = np.random.randint(1, 30)
+td = safe_timedelta(days=days)  # Automatically converts
+
+# BEST - Use pandas vectorized operations
+df['timedelta_col'] = pd.to_timedelta(df['days'], unit='D')
+```
 
 DATA FILE EXAMPLES:
 ```python

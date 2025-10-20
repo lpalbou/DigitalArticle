@@ -44,6 +44,8 @@ class ErrorAnalyzer:
         self.analyzers = [
             self._analyze_matplotlib_subplot_error,
             self._analyze_matplotlib_figure_error,
+            self._analyze_numpy_timedelta_error,
+            self._analyze_numpy_type_conversion_error,
             self._analyze_file_not_found_error,
             self._analyze_pandas_key_error,
             self._analyze_pandas_merge_error,
@@ -407,6 +409,178 @@ Prefix all file paths with 'data/', for example:
     # ============================================================================
     # NUMPY ERROR ANALYZERS
     # ============================================================================
+
+    def _analyze_numpy_timedelta_error(
+        self,
+        error_message: str,
+        error_type: str,
+        traceback: str,
+        code: str
+    ) -> Optional[ErrorContext]:
+        """
+        Analyze numpy type incompatibility with timedelta.
+
+        Detects: TypeError: unsupported type for timedelta days component: numpy.int64
+        """
+        if error_type != "TypeError":
+            return None
+
+        if "timedelta" not in error_message.lower() and "timedelta" not in traceback:
+            return None
+
+        if "numpy" not in error_message and "numpy" not in traceback:
+            return None
+
+        # Extract the numpy type
+        numpy_type_pattern = r"numpy\.(\w+)"
+        match = re.search(numpy_type_pattern, error_message)
+        numpy_type = match.group(1) if match else "numeric type"
+
+        suggestions = [
+            f"NUMPY TYPE INCOMPATIBILITY WITH TIMEDELTA",
+            "",
+            "PROBLEM:",
+            f"Python's timedelta() function doesn't accept NumPy types (numpy.{numpy_type}).",
+            "This happens when using pandas Series values or numpy arrays directly in timedelta.",
+            "",
+            "ROOT CAUSE:",
+            "NumPy types (int64, float64, etc.) are not the same as Python native types.",
+            "Many Python built-ins (timedelta, datetime, range, etc.) require native Python types.",
+            "",
+            "SOLUTION - Convert NumPy types to Python types:",
+            "",
+            "METHOD 1: Use .item() for scalar values",
+            "  WRONG: timedelta(days=np_value)",
+            "  RIGHT: timedelta(days=np_value.item())",
+            "  RIGHT: timedelta(days=int(np_value))",
+            "",
+            "METHOD 2: Use pd.to_timedelta() for pandas operations",
+            "  WRONG: df['days'].apply(lambda x: timedelta(days=x))",
+            "  RIGHT: pd.to_timedelta(df['days'], unit='D')",
+            "",
+            "METHOD 3: Convert in bulk operations",
+            "  WRONG: [timedelta(days=x) for x in df['days']]",
+            "  RIGHT: pd.to_timedelta(df['days'], unit='D')",
+            "  RIGHT: [timedelta(days=int(x)) for x in df['days']]",
+            "",
+            "COMMON SCENARIOS:",
+            "1. Random integer generation:",
+            "   days = np.random.randint(1, 30)  # Returns numpy.int64",
+            "   FIX: days = int(np.random.randint(1, 30))",
+            "",
+            "2. DataFrame operations:",
+            "   df['date'] = df['days'].apply(lambda x: timedelta(days=x))  # Fails",
+            "   FIX: df['date'] = pd.to_timedelta(df['days'], unit='D')",
+            "",
+            "3. Arithmetic operations:",
+            "   result = series.sum()  # Returns numpy type",
+            "   FIX: result = int(series.sum())",
+            "",
+            "AUTOMATIC CONVERSION HELPER:",
+            "Use the provided safe_timedelta() function:",
+            "  safe_timedelta(days=np_value)  # Automatically converts",
+        ]
+
+        enhanced_message = f"""
+NUMPY TYPE INCOMPATIBILITY ERROR
+
+Original Error: {error_message}
+
+EXPLANATION:
+Python's timedelta() requires native Python int/float, not NumPy types.
+When you use pandas/numpy operations, results are numpy.{numpy_type}, not Python int.
+
+This is a type system boundary issue between NumPy and Python stdlib.
+
+QUICK FIX:
+  Before: timedelta(days=numpy_value)
+  After:  timedelta(days=int(numpy_value))
+  Better: pd.to_timedelta(numpy_value, unit='D')  # For pandas operations
+""".strip()
+
+        return ErrorContext(
+            original_error=error_message,
+            error_type=error_type,
+            enhanced_message=enhanced_message,
+            suggestions=suggestions,
+            relevant_docs="https://pandas.pydata.org/docs/reference/api/pandas.to_timedelta.html"
+        )
+
+    def _analyze_numpy_type_conversion_error(
+        self,
+        error_message: str,
+        error_type: str,
+        traceback: str,
+        code: str
+    ) -> Optional[ErrorContext]:
+        """
+        Analyze general numpy type conversion errors.
+
+        Detects errors where numpy types are used in contexts expecting Python types.
+        """
+        if error_type != "TypeError":
+            return None
+
+        # Check if numpy types are mentioned
+        if "numpy" not in error_message and "numpy" not in traceback:
+            return None
+
+        # Check for common type conversion issues
+        type_conversion_keywords = [
+            "unsupported type",
+            "cannot convert",
+            "expected",
+            "requires",
+            "invalid type"
+        ]
+
+        if not any(keyword in error_message.lower() for keyword in type_conversion_keywords):
+            return None
+
+        suggestions = [
+            "NUMPY TYPE CONVERSION ERROR",
+            "",
+            "Common causes:",
+            "1. NumPy types (int64, float64) used where Python types expected",
+            "2. Passing numpy scalars to Python built-in functions",
+            "3. Type mismatches in function arguments",
+            "",
+            "Solutions:",
+            "1. Convert numpy scalars to Python types:",
+            "   - Use .item(): numpy_value.item() → Python type",
+            "   - Use int/float/str: int(numpy_value)",
+            "",
+            "2. For pandas Series/DataFrame operations:",
+            "   - Use vectorized pandas methods instead of Python loops",
+            "   - Use .values.tolist() to convert to Python list",
+            "   - Use .astype() for type conversion within pandas",
+            "",
+            "3. Check function signatures:",
+            "   - Some functions only accept Python native types",
+            "   - Use type checking: type(value) to debug",
+            "",
+            "DETECTION PATTERN:",
+            "print(f'Type: {type(value)}')  # Check if numpy type",
+            "if isinstance(value, np.generic):",
+            "    value = value.item()  # Convert to Python type",
+        ]
+
+        enhanced_message = f"""
+NumPy Type Conversion Error: {error_message}
+
+NumPy types (numpy.int64, numpy.float64, etc.) are not always compatible
+with Python built-in functions that expect native Python types.
+
+Quick fix: Convert numpy types to Python types using .item() or int()/float()
+""".strip()
+
+        return ErrorContext(
+            original_error=error_message,
+            error_type=error_type,
+            enhanced_message=enhanced_message,
+            suggestions=suggestions,
+            relevant_docs="https://numpy.org/doc/stable/user/basics.types.html"
+        )
 
     def _analyze_numpy_shape_error(
         self,
