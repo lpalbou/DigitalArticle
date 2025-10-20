@@ -303,7 +303,7 @@ async def get_llm_status(notebook_id: Optional[str] = None):
         status_info = {
             "provider": llm_service.provider,
             "model": llm_service.model,
-            "status": "connected",
+            "status": "unknown",  # Will be updated after health check
             "max_tokens": None,
             "max_input_tokens": None,
             "max_output_tokens": None,
@@ -311,10 +311,21 @@ async def get_llm_status(notebook_id: Optional[str] = None):
             "active_context_tokens": None
         }
 
-        # Try to get token configuration from the LLM instance
+        # Check if LLM is properly initialized
         try:
             if hasattr(llm_service, 'llm') and llm_service.llm is not None:
                 llm = llm_service.llm
+
+                # Check if the LLM instance has the necessary attributes
+                if hasattr(llm, 'generate') and hasattr(llm, 'provider'):
+                    status_info["status"] = "connected"
+                    logger.debug("✅ LLM instance is properly initialized")
+                else:
+                    status_info["status"] = "error"
+                    status_info["error_message"] = "LLM instance missing required methods"
+                    logger.warning("❌ LLM instance missing required methods")
+
+                # Get token configuration
                 status_info["max_tokens"] = getattr(llm, 'max_tokens', None)
                 status_info["max_input_tokens"] = getattr(llm, 'max_input_tokens', None)
                 status_info["max_output_tokens"] = getattr(llm, 'max_output_tokens', None)
@@ -325,17 +336,31 @@ async def get_llm_status(notebook_id: Optional[str] = None):
                         status_info["token_summary"] = llm.get_token_configuration_summary()
                     except:
                         pass
-        except Exception as token_error:
-            logger.warning(f"Could not get token configuration: {token_error}")
+            else:
+                status_info["status"] = "error"
+                status_info["error_message"] = "LLM not initialized"
+                logger.warning("❌ LLM instance not initialized")
+        except Exception as init_error:
+            status_info["status"] = "error"
+            status_info["error_message"] = f"LLM initialization check failed: {str(init_error)}"
+            logger.error(f"❌ LLM status check failed: {init_error}")
 
         # Get ACTUAL context tokens from last generation (via AbstractCore response.usage)
         if notebook_id:
             try:
-                # Use TokenTracker to get real prompt_tokens from last generation
+                # First, try to get from token tracker (in-memory, current session)
                 actual_context_tokens = llm_service.token_tracker.get_current_context_tokens(notebook_id)
+
+                # If not available, try to get from persisted notebook data
+                if actual_context_tokens == 0:
+                    notebook = notebook_service.get_notebook(notebook_id)
+                    if notebook and hasattr(notebook, 'last_context_tokens') and notebook.last_context_tokens > 0:
+                        actual_context_tokens = notebook.last_context_tokens
+                        logger.info(f"📊 Using persisted context tokens for notebook {notebook_id}: {actual_context_tokens}")
+
                 if actual_context_tokens > 0:
                     status_info["active_context_tokens"] = actual_context_tokens
-                    logger.info(f"📊 Active context for notebook {notebook_id}: {actual_context_tokens} tokens (from AbstractCore)")
+                    logger.info(f"📊 Active context for notebook {notebook_id}: {actual_context_tokens} tokens")
             except Exception as context_error:
                 logger.warning(f"Could not get context tokens: {context_error}")
 

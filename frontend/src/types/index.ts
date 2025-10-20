@@ -84,7 +84,7 @@ export interface Notebook {
   cells: Cell[]
   created_at: string
   updated_at: string
-  
+
   // Additional properties expected by components
   description: string
   author: string
@@ -93,6 +93,7 @@ export interface Notebook {
   metadata: Record<string, any>
   llm_model: string
   llm_provider: string
+  last_context_tokens?: number  // Last known context size from generation
 }
 
 // API Request types

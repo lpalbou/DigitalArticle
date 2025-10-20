@@ -53,30 +53,31 @@ class LLMService:
         """Initialize the LLM client."""
         try:
             self.llm = create_llm(self.provider, model=self.model)
-            logger.info(f"Initialized LLM: {self.provider}/{self.model}")
+            logger.info(f"✅ Initialized LLM: {self.provider}/{self.model}")
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
-            logger.error(f"Failed to initialize LLM: {e}")
-            raise LLMError(f"LLM initialization failed: {e}")
+            logger.error(f"❌ Failed to initialize LLM: {e}")
+            self.llm = None  # Keep service alive but mark LLM as unavailable
+            # Don't raise - allow service to exist in degraded state
         except Exception as e:
-            logger.error(f"Unexpected error initializing LLM: {e}")
-            raise LLMError(f"Unexpected LLM initialization error: {e}")
+            logger.error(f"❌ Unexpected error initializing LLM: {e}")
+            self.llm = None  # Keep service alive but mark LLM as unavailable
     
     def generate_code_from_prompt(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> str:
         """
         Convert a natural language prompt to Python code.
-        
+
         Args:
             prompt: Natural language description of the desired analysis
             context: Additional context information (variables, data info, etc.)
-            
+
         Returns:
             Generated Python code as a string
-            
+
         Raises:
             LLMError: If code generation fails
         """
         if not self.llm:
-            raise LLMError("LLM not initialized")
+            raise LLMError(f"LLM provider '{self.provider}' is not available. Please check that {self.provider} is running and accessible.")
         
         # Build the system prompt for code generation
         system_prompt = self._build_system_prompt(context)

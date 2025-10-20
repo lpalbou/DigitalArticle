@@ -7,6 +7,7 @@ import NotebookCell from './NotebookCell'
 import PDFGenerationModal from './PDFGenerationModal'
 import LLMStatusFooter from './LLMStatusFooter'
 import LLMSettingsModal from './LLMSettingsModal'
+import Toast, { ToastType } from './Toast'
 import { notebookAPI, cellAPI, llmAPI, handleAPIError, downloadFile, getCurrentUser } from '../services/api'
 import { 
   Notebook, 
@@ -39,7 +40,7 @@ const NotebookContainer: React.FC = () => {
   const [notebook, setNotebook] = useState<Notebook | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null)
   const [executingCells, setExecutingCells] = useState<Set<string>>(new Set())
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [, setContextFiles] = useState<FileInfo[]>([])
@@ -153,19 +154,18 @@ const NotebookContainer: React.FC = () => {
       })
       
       setHasUnsavedChanges(false)
-      console.log('Notebook saved successfully')
-      
-      // Show success message briefly
+      console.log('Digital Article saved successfully')
+
+      // Show success toast
       setError(null)
-      setSuccessMessage('Notebook saved successfully!')
-      setTimeout(() => {
-        setSuccessMessage(null)
-      }, 3000)
+      setToast({
+        message: `Digital Article "${notebook.title}" has been saved`,
+        type: 'success'
+      })
     } catch (err) {
       const apiError = handleAPIError(err)
       console.error('Failed to save notebook:', apiError.message)
       setError(`Save failed: ${apiError.message}`)
-      setSuccessMessage(null)
     }
   }, [notebook])
 
@@ -175,16 +175,15 @@ const NotebookContainer: React.FC = () => {
     try {
       const jsonContent = await notebookAPI.export(notebook.id, 'json')
       downloadFile(jsonContent, `${notebook.title}.json`, 'application/json')
-      
+
       setError(null)
-      setSuccessMessage('Notebook exported as JSON successfully!')
-      setTimeout(() => {
-        setSuccessMessage(null)
-      }, 3000)
+      setToast({
+        message: `Digital Article "${notebook.title}" exported as JSON successfully`,
+        type: 'success'
+      })
     } catch (err) {
       const apiError = handleAPIError(err)
       setError(`Export failed: ${apiError.message}`)
-      setSuccessMessage(null)
     }
   }, [notebook])
 
@@ -219,17 +218,18 @@ const NotebookContainer: React.FC = () => {
       link.click()
       document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
-      
-      setSuccessMessage(`Scientific PDF generated successfully${includeCode ? ' (with code)' : ''}!`)
+
+      setToast({
+        message: `Scientific PDF generated successfully${includeCode ? ' (with code)' : ''}`,
+        type: 'success'
+      })
       setTimeout(() => {
-        setSuccessMessage(null)
         setIsGeneratingPDF(false)
       }, 2000)
-      
+
     } catch (err) {
       const apiError = handleAPIError(err)
       setError(`PDF generation failed: ${apiError.message}`)
-      setSuccessMessage(null)
       setIsGeneratingPDF(false)
     }
   }, [notebook])
@@ -534,13 +534,13 @@ const NotebookContainer: React.FC = () => {
       <div className="pt-16 pb-16">
         {/* Files in Context Panel - constrained to same width as notebook */}
         <div className="max-w-6xl mx-auto">
-          <FileContextPanel 
+          <FileContextPanel
             notebookId={notebook?.id}
             onFilesChange={setContextFiles}
             refreshTrigger={fileRefreshTrigger}
           />
         </div>
-      
+
       <div className="max-w-6xl mx-auto">
 
       {/* Error Display */}
@@ -560,21 +560,13 @@ const NotebookContainer: React.FC = () => {
         </div>
       )}
 
-      {/* Success Display */}
-      {successMessage && (
-        <div className="success-message mb-4">
-          <div className="flex items-center space-x-2 mb-2">
-            <Check className="h-5 w-5" />
-            <span className="font-medium">Success</span>
-          </div>
-          <p>{successMessage}</p>
-          <button
-            onClick={() => setSuccessMessage(null)}
-            className="mt-2 text-sm text-green-700 underline"
-          >
-            Dismiss
-          </button>
-        </div>
+      {/* Toast Notification */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
       )}
 
       {/* Digital Article Metadata */}

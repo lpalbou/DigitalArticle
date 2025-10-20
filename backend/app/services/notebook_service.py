@@ -507,7 +507,16 @@ print("LLM service is currently unavailable, using fallback code.")
                         cell.code = generated_code
                         cell.updated_at = datetime.now()
                         logger.info(f"Successfully generated {len(generated_code)} characters of code")
-                        
+
+                        # Update notebook's last context tokens from the generation
+                        try:
+                            last_ctx = self.llm_service.token_tracker.get_current_context_tokens(str(notebook.id))
+                            if last_ctx > 0:
+                                notebook.last_context_tokens = last_ctx
+                                logger.info(f"📊 Updated notebook last_context_tokens: {last_ctx}")
+                        except Exception as token_err:
+                            logger.warning(f"Could not update last_context_tokens: {token_err}")
+
                     except Exception as e:
                         logger.error(f"LLM code generation failed: {e}")
                         import traceback

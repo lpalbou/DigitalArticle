@@ -122,7 +122,10 @@ class Notebook(BaseModel):
     # Configuration
     llm_model: str = "qwen/qwen3-next-80b"
     llm_provider: str = "lmstudio"
-    
+
+    # Token tracking
+    last_context_tokens: int = 0  # Last known context size from generation
+
     class Config:
         """Pydantic configuration."""
         json_encoders = {

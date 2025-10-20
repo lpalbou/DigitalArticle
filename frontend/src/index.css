@@ -180,6 +180,22 @@
     }
   }
 
+  /* Toast notification animation */
+  .animate-slide-in-right {
+    animation: slideInRight 0.3s ease-out;
+  }
+
+  @keyframes slideInRight {
+    from {
+      opacity: 0;
+      transform: translateX(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
   /* Enhanced button styles for edit mode */
   .edit-action-button {
     @apply transition-all duration-200 transform hover:scale-105 active:scale-95;

@@ -21,7 +21,7 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ onSettingsClick, note
   const [loading, setLoading] = useState(true)
 
   const fetchStatus = async () => {
-    try:
+    try {
       const statusData = await llmAPI.getStatus(notebookId)
       setStatus(statusData)
       setLoading(false)
@@ -78,10 +78,14 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ onSettingsClick, note
     }
   }
 
-  const getStatusIcon = () => {
-    if (loading) return <Activity className="h-3.5 w-3.5 animate-spin" />
-    if (status?.status === 'error') return <AlertCircle className="h-3.5 w-3.5" />
-    return <Activity className="h-3.5 w-3.5" />
+  const getStatusDot = () => {
+    if (loading) {
+      return <div className="h-2.5 w-2.5 rounded-full bg-yellow-500 animate-pulse" />
+    }
+    if (status?.status === 'connected') {
+      return <div className="h-2.5 w-2.5 rounded-full bg-green-500" />
+    }
+    return <div className="h-2.5 w-2.5 rounded-full bg-red-500" />
   }
 
   const getContextUsageColor = (): string => {
@@ -97,17 +101,12 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ onSettingsClick, note
       <div className="container mx-auto px-4 py-2">
         <div className="flex items-center justify-between">
           {/* Left: Status Info */}
-          <div className="flex items-center space-x-4 text-xs">
-            <div className={`flex items-center space-x-1.5 ${getStatusColor(status?.status || 'unknown')}`}>
-              {getStatusIcon()}
-              <span className="font-medium">
-                {loading ? 'Loading...' : status?.status === 'connected' ? 'Connected' : 'Error'}
-              </span>
-            </div>
+          <div className="flex items-center space-x-3 text-xs">
+            {/* Connection status dot */}
+            {getStatusDot()}
 
             {!loading && status && (
               <>
-                <div className="text-gray-400">|</div>
                 <div className="flex items-center space-x-1.5">
                   <span className="text-gray-500">Provider:</span>
                   <span className="font-semibold text-gray-700">
@@ -117,34 +116,24 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ onSettingsClick, note
 
                 <div className="text-gray-400">|</div>
                 <div className="flex items-center space-x-1.5">
-                  <span className="text-gray-500">Model:</span>
                   <span className="font-semibold text-gray-700">
                     {status.model}
                   </span>
+                  <span className="text-gray-400">|</span>
+                  {status.active_context_tokens !== null && status.active_context_tokens !== undefined && status.active_context_tokens > 0 ? (
+                    <span className={`font-medium ${getContextUsageColor()}`}>
+                      {formatTokens(status.active_context_tokens)}{status.max_tokens ? ` / ${formatTokens(status.max_tokens)}` : ''}
+                    </span>
+                  ) : status.max_tokens ? (
+                    <span className="font-medium text-blue-600">
+                      0 / {formatTokens(status.max_tokens)}
+                    </span>
+                  ) : (
+                    <span className="font-medium text-gray-500">
+                      No tokens yet
+                    </span>
+                  )}
                 </div>
-
-                {status.max_tokens && (
-                  <>
-                    <div className="text-gray-400">|</div>
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-gray-500">Context:</span>
-                      {status.active_context_tokens !== null && status.active_context_tokens !== undefined ? (
-                        <span className={`font-semibold ${getContextUsageColor()}`}>
-                          {formatTokens(status.active_context_tokens)} / {formatTokens(status.max_tokens)}
-                        </span>
-                      ) : (
-                        <span className="font-semibold text-blue-600">
-                          {formatTokens(status.max_tokens)}
-                        </span>
-                      )}
-                      {status.max_output_tokens && (
-                        <span className="text-gray-500 text-xs">
-                          (out: {formatTokens(status.max_output_tokens)})
-                        </span>
-                      )}
-                    </div>
-                  </>
-                )}
 
                 {status.error_message && (
                   <>
