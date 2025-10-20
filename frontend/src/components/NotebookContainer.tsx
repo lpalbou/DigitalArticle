@@ -5,7 +5,9 @@ import Header from './Header'
 import FileContextPanel from './FileContextPanel'
 import NotebookCell from './NotebookCell'
 import PDFGenerationModal from './PDFGenerationModal'
-import { notebookAPI, cellAPI, handleAPIError, downloadFile, getCurrentUser } from '../services/api'
+import LLMStatusFooter from './LLMStatusFooter'
+import LLMSettingsModal from './LLMSettingsModal'
+import { notebookAPI, cellAPI, llmAPI, handleAPIError, downloadFile, getCurrentUser } from '../services/api'
 import { 
   Notebook, 
   Cell, 
@@ -50,6 +52,9 @@ const NotebookContainer: React.FC = () => {
   // PDF generation state
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
   const [pdfGenerationStage, setPdfGenerationStage] = useState<'analyzing' | 'generating_content' | 'creating_pdf' | 'complete'>('analyzing')
+
+  // LLM settings modal state
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
 
   // Load notebook on component mount or ID change
   useEffect(() => {
@@ -98,19 +103,34 @@ const NotebookContainer: React.FC = () => {
     setError(null)
 
     try {
-      // Get the current user from the system
+      // Get the current user
       const currentUser = await getCurrentUser()
-      
+
+      // Try to get global LLM config, use defaults if it fails
+      let llmProvider = 'lmstudio'
+      let llmModel = 'qwen/qwen3-next-80b'
+
+      try {
+        const llmConfig = await llmAPI.getConfig()
+        llmProvider = llmConfig.provider
+        llmModel = llmConfig.model
+      } catch (configError) {
+        console.warn('Failed to fetch LLM config, using defaults:', configError)
+        // Continue with defaults - don't fail notebook creation
+      }
+
       const request: NotebookCreateRequest = {
         title: 'Untitled Digital Article',
         description: 'A new digital article',
-        author: currentUser
+        author: currentUser,
+        llm_provider: llmProvider,
+        llm_model: llmModel
       }
-      
+
       const newNotebook = await notebookAPI.create(request)
       setNotebook(newNotebook)
       setHasUnsavedChanges(false)
-      
+
       // Navigate to the new notebook URL
       navigate(`/notebook/${newNotebook.id}`, { replace: true })
     } catch (err) {
@@ -510,8 +530,8 @@ const NotebookContainer: React.FC = () => {
         stage={pdfGenerationStage}
       />
 
-      {/* Content with top padding to account for fixed header */}
-      <div className="pt-16">
+      {/* Content with top padding for header and bottom padding for footer */}
+      <div className="pt-16 pb-16">
         {/* Files in Context Panel - constrained to same width as notebook */}
         <div className="max-w-6xl mx-auto">
           <FileContextPanel 
@@ -711,6 +731,17 @@ const NotebookContainer: React.FC = () => {
       </div>
       </div>
       </div>
+
+      {/* LLM Status Footer */}
+      <LLMStatusFooter onSettingsClick={() => setShowSettingsModal(true)} />
+
+      {/* LLM Settings Modal */}
+      {showSettingsModal && (
+        <LLMSettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+        />
+      )}
     </>
   )
 }

@@ -87,6 +87,28 @@ Then open [http://localhost:3000](http://localhost:3000)
 
 **Full setup guide**: See [Getting Started](docs/getting-started.md)
 
+## LLM Configuration
+
+Digital Article requires an LLM provider to generate code from prompts. The system provides flexible configuration options:
+
+### Global Configuration
+- Click the **Settings** button in the header to select your provider and model
+- Changes persist across sessions and apply to all new notebooks
+- Configuration is saved to `config.json` in the project root
+
+### Per-Notebook Configuration
+- Each notebook can use a different provider/model if needed
+- New notebooks automatically inherit the global configuration
+- Notebook-specific settings override global defaults during execution
+
+### Visual Feedback
+- The **status footer** at the bottom shows the current provider, model, and context size
+- Real-time updates when configuration changes
+- Click the footer's **Settings** button for quick access to configuration
+
+### Remote Access
+All configuration works seamlessly when accessing Digital Article from remote machines (e.g., `http://server-ip:3000`). The settings modal and status footer use relative API paths for proper remote connectivity.
+
 ## Example Usage
 
 ### Simple Analysis

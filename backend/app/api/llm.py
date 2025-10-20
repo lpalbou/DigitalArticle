@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 from ..services.shared import notebook_service
-from ..config import config
+from ..config import config, CONFIG_FILE
 from abstractcore import create_llm, ModelNotFoundError, ProviderAPIError, AuthenticationError
 import logging
 
@@ -255,3 +255,80 @@ async def select_provider(request: ProviderSelectionRequest):
             status_code=400,
             detail=f"Failed to configure provider: {str(e)}"
         )
+
+
+@router.get("/config")
+async def get_current_config():
+    """
+    Get the current global LLM configuration.
+
+    Returns the currently configured provider and model from global config.
+    """
+    try:
+        provider = config.get_llm_provider()
+        model = config.get_llm_model()
+
+        return {
+            "provider": provider,
+            "model": model,
+            "config_file": str(CONFIG_FILE)
+        }
+    except Exception as e:
+        logger.error(f"❌ Failed to get LLM config: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get LLM config: {str(e)}"
+        )
+
+
+@router.get("/status")
+async def get_llm_status():
+    """
+    Get detailed status of the currently active LLM including token configuration.
+
+    Returns provider, model, context size, and connection status.
+    """
+    try:
+        llm_service = notebook_service.llm_service
+
+        # Get token configuration from the LLM instance
+        status_info = {
+            "provider": llm_service.provider,
+            "model": llm_service.model,
+            "status": "connected",
+            "max_tokens": None,
+            "max_input_tokens": None,
+            "max_output_tokens": None,
+            "token_summary": None
+        }
+
+        # Try to get token configuration from the LLM instance
+        try:
+            if hasattr(llm_service, 'llm') and llm_service.llm is not None:
+                llm = llm_service.llm
+                status_info["max_tokens"] = getattr(llm, 'max_tokens', None)
+                status_info["max_input_tokens"] = getattr(llm, 'max_input_tokens', None)
+                status_info["max_output_tokens"] = getattr(llm, 'max_output_tokens', None)
+
+                # Get formatted token summary if available
+                if hasattr(llm, 'get_token_configuration_summary'):
+                    try:
+                        status_info["token_summary"] = llm.get_token_configuration_summary()
+                    except:
+                        pass
+        except Exception as token_error:
+            logger.warning(f"Could not get token configuration: {token_error}")
+
+        return status_info
+
+    except Exception as e:
+        logger.error(f"❌ Failed to get LLM status: {e}")
+        return {
+            "provider": config.get_llm_provider(),
+            "model": config.get_llm_model(),
+            "status": "error",
+            "error_message": str(e),
+            "max_tokens": None,
+            "max_input_tokens": None,
+            "max_output_tokens": None
+        }

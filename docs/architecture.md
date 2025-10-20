@@ -143,6 +143,30 @@ Digital Article is a full-stack web application that transforms conventional com
 3. Creating PDF document
 4. Complete
 
+##### LLMStatusFooter (`frontend/src/components/LLMStatusFooter.tsx`)
+**Responsibility**: Real-time visual feedback of current LLM configuration
+
+**Features**:
+- Fixed position footer at bottom of screen
+- Displays provider, model, and context window information from AbstractCore
+- Real-time status updates (Connected, Error, Loading)
+- Token configuration display (max_tokens, max_output_tokens)
+- Formatted token sizes (e.g., "32k", "8M")
+- Click to open LLMSettingsModal
+- Auto-refresh every 30 seconds
+- Works seamlessly with remote access (uses relative API paths)
+
+**Data Flow**:
+- Fetches status from `GET /api/llm/status` on mount
+- Polls endpoint every 30 seconds for updates
+- Displays connection errors gracefully
+- Updates immediately when global config changes
+
+**Integration**:
+- Rendered in NotebookContainer
+- Bottom padding added to main content to prevent overlap
+- Settings button callback opens LLMSettingsModal
+
 #### API Client (`frontend/src/services/api.ts`)
 
 **Design**: Modular API client with separated concerns
@@ -150,7 +174,9 @@ Digital Article is a full-stack web application that transforms conventional com
 **Modules**:
 - `notebookAPI` - CRUD operations for notebooks
 - `cellAPI` - Cell management and execution
-- `llmAPI` - Direct LLM interactions
+- `llmAPI` - Direct LLM interactions (code generation, configuration, status)
+  - **New methods**: `getConfig()` - fetch global LLM configuration
+  - **Enhanced**: `getStatus()` - now returns detailed token configuration from AbstractCore
 - `filesAPI` - File management
 
 **Error Handling**: Centralized `handleAPIError()` with structured error extraction
@@ -439,6 +465,37 @@ GET    /api/files/{nb_id}/content?file_path={path}  # Get file content
 POST   /api/files/{nb_id}/upload  # Upload file (multipart/form-data)
 DELETE /api/files/{nb_id}/{filename}  # Delete file
 ```
+
+##### LLM API (`backend/app/api/llm.py`)
+```python
+POST   /api/llm/generate-code    # Generate code from prompt
+POST   /api/llm/explain-code     # Explain code functionality
+POST   /api/llm/improve-code     # Improve/fix code
+
+# Configuration Management
+GET    /api/llm/config           # Get current global LLM configuration
+GET    /api/llm/status           # Get detailed LLM status (provider, model, tokens)
+GET    /api/llm/providers        # List all available providers with models
+POST   /api/llm/providers/select # Select and save provider/model configuration
+```
+
+**New Configuration Endpoints** (added for improved persistence):
+
+- **GET /api/llm/config**: Returns the current global configuration from `config.json`
+  - Response: `{ provider: string, model: string, config_file: string }`
+  - Used by frontend when creating new notebooks to inherit global settings
+
+- **GET /api/llm/status**: Returns detailed status including AbstractCore token configuration
+  - Response: `{ provider, model, status, max_tokens, max_input_tokens, max_output_tokens, token_summary }`
+  - Powers the LLMStatusFooter component for real-time visual feedback
+  - Includes connection status and error messages
+
+**Configuration Flow**:
+1. User selects provider/model in LLMSettingsModal
+2. POST to `/providers/select` saves to `config.json` and reinitializes global LLMService
+3. NotebookContainer fetches config via `/config` when creating new notebooks
+4. New notebooks inherit global provider/model automatically
+5. LLMStatusFooter polls `/status` for real-time display updates
 
 ## Data Flow
 

@@ -169,9 +169,24 @@ export const llmAPI = {
     return response.data
   },
 
-  // Get LLM status
-  getStatus: async (): Promise<{ provider: string; model: string; status: string }> => {
-    const response: AxiosResponse<{ provider: string; model: string; status: string }> = await api.get('/llm/status')
+  // Get current global LLM configuration
+  getConfig: async (): Promise<{ provider: string; model: string; config_file: string }> => {
+    const response = await api.get('/llm/config')
+    return response.data
+  },
+
+  // Get LLM status with token configuration
+  getStatus: async (): Promise<{
+    provider: string;
+    model: string;
+    status: string;
+    max_tokens: number | null;
+    max_input_tokens: number | null;
+    max_output_tokens: number | null;
+    token_summary?: string;
+    error_message?: string;
+  }> => {
+    const response = await api.get('/llm/status')
     return response.data
   },
 }

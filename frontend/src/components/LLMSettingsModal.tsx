@@ -33,7 +33,7 @@ const LLMSettingsModal: React.FC<LLMSettingsModalProps> = ({ isOpen, onClose }) 
   const fetchProviders = async () => {
     try {
       setLoading(true)
-      const response = await axios.get<Provider[]>('http://localhost:8000/api/llm/providers')
+      const response = await axios.get<Provider[]>('/api/llm/providers')
       setProviders(response.data)
 
       // Implement cascading fallback logic
@@ -101,7 +101,7 @@ const LLMSettingsModal: React.FC<LLMSettingsModalProps> = ({ isOpen, onClose }) 
 
     try {
       setSaving(true)
-      await axios.post('http://localhost:8000/api/llm/providers/select', {
+      await axios.post('/api/llm/providers/select', {
         provider: selectedProvider,
         model: selectedModel
       })

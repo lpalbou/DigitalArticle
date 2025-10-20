@@ -217,6 +217,53 @@ You should see the Digital Article interface with a new empty notebook.
 - Backend uses port 8000 (standard for FastAPI)
 - Vite proxies API requests from `/api/*` to `http://localhost:8000/api/*`
 
+## Configuring Your LLM Provider
+
+Before creating your first analysis, you should configure your LLM provider. Digital Article provides flexible configuration with visual feedback.
+
+### Global LLM Configuration
+
+1. Click the **Settings** button in the top header (or the **Settings** link in the status footer at the bottom)
+2. The settings modal will show all available providers (LMStudio, Ollama, Anthropic, OpenAI, etc.)
+3. Select your preferred provider and model
+4. Click **Save Settings**
+
+**What happens when you save:**
+- Configuration is saved to `config.json` in the project root
+- The global LLMService is reinitialized with your selection
+- All new notebooks will use this provider/model by default
+- The status footer immediately updates to show the new configuration
+
+### LLM Status Footer
+
+At the bottom of every page, you'll see a status footer showing:
+- **Connection status**: Connected, Error, or Loading
+- **Provider**: The currently active LLM provider (e.g., "LM Studio", "Ollama")
+- **Model**: The current model name (e.g., "qwen3-next-80b")
+- **Context size**: Total context window (e.g., "32k context")
+- **Output tokens**: Maximum output allocation (e.g., "out: 8k")
+
+Click anywhere on the footer to quickly open the settings modal.
+
+### Per-Notebook Configuration
+
+Each notebook stores its own LLM configuration, which it inherits from the global config when created:
+- When you create a new notebook, it automatically uses the current global provider/model
+- If you change the global config later, existing notebooks keep their original settings
+- This allows different analyses to use different models if needed
+
+**Why this matters**: You can run heavy analyses with a powerful model, then create new notebooks with a faster model for simpler tasks.
+
+### Remote Access Configuration
+
+Digital Article fully supports remote access. When accessing from a remote machine (e.g., `http://192.168.1.100:3000`):
+- All configuration works seamlessly
+- Settings modal uses relative API paths (no hardcoded localhost)
+- Status footer updates in real-time
+- Provider detection works from the server, not the client
+
+**Important for Remote LLM Providers**: If you're using a local provider (LMStudio, Ollama) on the server, configure the server IP/hostname in the backend's LLM service settings.
+
 ## Your First Analysis
 
 Let's perform a simple gene expression analysis using the included sample data.
