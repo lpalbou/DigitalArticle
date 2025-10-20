@@ -350,8 +350,16 @@ class ExecutionService:
                         # Convert DataFrame to dictionary format with numpy-safe serialization
                         def make_json_serializable(obj):
                             """Convert numpy types to Python native types for JSON serialization."""
-                            if hasattr(obj, 'dtype'):
-                                # Handle numpy arrays and scalars
+                            # Import numpy locally to handle the conversion
+                            import numpy as np
+
+                            # Handle numpy scalar types (int64, float64, etc.)
+                            if isinstance(obj, (np.integer, np.floating)):
+                                return obj.item()  # Convert to Python native type
+                            elif isinstance(obj, np.ndarray):
+                                return obj.tolist()
+                            elif hasattr(obj, 'dtype'):
+                                # Fallback for other numpy types
                                 if hasattr(obj, 'tolist'):
                                     return obj.tolist()
                                 elif hasattr(obj, 'item'):
@@ -359,24 +367,25 @@ class ExecutionService:
                             elif isinstance(obj, dict):
                                 return {k: make_json_serializable(v) for k, v in obj.items()}
                             elif isinstance(obj, (list, tuple)):
-                                return [make_json_serializable(item) for item in obj]
+                                return type(obj)([make_json_serializable(item) for item in obj])
                             return obj
-                        
+
                         # Safely convert DataFrame data
                         safe_data = []
                         for record in obj.to_dict('records'):
                             safe_record = make_json_serializable(record)
                             safe_data.append(safe_record)
-                        
+
+                        # Use make_json_serializable for all potentially-numpy data
                         table_data = {
                             'name': name,
-                            'shape': list(obj.shape),  # Convert to list for JSON serialization
+                            'shape': make_json_serializable(obj.shape),  # Handles any numpy types in shape
                             'columns': obj.columns.tolist(),
                             'data': safe_data,
                             'html': obj.to_html(classes='table table-striped'),
                             'info': {
                                 'dtypes': {col: str(dtype) for col, dtype in obj.dtypes.to_dict().items()},
-                                'memory_usage': {col: int(usage) for col, usage in obj.memory_usage(deep=True).to_dict().items()}
+                                'memory_usage': make_json_serializable(obj.memory_usage(deep=True).to_dict())
                             }
                         }
                         tables.append(table_data)

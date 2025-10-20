@@ -129,7 +129,23 @@ All development follows these principles:
 - [ ] Lazy load Monaco Editor and Plotly
 - [ ] Add loading skeletons for better perceived performance
 
-#### 1.8 Accessibility Improvements
+#### 1.8 Cell Dependency Management & Intelligent Updates
+**Status**: 🔴 Not Started
+**Complexity**: High
+**Impact**: Medium
+
+**Tasks**:
+- [ ] Implement cell dependency tracking (variable usage, data flow)
+- [ ] Enable editing of previous cells with automatic invalidation of dependent cells
+- [ ] Preserve code content in invalidated cells while marking them as stale
+- [ ] Add LLM-powered analysis to suggest code adjustments in dependent cells
+- [ ] Implement smart input data adaptation when upstream changes affect data structures
+- [ ] Add visual indicators for cell dependencies and invalidation status
+- [ ] Provide "propagate changes" workflow to update dependent cells systematically
+
+**User Story**: *"When I modify an earlier cell, I want the system to intelligently help me update dependent cells while preserving my work"*
+
+#### 1.9 Accessibility Improvements
 **Status**: 🔴 Not Started
 **Complexity**: Low
 **Impact**: Low (current), High (long-term)
