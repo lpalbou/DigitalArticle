@@ -19,17 +19,27 @@ logger = logging.getLogger(__name__)
 
 class LLMService:
     """Service for LLM-powered prompt to code conversion."""
-    
-    def __init__(self, provider: str = "lmstudio", model: str = "qwen/qwen3-next-80b"):
+
+    def __init__(self, provider: Optional[str] = None, model: Optional[str] = None):
         """
         Initialize the LLM service.
-        
+
+        If provider/model not specified, will load from project config.
+
         Args:
-            provider: LLM provider name (default: lmstudio)
-            model: Model name (default: qwen/qwen3-next-80b)
+            provider: LLM provider name (optional, will load from config if not provided)
+            model: Model name (optional, will load from config if not provided)
         """
-        self.provider = provider
-        self.model = model
+        # Load from config if not provided
+        if provider is None or model is None:
+            from ..config import config
+            self.provider = provider or config.get_llm_provider()
+            self.model = model or config.get_llm_model()
+            logger.info(f"Loaded LLM config from file: {self.provider}/{self.model}")
+        else:
+            self.provider = provider
+            self.model = model
+
         self.llm = None
         self._initialize_llm()
     
@@ -275,21 +285,30 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
             logger.error(f"Code explanation failed: {e}")
             raise LLMError(f"Failed to explain code: {e}")
     
-    def suggest_improvements(self, prompt: str, code: str, error_message: Optional[str] = None) -> str:
+    def suggest_improvements(
+        self,
+        prompt: str,
+        code: str,
+        error_message: Optional[str] = None,
+        error_type: Optional[str] = None,
+        traceback: Optional[str] = None
+    ) -> str:
         """
         Suggest improvements or fixes for generated code.
-        
+
         Args:
             prompt: Original natural language prompt
             code: Generated code that needs improvement
             error_message: Error message if code failed to execute
-            
+            error_type: Exception type (e.g., "ValueError")
+            traceback: Full Python traceback
+
         Returns:
             Improved Python code
         """
         if not self.llm:
             raise LLMError("LLM not initialized")
-        
+
         improvement_prompt = f"""The following code was generated for this request: "{prompt}"
 
 ```python
@@ -297,12 +316,22 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
 ```"""
 
         if error_message:
-            improvement_prompt += f"\n\nBut it failed with this error:\n{error_message}\n\nFix the code to resolve this error."
+            # Use error analyzer to provide enhanced context
+            enhanced_error = self._enhance_error_context(
+                error_message,
+                error_type or "Unknown",
+                traceback or "",
+                code
+            )
+
+            improvement_prompt += f"\n\nBut it failed with this error:\n\n{enhanced_error}\n\nFix the code to resolve this error."
+
+            logger.info("Enhanced error context provided to LLM for auto-retry")
         else:
             improvement_prompt += "\n\nImprove this code to be more robust, efficient, and user-friendly."
-        
+
         improvement_prompt += "\n\nGenerate the improved Python code:"
-        
+
         try:
             response = self.llm.generate(
                 improvement_prompt,
@@ -310,15 +339,53 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
                 max_tokens=2000,
                 temperature=0.1
             )
-            
+
             return self._extract_code_from_response(response.content)
-            
+
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
             logger.error(f"LLM API error during code improvement: {e}")
             raise LLMError(f"LLM API error: {e}")
         except Exception as e:
             logger.error(f"Code improvement failed: {e}")
             raise LLMError(f"Failed to improve code: {e}")
+
+    def _enhance_error_context(
+        self,
+        error_message: str,
+        error_type: str,
+        traceback: str,
+        code: str
+    ) -> str:
+        """
+        Enhance error message with domain-specific guidance.
+
+        Uses ErrorAnalyzer to provide targeted, helpful context that helps
+        the LLM fix errors more effectively during auto-retry cycles.
+
+        Args:
+            error_message: Original error message
+            error_type: Exception type
+            traceback: Full Python traceback
+            code: Code that caused the error
+
+        Returns:
+            Enhanced error message with guidance
+        """
+        try:
+            from .error_analyzer import ErrorAnalyzer
+
+            analyzer = ErrorAnalyzer()
+            context = analyzer.analyze_error(error_message, error_type, traceback, code)
+            formatted = analyzer.format_for_llm(context)
+
+            logger.info(f"Error enhanced with {len(context.suggestions)} suggestions")
+
+            return formatted
+
+        except Exception as e:
+            logger.warning(f"Error analysis failed, using original error: {e}")
+            # Fallback to original error message if analysis fails
+            return f"{error_type}: {error_message}\n\nTraceback:\n{traceback}"
     
     def generate_scientific_explanation(self, prompt: str, code: str, execution_result: Dict[str, Any]) -> str:
         """

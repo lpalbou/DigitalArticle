@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BookOpen, Plus, Save, Download, AlertTriangle, ChevronDown } from 'lucide-react'
+import { BookOpen, Plus, Save, Download, AlertTriangle, ChevronDown, Settings } from 'lucide-react'
+import LLMSettingsModal from './LLMSettingsModal'
 
 interface HeaderProps {
   onNewNotebook?: () => void
@@ -19,6 +20,7 @@ const Header: React.FC<HeaderProps> = ({
 }) => {
   const [showConfirmModal, setShowConfirmModal] = useState(false)
   const [showExportDropdown, setShowExportDropdown] = useState(false)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
 
   const handleNewNotebook = () => {
     setShowConfirmModal(true)
@@ -48,6 +50,15 @@ const Header: React.FC<HeaderProps> = ({
 
             {/* Action Buttons */}
             <div className="flex items-center space-x-3">
+              <button
+                onClick={() => setShowSettingsModal(true)}
+                className="btn btn-secondary flex items-center space-x-2"
+                title="LLM Provider Settings"
+              >
+                <Settings className="h-4 w-4" />
+                <span>Settings</span>
+              </button>
+
               <button
                 onClick={handleNewNotebook}
                 className="btn btn-danger flex items-center space-x-2"
@@ -123,6 +134,14 @@ const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
       </header>
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <LLMSettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+        />
+      )}
 
       {/* Confirmation Modal */}
       {showConfirmModal && (

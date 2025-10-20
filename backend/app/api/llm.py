@@ -2,13 +2,19 @@
 API endpoints for LLM operations.
 
 This module provides REST endpoints for LLM-related functionality
-such as code generation and explanation.
+such as code generation, explanation, and provider management.
 """
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
+from typing import List, Optional
 
 from ..services.shared import notebook_service
+from ..config import config
+from abstractcore import create_llm, ModelNotFoundError, ProviderAPIError, AuthenticationError
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -93,4 +99,159 @@ async def get_llm_status():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get LLM status: {str(e)}"
+        )
+
+
+class ProviderInfo(BaseModel):
+    """Information about an LLM provider."""
+    name: str
+    display_name: str
+    available: bool
+    error: Optional[str] = None
+    default_model: Optional[str] = None
+    models: List[str] = []
+
+
+class ProviderSelectionRequest(BaseModel):
+    """Request to set provider and model."""
+    provider: str
+    model: str
+
+
+@router.get("/providers", response_model=List[ProviderInfo])
+async def get_available_providers():
+    """
+    Get list of available LLM providers with their status and available models.
+
+    Returns:
+        List of providers with availability status
+    """
+    providers_to_check = [
+        {"name": "lmstudio", "display_name": "LM Studio", "default": "qwen/qwen3-next-80b"},
+        {"name": "ollama", "display_name": "Ollama", "default": "qwen3-coder:30b"},
+        {"name": "anthropic", "display_name": "Anthropic (Claude)", "default": "claude-3-5-haiku-latest"},
+        {"name": "openai", "display_name": "OpenAI (GPT)", "default": "gpt-4o-mini"},
+        {"name": "mlx", "display_name": "MLX (Apple Silicon)", "default": "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit"},
+    ]
+
+    results = []
+
+    for provider_info in providers_to_check:
+        provider_name = provider_info["name"]
+        default_model = provider_info["default"]
+
+        try:
+            # Try to create an LLM instance with the default model
+            llm = create_llm(provider_name, model=default_model)
+
+            # Try to get available models dynamically
+            models = []
+            try:
+                if hasattr(llm, 'list_available_models'):
+                    models_list = llm.list_available_models()
+                    if isinstance(models_list, list):
+                        models = models_list[:20]  # Limit to first 20 models
+                        logger.info(f"Retrieved {len(models)} models for {provider_name}")
+                    else:
+                        models = [default_model]
+                else:
+                    models = [default_model]
+            except Exception as e:
+                logger.warning(f"Could not list models for {provider_name}: {e}")
+                models = [default_model]
+
+            # If successful, provider is available
+            results.append(ProviderInfo(
+                name=provider_name,
+                display_name=provider_info["display_name"],
+                available=True,
+                default_model=default_model,
+                models=models if models else [default_model]
+            ))
+
+        except AuthenticationError as e:
+            # Provider exists but needs API key
+            results.append(ProviderInfo(
+                name=provider_name,
+                display_name=provider_info["display_name"],
+                available=False,
+                error=f"Authentication required: Set API key in environment",
+                default_model=default_model,
+                models=provider_info.get("models", [])
+            ))
+
+        except ModelNotFoundError as e:
+            # Provider exists but model not found (still mark as potentially available)
+            results.append(ProviderInfo(
+                name=provider_name,
+                display_name=provider_info["display_name"],
+                available=False,
+                error=f"Model not found. Provider may be offline or model not installed",
+                default_model=default_model,
+                models=provider_info.get("models", [])
+            ))
+
+        except ImportError as e:
+            # Provider dependencies not installed
+            results.append(ProviderInfo(
+                name=provider_name,
+                display_name=provider_info["display_name"],
+                available=False,
+                error="Dependencies not installed",
+                default_model=default_model,
+                models=[]
+            ))
+
+        except Exception as e:
+            # Other errors (network, etc.)
+            results.append(ProviderInfo(
+                name=provider_name,
+                display_name=provider_info["display_name"],
+                available=False,
+                error=str(e)[:100],  # Truncate long error messages
+                default_model=default_model,
+                models=provider_info.get("models", [])
+            ))
+
+    return results
+
+
+@router.post("/providers/select")
+async def select_provider(request: ProviderSelectionRequest):
+    """
+    Select a provider and model for code generation.
+
+    This will update the global LLM service configuration and save to project config.
+
+    Args:
+        request: Provider and model selection
+
+    Returns:
+        Success status and configuration
+    """
+    try:
+        # Save to project-level configuration FIRST
+        config.set_llm_config(request.provider, request.model)
+
+        # Update the notebook service's LLM configuration
+        notebook_service.llm_service.provider = request.provider
+        notebook_service.llm_service.model = request.model
+
+        # CRITICAL: Reinitialize the LLM with new provider/model
+        notebook_service.llm_service._initialize_llm()
+
+        logger.info(f"✅ LLM configuration updated and reinitialized: {request.provider}/{request.model}")
+
+        return {
+            "success": True,
+            "provider": request.provider,
+            "model": request.model,
+            "message": f"Successfully configured {request.provider} with model {request.model}"
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Failed to configure provider: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to configure provider: {str(e)}"
         )

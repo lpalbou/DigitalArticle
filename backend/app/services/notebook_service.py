@@ -516,53 +516,19 @@ print("LLM service is currently unavailable, using fallback code.")
                             'stderr': result.stderr
                         }
                         
-                        # Ask LLM to fix the code with detailed error analysis
+                        # Ask LLM to fix the code with enhanced error analysis from ErrorAnalyzer
                         logger.info(f"🔄 Asking LLM to fix the failed code (attempt #{cell.retry_count})...")
                         print(f"🔄 AUTO-RETRY #{cell.retry_count}: Analyzing error and generating corrected code...")
-                        
-                        fix_prompt = f"""CRITICAL CODE ERROR - IMMEDIATE FIX REQUIRED (Attempt #{cell.retry_count}/{max_retries})
 
-The Python code you generated has failed execution with a syntax/runtime error. You MUST provide a corrected version that resolves this specific error.
-
-ORIGINAL TASK:
-{cell.prompt}
-
-FAILED CODE:
-```python
-{cell.code}
-```
-
-ERROR ANALYSIS:
-- Error Type: {result.error_type}
-- Error Message: {result.error_message}
-- Full Traceback: {result.traceback}
-- Standard Error: {result.stderr}
-
-SPECIFIC ERROR LOCATION:
-The error occurred in the generated code. Look carefully at the syntax.
-
-REQUIREMENTS FOR YOUR CORRECTED CODE:
-1. Fix the EXACT syntax/runtime error shown above
-2. Maintain the original functionality and purpose
-3. Ensure all variable names are properly defined
-4. Check for proper Python syntax (colons, indentation, brackets, quotes)
-5. Verify all imports are correct and available
-6. Test logic flow and variable scope
-7. Handle edge cases that might cause similar errors
-
-COMMON ERROR PATTERNS TO CHECK:
-- Missing colons after if/for/while/def statements
-- Incorrect indentation
-- Mismatched brackets/parentheses/quotes
-- Undefined variables or functions
-- Incorrect list comprehension syntax
-- Missing imports for used libraries
-- Type mismatches in operations
-- Assignment vs comparison operators (= vs ==)
-
-Please provide ONLY the corrected Python code that will execute successfully. Do not include explanations or markdown formatting - just the raw Python code."""
-
-                        fixed_code = self.llm_service.generate_code_from_prompt(fix_prompt, error_context)
+                        # Use suggest_improvements with enhanced error context
+                        # This will automatically use ErrorAnalyzer to provide domain-specific guidance
+                        fixed_code = self.llm_service.suggest_improvements(
+                            prompt=cell.prompt,
+                            code=cell.code,
+                            error_message=result.error_message,
+                            error_type=result.error_type,
+                            traceback=result.traceback
+                        )
                         
                         if fixed_code and fixed_code != cell.code:
                             logger.info(f"🔄 LLM provided fixed code ({len(fixed_code)} chars)")

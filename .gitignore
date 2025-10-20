@@ -207,6 +207,7 @@ notebooks/
 .DS_Store
 .vscode/
 .idea/
+config.json
 
 backend/notebook_workspace/
 untracked
