@@ -282,11 +282,19 @@ async def get_current_config():
 
 
 @router.get("/status")
-async def get_llm_status():
+async def get_llm_status(notebook_id: Optional[str] = None):
     """
     Get detailed status of the currently active LLM including token configuration.
 
     Returns provider, model, context size, and connection status.
+    Optionally includes ACTUAL context tokens from last generation (via AbstractCore).
+
+    Args:
+        notebook_id: Optional notebook ID to get actual token usage
+
+    Note:
+        Uses ONLY AbstractCore's response.usage for token counts.
+        NO estimation - only real data from LLM provider.
     """
     try:
         llm_service = notebook_service.llm_service
@@ -299,7 +307,8 @@ async def get_llm_status():
             "max_tokens": None,
             "max_input_tokens": None,
             "max_output_tokens": None,
-            "token_summary": None
+            "token_summary": None,
+            "active_context_tokens": None
         }
 
         # Try to get token configuration from the LLM instance
@@ -319,6 +328,17 @@ async def get_llm_status():
         except Exception as token_error:
             logger.warning(f"Could not get token configuration: {token_error}")
 
+        # Get ACTUAL context tokens from last generation (via AbstractCore response.usage)
+        if notebook_id:
+            try:
+                # Use TokenTracker to get real prompt_tokens from last generation
+                actual_context_tokens = llm_service.token_tracker.get_current_context_tokens(notebook_id)
+                if actual_context_tokens > 0:
+                    status_info["active_context_tokens"] = actual_context_tokens
+                    logger.info(f"📊 Active context for notebook {notebook_id}: {actual_context_tokens} tokens (from AbstractCore)")
+            except Exception as context_error:
+                logger.warning(f"Could not get context tokens: {context_error}")
+
         return status_info
 
     except Exception as e:
@@ -330,5 +350,6 @@ async def get_llm_status():
             "error_message": str(e),
             "max_tokens": None,
             "max_input_tokens": None,
-            "max_output_tokens": None
+            "max_output_tokens": None,
+            "active_context_tokens": None
         }

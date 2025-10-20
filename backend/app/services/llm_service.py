@@ -3,11 +3,16 @@ LLM Service for converting natural language prompts to Python code.
 
 This service uses AbstractCore to interface with LLM providers (specifically LMStudio)
 and generates appropriate Python code for data analysis tasks.
+
+Token Tracking:
+    Uses ONLY AbstractCore's response.usage for actual token counts.
+    NO custom estimation - only real data from LLM provider.
 """
 
 import logging
 from typing import Optional, Dict, Any
 from abstractcore import create_llm, ProviderAPIError, ModelNotFoundError, AuthenticationError
+from .token_tracker import TokenTracker
 
 # Create a general LLMError that encompasses all AbstractCore errors
 class LLMError(Exception):
@@ -18,11 +23,11 @@ logger = logging.getLogger(__name__)
 
 
 class LLMService:
-    """Service for LLM-powered prompt to code conversion."""
+    """Service for LLM-powered prompt to code conversion with token tracking."""
 
     def __init__(self, provider: Optional[str] = None, model: Optional[str] = None):
         """
-        Initialize the LLM service.
+        Initialize the LLM service with token tracker.
 
         If provider/model not specified, will load from project config.
 
@@ -41,6 +46,7 @@ class LLMService:
             self.model = model
 
         self.llm = None
+        self.token_tracker = TokenTracker()  # NEW: Track actual token usage from AbstractCore
         self._initialize_llm()
     
     def _initialize_llm(self):
@@ -88,12 +94,26 @@ class LLMService:
                 max_tokens=2000,
                 temperature=0.1  # Low temperature for consistent code generation
             )
-            
+
             logger.info(f"🚨 LLM RAW RESPONSE: {response.content}")
-            
+
+            # Track actual token usage from AbstractCore response.usage
+            if context and 'notebook_id' in context and 'cell_id' in context:
+                self.token_tracker.track_generation(
+                    notebook_id=context['notebook_id'],
+                    cell_id=context['cell_id'],
+                    usage_data=response.usage  # AbstractCore provides: {prompt_tokens, completion_tokens, total_tokens}
+                )
+                if response.usage:
+                    logger.info(
+                        f"📊 Token usage - prompt: {response.usage.get('prompt_tokens')}, "
+                        f"completion: {response.usage.get('completion_tokens')}, "
+                        f"total: {response.usage.get('total_tokens')}"
+                    )
+
             # Extract code from the response
             code = self._extract_code_from_response(response.content)
-            
+
             logger.info(f"🚨 EXTRACTED CODE: {code}")
             logger.info(f"Generated code for prompt: {prompt[:50]}...")
             return code
@@ -210,17 +230,35 @@ plt.show()
         return base_prompt
     
     def _build_user_prompt(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> str:
-        """Build the user prompt for code generation."""
-        
-        user_prompt = f"Convert this request to Python code:\n\n{prompt}\n\n"
-        
-        # Add context information if available
-        if context:
-            if 'previous_cells' in context:
-                user_prompt += f"PREVIOUS CELLS CONTEXT:\n{context['previous_cells']}\n\n"
-        
+        """Build the user prompt for code generation with context awareness."""
+
+        user_prompt = ""
+
+        # Add previous cells context for awareness
+        if context and 'previous_cells' in context:
+            previous_cells = context['previous_cells']
+            if previous_cells:
+                user_prompt += "PREVIOUS CELLS IN THIS NOTEBOOK:\n"
+                user_prompt += "=" * 60 + "\n"
+                for idx, cell in enumerate(previous_cells, 1):
+                    user_prompt += f"\nCell {idx} ({'✓' if cell.get('success') else '✗'}):\n"
+                    if cell.get('prompt'):
+                        user_prompt += f"  Prompt: {cell['prompt'][:200]}...\n" if len(cell.get('prompt', '')) > 200 else f"  Prompt: {cell['prompt']}\n"
+                    user_prompt += f"  Code: {cell['code']}\n"
+                    if cell.get('has_dataframes'):
+                        user_prompt += f"  ✓ This cell created/modified DataFrames\n"
+                user_prompt += "=" * 60 + "\n\n"
+
+                user_prompt += "IMPORTANT INSTRUCTIONS FOR CODE REUSE:\n"
+                user_prompt += "- Variables from previous cells are ALREADY IN MEMORY and AVAILABLE\n"
+                user_prompt += "- If a DataFrame (like dm_df, vs_df, etc.) was created in a previous cell, DO NOT recreate it\n"
+                user_prompt += "- REUSE existing variables when possible instead of re-reading files\n"
+                user_prompt += "- Only re-read data files if you need to modify the original data or if explicitly requested\n"
+                user_prompt += "- Example: If 'dm_df' exists from Cell 1, just use it directly in Cell 2\n\n"
+
+        user_prompt += f"CURRENT REQUEST:\n{prompt}\n\n"
         user_prompt += "Generate the Python code:"
-        
+
         return user_prompt
     
     def _extract_code_from_response(self, response: str) -> str:

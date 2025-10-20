@@ -136,33 +136,74 @@ class NotebookService:
         logger.info(f"Notebooks in cache: {list(self._notebooks.keys())}")
         return notebook
     
-    def _build_execution_context(self, notebook: Notebook, cell: Cell) -> Dict[str, Any]:
-        """Build execution context for LLM code generation."""
+    def _build_execution_context(self, notebook: Notebook, current_cell: Cell) -> Dict[str, Any]:
+        """
+        Build comprehensive execution context for LLM code generation.
+
+        Includes:
+        - Available variables in execution context
+        - Previous cells (prompts and code) for context awareness
+        - Data files available
+        - Notebook metadata
+        - Notebook ID and Cell ID for token tracking
+
+        Args:
+            notebook: Current notebook
+            current_cell: Cell being executed
+
+        Returns:
+            Context dictionary for LLM with previous cell history
+        """
         context = {}
-        
+
         try:
             # Add basic notebook info
             context['notebook_title'] = notebook.title
-            context['cell_type'] = cell.cell_type.value
-            
-            # Add information about available data files from data manager
-            execution_context = self.data_manager.get_execution_context()
-            context.update(execution_context)
-            
-            # Add variables from execution service if available
+            context['cell_type'] = current_cell.cell_type.value
+
+            # Add IDs for token tracking (AbstractCore integration)
+            context['notebook_id'] = str(notebook.id)
+            context['cell_id'] = str(current_cell.id)
+
+            # Add information about available data files
+            try:
+                execution_context = self.data_manager.get_execution_context()
+                context.update(execution_context)
+            except Exception as e:
+                logger.warning(f"Could not get data manager context: {e}")
+
+            # Get available variables from execution service
             try:
                 variables = self.execution_service.get_variable_info()
                 if variables:
                     context['available_variables'] = variables
+                    logger.info(f"Added {len(variables)} available variables to context")
             except Exception as e:
                 logger.warning(f"Could not get variable info: {e}")
-                pass
-                
-            logger.info(f"Built execution context with files info and variables")
+
+            # Get previous cells context for LLM awareness
+            previous_cells = []
+            for cell in notebook.cells:
+                if cell.id == current_cell.id:
+                    break  # Stop at current cell
+                if cell.cell_type in (CellType.PROMPT, CellType.CODE) and cell.code:
+                    previous_cells.append({
+                        'type': cell.cell_type.value,
+                        'prompt': cell.prompt if cell.cell_type == CellType.PROMPT else None,
+                        'code': cell.code[:500],  # Truncate long code to first 500 chars
+                        'success': cell.last_result.status == ExecutionStatus.SUCCESS if cell.last_result else None,
+                        'has_dataframes': bool(cell.last_result and cell.last_result.tables) if cell.last_result else False
+                    })
+
+            if previous_cells:
+                context['previous_cells'] = previous_cells
+                logger.info(f"Added {len(previous_cells)} previous cells to context")
+
+            logger.info(f"Built execution context with {len(context)} context items")
             return context
-            
+
         except Exception as e:
-            logger.warning(f"Error building execution context: {e}")
+            logger.error(f"Error building execution context: {e}")
             return {}
     
     def _generate_fallback_code(self, prompt: str) -> str:
@@ -660,43 +701,7 @@ print("LLM service is currently unavailable, using fallback code.")
             
             logger.error(f"Failed to execute cell {cell.id}: {e}")
             return cell, error_result
-    
-    def _build_execution_context(self, notebook: Notebook, current_cell: Cell) -> Dict[str, Any]:
-        """
-        Build context information for code generation.
-        
-        Args:
-            notebook: Current notebook
-            current_cell: Cell being executed
-            
-        Returns:
-            Context dictionary for LLM
-        """
-        context = {}
-        
-        # Get available variables from execution service
-        variables = self.execution_service.get_variable_info()
-        if variables:
-            context['available_variables'] = variables
-        
-        # Get previous cells context
-        previous_cells = []
-        for cell in notebook.cells:
-            if cell.id == current_cell.id:
-                break
-            if cell.cell_type in (CellType.PROMPT, CellType.CODE) and cell.code:
-                previous_cells.append({
-                    'type': cell.cell_type,
-                    'prompt': cell.prompt if cell.cell_type == CellType.PROMPT else None,
-                    'code': cell.code,
-                    'success': cell.last_result.status == ExecutionStatus.SUCCESS if cell.last_result else None
-                })
-        
-        if previous_cells:
-            context['previous_cells'] = previous_cells
-        
-        return context
-    
+
     def _save_notebook(self, notebook: Notebook):
         """
         Save a notebook to disk.

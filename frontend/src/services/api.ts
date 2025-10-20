@@ -176,7 +176,7 @@ export const llmAPI = {
   },
 
   // Get LLM status with token configuration
-  getStatus: async (): Promise<{
+  getStatus: async (notebookId?: string): Promise<{
     provider: string;
     model: string;
     status: string;
@@ -185,8 +185,10 @@ export const llmAPI = {
     max_output_tokens: number | null;
     token_summary?: string;
     error_message?: string;
+    active_context_tokens?: number | null;
   }> => {
-    const response = await api.get('/llm/status')
+    const params = notebookId ? { notebook_id: notebookId } : {}
+    const response = await api.get('/llm/status', { params })
     return response.data
   },
 }

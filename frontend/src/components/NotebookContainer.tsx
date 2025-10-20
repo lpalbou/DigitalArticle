@@ -733,7 +733,10 @@ const NotebookContainer: React.FC = () => {
       </div>
 
       {/* LLM Status Footer */}
-      <LLMStatusFooter onSettingsClick={() => setShowSettingsModal(true)} />
+      <LLMStatusFooter
+        onSettingsClick={() => setShowSettingsModal(true)}
+        notebookId={notebook?.id}
+      />
 
       {/* LLM Settings Modal */}
       {showSettingsModal && (

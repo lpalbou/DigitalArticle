@@ -4,9 +4,10 @@ import { llmAPI } from '../services/api'
 
 interface LLMStatusFooterProps {
   onSettingsClick?: () => void
+  notebookId?: string  // Add notebook ID prop for context tracking
 }
 
-const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ onSettingsClick }) => {
+const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ onSettingsClick, notebookId }) => {
   const [status, setStatus] = useState<{
     provider: string
     model: string
@@ -15,12 +16,13 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ onSettingsClick }) =>
     max_input_tokens: number | null
     max_output_tokens: number | null
     error_message?: string
+    active_context_tokens?: number | null
   } | null>(null)
   const [loading, setLoading] = useState(true)
 
   const fetchStatus = async () => {
-    try {
-      const statusData = await llmAPI.getStatus()
+    try:
+      const statusData = await llmAPI.getStatus(notebookId)
       setStatus(statusData)
       setLoading(false)
     } catch (error) {
@@ -32,7 +34,8 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ onSettingsClick }) =>
         max_tokens: null,
         max_input_tokens: null,
         max_output_tokens: null,
-        error_message: 'Failed to connect'
+        error_message: 'Failed to connect',
+        active_context_tokens: null
       })
       setLoading(false)
     }
@@ -40,15 +43,15 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ onSettingsClick }) =>
 
   useEffect(() => {
     fetchStatus()
-    // Refresh status every 30 seconds
-    const interval = setInterval(fetchStatus, 30000)
+    // Refresh status every 10 seconds (faster for context updates)
+    const interval = setInterval(fetchStatus, 10000)
     return () => clearInterval(interval)
-  }, [])
+  }, [notebookId])  // Re-fetch when notebook changes
 
   const formatTokens = (tokens: number | null): string => {
     if (tokens === null) return '?'
     if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`
-    if (tokens >= 1000) return `${(tokens / 1000).toFixed(0)}k`
+    if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`
     return tokens.toString()
   }
 
@@ -79,6 +82,14 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ onSettingsClick }) =>
     if (loading) return <Activity className="h-3.5 w-3.5 animate-spin" />
     if (status?.status === 'error') return <AlertCircle className="h-3.5 w-3.5" />
     return <Activity className="h-3.5 w-3.5" />
+  }
+
+  const getContextUsageColor = (): string => {
+    if (!status?.active_context_tokens || !status?.max_tokens) return 'text-blue-600'
+    const percentage = (status.active_context_tokens / status.max_tokens) * 100
+    if (percentage > 80) return 'text-red-600'
+    if (percentage > 60) return 'text-orange-600'
+    return 'text-green-600'
   }
 
   return (
@@ -117,9 +128,15 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ onSettingsClick }) =>
                     <div className="text-gray-400">|</div>
                     <div className="flex items-center space-x-1.5">
                       <span className="text-gray-500">Context:</span>
-                      <span className="font-semibold text-blue-600">
-                        {formatTokens(status.max_tokens)}
-                      </span>
+                      {status.active_context_tokens !== null && status.active_context_tokens !== undefined ? (
+                        <span className={`font-semibold ${getContextUsageColor()}`}>
+                          {formatTokens(status.active_context_tokens)} / {formatTokens(status.max_tokens)}
+                        </span>
+                      ) : (
+                        <span className="font-semibold text-blue-600">
+                          {formatTokens(status.max_tokens)}
+                        </span>
+                      )}
                       {status.max_output_tokens && (
                         <span className="text-gray-500 text-xs">
                           (out: {formatTokens(status.max_output_tokens)})
