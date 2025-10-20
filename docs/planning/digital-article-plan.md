@@ -11,7 +11,7 @@
 ## Project Structure
 
 ```
-reverse-notebook/
+digitalarticle/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py              # FastAPI application

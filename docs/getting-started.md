@@ -27,8 +27,8 @@ Digital Article is a computational notebook application where you write what you
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/reverse-notebook.git
-cd reverse-notebook
+git clone https://github.com/lpalbou/digitalarticle.git
+cd digitalarticle
 ```
 
 ### Step 2: Set Up Python Environment

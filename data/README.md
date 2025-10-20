@@ -1,6 +1,6 @@
 # Data Directory
 
-This directory contains datasets available for analysis in the reverse notebook.
+This directory contains datasets available for analysis in the Digital Article.
 
 ## Available Datasets
 

@@ -56,8 +56,8 @@ Digital Article inverts the traditional computational notebook paradigm. Instead
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/reverse-notebook.git
-cd reverse-notebook
+git clone https://github.com/lpalbou/digitalarticle.git
+cd digitalarticle
 
 # Set up Python environment
 python -m venv .venv

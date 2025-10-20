@@ -36,12 +36,12 @@ class TestRealMatplotlibScenario:
         error_message = "num must be an integer with 1 <= num <= 12, not 13"
         error_type = "ValueError"
         traceback = """Traceback (most recent call last):
-  File "/Users/albou/projects/reverse-notebook/backend/app/services/execution_service.py", line 156, in execute_code
+  File "backend/app/services/execution_service.py", line 156, in execute_code
     exec(processed_code, self.globals_dict)
   File "<string>", line 102, in <module>
-  File "/Users/albou/projects/reverse-notebook/.venv/lib/python3.12/site-packages/matplotlib/pyplot.py", line 1551, in subplot
+  File ".venv/lib/python3.12/site-packages/matplotlib/pyplot.py", line 1551, in subplot
     key = SubplotSpec._from_subplot_args(fig, args)
-  File "/Users/albou/projects/reverse-notebook/.venv/lib/python3.12/site-packages/matplotlib/gridspec.py", line 589, in _from_subplot_args
+  File ".venv/lib/python3.12/site-packages/matplotlib/gridspec.py", line 589, in _from_subplot_args
     raise ValueError(
 ValueError: num must be an integer with 1 <= num <= 12, not 13"""
 

@@ -11,7 +11,7 @@ from abstractcore import create_llm, ProviderAPIError, ModelNotFoundError, Authe
 
 # Create a general LLMError that encompasses all AbstractCore errors
 class LLMError(Exception):
-    """General LLM error for the reverse notebook application."""
+    """General LLM error for the digital article application."""
     pass
 
 logger = logging.getLogger(__name__)
