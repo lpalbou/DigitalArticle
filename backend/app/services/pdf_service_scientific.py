@@ -513,12 +513,11 @@ class ScientificPDFService:
             if cell.last_result and cell.last_result.plots:
                 for plot_data in cell.last_result.plots:
                     try:
-                        # Create descriptive caption based on cell content
+                        # Create meaningful scientific caption
                         caption = f"Figure {figure_counter}. "
                         if cell.prompt:
-                            # Use first part of prompt as caption
-                            prompt_summary = cell.prompt[:100] + "..." if len(cell.prompt) > 100 else cell.prompt
-                            caption += f"Visualization of {prompt_summary.lower()}"
+                            # Generate scientific caption based on analysis type
+                            caption += self._generate_figure_caption(cell.prompt, cell.code, cell.last_result)
                         else:
                             caption += f"Data visualization from analysis step {i}"
                         
@@ -528,6 +527,59 @@ class ScientificPDFService:
                         logger.warning(f"Failed to add figure {figure_counter} to results: {e}")
         
         return figure_counter
+    
+    def _generate_figure_caption(self, prompt: str, code: str, result) -> str:
+        """Generate a meaningful scientific figure caption."""
+        # Analyze the prompt and code to determine visualization type
+        prompt_lower = prompt.lower()
+        code_lower = code.lower() if code else ""
+        
+        # Determine visualization type
+        if any(word in prompt_lower for word in ['correlation', 'correlate', 'relationship']):
+            if 'scatter' in code_lower or 'scatterplot' in code_lower:
+                return "Scatter plot analysis showing correlation patterns between variables"
+            elif 'heatmap' in code_lower:
+                return "Correlation heatmap displaying relationships between multiple variables"
+            else:
+                return "Correlation analysis visualization"
+        
+        elif any(word in prompt_lower for word in ['distribution', 'histogram', 'density']):
+            if 'hist' in code_lower:
+                return "Histogram showing data distribution patterns"
+            elif 'kde' in code_lower or 'density' in code_lower:
+                return "Density plot illustrating data distribution characteristics"
+            else:
+                return "Distribution analysis visualization"
+        
+        elif any(word in prompt_lower for word in ['time series', 'temporal', 'trend']):
+            return "Time series analysis showing temporal patterns and trends"
+        
+        elif any(word in prompt_lower for word in ['comparison', 'compare', 'versus']):
+            if 'bar' in code_lower:
+                return "Bar chart comparing values across categories"
+            elif 'box' in code_lower:
+                return "Box plot comparison showing statistical distributions"
+            else:
+                return "Comparative analysis visualization"
+        
+        elif any(word in prompt_lower for word in ['plot', 'chart', 'graph', 'visualiz']):
+            # Generic visualization - try to infer from code
+            if 'scatter' in code_lower:
+                return "Scatter plot visualization of data relationships"
+            elif 'bar' in code_lower:
+                return "Bar chart representation of categorical data"
+            elif 'line' in code_lower:
+                return "Line plot showing data trends"
+            elif 'box' in code_lower:
+                return "Box plot displaying statistical summary"
+            elif 'heatmap' in code_lower:
+                return "Heatmap visualization of data patterns"
+            else:
+                return "Data visualization showing analytical results"
+        
+        # Fallback: create caption from first part of prompt
+        words = prompt.split()[:8]  # First 8 words
+        return f"Visualization of {' '.join(words).lower()}"
     
     def _add_title_page(self, story: List, notebook: Notebook):
         """Add professional title page."""

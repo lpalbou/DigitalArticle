@@ -1085,7 +1085,10 @@ Create the article plan now:"""
                 if cell.get('last_result') and cell['last_result'].get('plots'):
                     plots = cell['last_result']['plots']
                     if plots:
-                        cell_summary += f"\n  Figures: {len(plots)} plot(s) generated - Figure {i} shows visualization of the data"
+                        cell_summary += f"\n  Figures: {len(plots)} plot(s) generated"
+                        for j, plot in enumerate(plots):
+                            figure_num = sum(len(c.get('last_result', {}).get('plots', [])) for c in notebook_data.get('cells', [])[:i-1]) + j + 1
+                            cell_summary += f"\n    - Figure {figure_num}: Available for referencing in text"
                 
                 if cell.get('scientific_explanation'):
                     explanation = cell['scientific_explanation']
@@ -1118,7 +1121,10 @@ WRITING STYLE:
 - Use active voice where appropriate
 - Write for a scientific audience but keep it engaging
 - Include specific references to the empirical evidence (code outputs, data results, etc.)
-- CRITICAL: When figures/plots are available, reference them explicitly in the text (e.g., "as shown in Figure 1", "Figure 2 illustrates", "the scatter plot in Figure 1 reveals")
+- CRITICAL: When figures/plots are available, you MUST reference them explicitly in the text
+- Use natural integration: "Figure 1 demonstrates...", "As shown in Figure 2...", "The visualization in Figure 3 reveals..."
+- NEVER mention a figure exists without referencing it in your text
+- Explain what each figure shows and its significance to your analysis
 
 OUTPUT REQUIREMENTS:
 - Write ONLY the section content - no headers, no section titles
@@ -1146,13 +1152,17 @@ Abstract: {notebook_data.get('abstract', 'No abstract available')}
 COMPLETE RESEARCH CONTENT:
 {cells_content}
 
+AVAILABLE FIGURES FOR REFERENCING:
+{self._get_figure_list(notebook_data)}
+
 INSTRUCTIONS:
 1. Write a comprehensive {section_name} section that follows the section plan
 2. Ground every statement in the actual research data and results provided
-3. Use specific numbers, findings, and evidence from the cell outputs
-4. Write in a flowing, engaging scientific style
-5. Ensure the section contributes to the overall article narrative
-6. Make it substantial and informative while being concise
+3. MANDATORY: Reference ALL available figures naturally in your text
+4. Use specific numbers, findings, and evidence from the cell outputs
+5. Write in a flowing, engaging scientific style
+6. Ensure the section contributes to the overall article narrative
+7. Make it substantial and informative while being concise
 
 Write the {section_name} section now:"""
 
@@ -1204,6 +1214,23 @@ Write the {section_name} section now:"""
             print(f"🎯 SECTION WRITING: Traceback: {traceback.format_exc()}")
             logger.error(f"{section_name} section generation failed: {e}")
             raise LLMError(f"Failed to generate {section_name} section: {e}")
+    
+    def _get_figure_list(self, notebook_data: Dict[str, Any]) -> str:
+        """Generate a list of available figures for LLM reference."""
+        figure_list = []
+        figure_counter = 1
+        
+        for i, cell in enumerate(notebook_data.get('cells', []), 1):
+            if cell.get('last_result') and cell['last_result'].get('plots'):
+                plots = cell['last_result']['plots']
+                for plot in plots:
+                    figure_list.append(f"Figure {figure_counter}: Generated from Cell {i} - {cell.get('prompt', 'Data visualization')}")
+                    figure_counter += 1
+        
+        if not figure_list:
+            return "No figures available in this research."
+        
+        return "\n".join(figure_list)
 
     def _get_section_guidelines(self, section_name: str) -> str:
         """Get specific guidelines for each section type."""
