@@ -694,3 +694,8 @@ Others
 
 - what about scientific references as well ?
 
+- need to set and keep a seed
+
+- 6 - templates for common analysis is a good idea, but for later
+
+- invite a colleague to review (especially non technical -> technical)

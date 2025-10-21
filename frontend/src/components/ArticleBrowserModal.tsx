@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { 
   X, 
   Search, 
@@ -73,6 +73,7 @@ const ArticleBrowserModal: React.FC<ArticleBrowserModalProps> = ({
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const [filterStatus, setFilterStatus] = useState<'all' | 'with_content' | 'with_results' | 'empty'>('all')
   const [selectedArticles, setSelectedArticles] = useState<Set<string>>(new Set())
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   // Load articles when modal opens
   useEffect(() => {
@@ -81,13 +82,25 @@ const ArticleBrowserModal: React.FC<ArticleBrowserModalProps> = ({
     }
   }, [isOpen])
 
-  const loadArticles = async () => {
+  const loadArticles = async (preserveScroll: boolean = false) => {
+    // Store current scroll position if we want to preserve it
+    const scrollTop = preserveScroll ? (scrollContainerRef.current?.scrollTop || 0) : 0
+    
     setLoading(true)
     setError(null)
     
     try {
       const summaries = await notebookAPI.getSummaries()
       setArticles(summaries)
+      
+      // Restore scroll position if requested
+      if (preserveScroll) {
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = scrollTop
+          }
+        })
+      }
     } catch (err) {
       const apiError = handleAPIError(err)
       setError(apiError.message)
@@ -167,12 +180,36 @@ const ArticleBrowserModal: React.FC<ArticleBrowserModalProps> = ({
     if (!onDeleteArticle) return
     
     if (window.confirm('Are you sure you want to delete this digital article? This action cannot be undone.')) {
+      // Store current scroll position
+      const scrollTop = scrollContainerRef.current?.scrollTop || 0
+      
+      // Optimistically remove the article from the list (immediate UI feedback)
+      const originalArticles = [...articles]
+      setArticles(prev => prev.filter(article => article.id !== articleId))
+      
       try {
         await onDeleteArticle(articleId)
-        await loadArticles() // Refresh the list
+        // Success - the optimistic update was correct, no need to reload
+        
+        // Restore scroll position after the DOM updates
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = scrollTop
+          }
+        })
+        
       } catch (err) {
+        // Error - restore the original list and show error
+        setArticles(originalArticles)
         const apiError = handleAPIError(err)
         setError(apiError.message)
+        
+        // Restore scroll position
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = scrollTop
+          }
+        })
       }
     }
   }
@@ -289,7 +326,10 @@ const ArticleBrowserModal: React.FC<ArticleBrowserModalProps> = ({
           </div>
 
           {/* Content */}
-          <div className="bg-gray-50 px-6 py-4 max-h-96 overflow-y-auto">
+          <div 
+            ref={scrollContainerRef}
+            className="bg-gray-50 px-6 py-4 max-h-96 overflow-y-auto"
+          >
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <div className="animate-spin h-8 w-8 border-4 border-blue-600 border-t-transparent rounded-full" />
@@ -300,7 +340,7 @@ const ArticleBrowserModal: React.FC<ArticleBrowserModalProps> = ({
                 <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
                 <p className="text-gray-600 mb-4">{error}</p>
                 <button
-                  onClick={loadArticles}
+                  onClick={() => loadArticles(false)}
                   className="btn btn-primary"
                 >
                   Try Again
@@ -423,7 +463,7 @@ const ArticleBrowserModal: React.FC<ArticleBrowserModalProps> = ({
               </div>
               <div className="flex items-center space-x-4">
                 <button
-                  onClick={loadArticles}
+                  onClick={() => loadArticles(true)}
                   className="text-blue-600 hover:text-blue-700"
                 >
                   Refresh
