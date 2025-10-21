@@ -5,6 +5,31 @@ All notable changes to the Digital Article project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [0.0.5] - 2025-10-22
+
+### Enhanced
+
+- **AbstractCore 2.4.8 Integration**: Updated to latest AbstractCore version with improved token counting and generation time tracking
+  - **Accurate Token Counts**: Now uses proper `input_tokens`, `output_tokens`, `total_tokens` from AbstractCore 2.4.8+ (with backward compatibility for legacy field names)
+  - **Generation Time Display**: Added discrete generation time display for each cell in iPhone message style (e.g., "14:32 | 1.2s")
+  - **Timestamp Tracking**: Added execution timestamps to cells showing when each cell was last executed
+  - **Fixed Footer Token Display**: Resolved issue where footer showed "0 / 262.1k" instead of actual tokens used in methodology generation
+  - Files: `backend/app/services/token_tracker.py`, `backend/app/services/llm_service.py`, `backend/app/services/notebook_service.py`, `frontend/src/components/PromptEditor.tsx`, `frontend/src/types/index.ts`
+
+- **Enhanced Library Support & Error Handling**: Comprehensive improvements to library management and auto-retry system
+  - **Essential Libraries Added**: Added `umap-learn`, `scanpy`, and `openpyxl` for bioinformatics and data parsing (removed over-engineered libraries like opencv, xgboost, biopython)
+  - **Smart Import Error Detection**: Added intelligent error analyzer that suggests alternatives when users try unavailable libraries (e.g., suggests sklearn for tensorflow, PIL for opencv)
+  - **Matplotlib Color Error Fix**: Added specific error analyzer for categorical data color mapping issues with targeted solutions (color_map, seaborn, factorize)
+  - **Enhanced Auto-Retry System**: Increased max retries from 3 to 5 attempts with improved visual progress indicators showing "correcting code x/5"
+  - **Complete Error Context**: LLM now receives full error details including original message, stack trace, and domain-specific guidance for better auto-fixes
+  - **Simplified Architecture**: Replaced complex import interception system with elegant keyword-based suggestions for maintainability
+
+### Changed
+
+- **Data Management**: Removed automatic sample data copying; users must now upload their own data or manually copy sample data
+
+
 ## [0.0.4] - 2025-10-21
 
 ### Enhanced

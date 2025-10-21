@@ -427,8 +427,14 @@ class ScientificPDFService:
                     for plot_data in cell.last_result.plots:
                         try:
                             # Add figure
-                            self._add_figure_to_story(story, plot_data, f"Figure {figure_counter}", 
-                                                    f"Visualization generated from Code Snippet {i}")
+                            # Generate meaningful caption
+                            caption = f"Figure {figure_counter}. "
+                            if cell.prompt:
+                                caption += self._generate_figure_caption(cell.prompt, cell.code, cell.last_result)
+                            else:
+                                caption += f"Data visualization from analysis step {i}"
+                            
+                            self._add_figure_to_story(story, plot_data, f"Figure {figure_counter}", caption)
                             figure_counter += 1
                         except Exception as e:
                             logger.warning(f"Failed to add figure to PDF: {e}")
@@ -554,6 +560,15 @@ class ScientificPDFService:
         elif any(word in prompt_lower for word in ['time series', 'temporal', 'trend']):
             return "Time series analysis showing temporal patterns and trends"
         
+        elif any(word in prompt_lower for word in ['umap', 'dimensionality reduction', 'embedding']):
+            return "UMAP dimensionality reduction visualization showing data structure in reduced space"
+        
+        elif any(word in prompt_lower for word in ['pca', 'principal component']):
+            return "Principal Component Analysis (PCA) visualization of data variance"
+        
+        elif any(word in prompt_lower for word in ['cluster', 'clustering']):
+            return "Clustering analysis visualization showing data groupings"
+        
         elif any(word in prompt_lower for word in ['comparison', 'compare', 'versus']):
             if 'bar' in code_lower:
                 return "Bar chart comparing values across categories"
@@ -577,9 +592,18 @@ class ScientificPDFService:
             else:
                 return "Data visualization showing analytical results"
         
-        # Fallback: create caption from first part of prompt
-        words = prompt.split()[:8]  # First 8 words
-        return f"Visualization of {' '.join(words).lower()}"
+        # Fallback: create meaningful caption from prompt analysis
+        words = prompt.split()
+        if len(words) <= 8:
+            # Short prompt - try to make it more scientific
+            if any(word in prompt_lower for word in ['data', 'analysis', 'explore']):
+                return "Data analysis and exploration results"
+            else:
+                return f"Analysis results: {prompt.lower()}"
+        else:
+            # Long prompt - use first meaningful part
+            meaningful_part = ' '.join(words[:6])
+            return f"Analysis of {meaningful_part.lower()}"
     
     def _add_title_page(self, story: List, notebook: Notebook):
         """Add professional title page."""
@@ -952,9 +976,7 @@ class ScientificPDFService:
         # Join paragraphs with proper spacing
         result = '<br/><br/>'.join(processed_paragraphs)
         
-        # Limit length for readability
-        if len(result) > 4000:
-            result = result[:4000] + "...<br/><br/><i>[Content truncated for PDF display]</i>"
+        # No truncation for full PDF articles - this is the complete document
         
         return result
     
