@@ -84,9 +84,15 @@ export const notebookAPI = {
 
   // Export a notebook
   export: async (notebookId: string, format: 'json' | 'html' | 'markdown' = 'json'): Promise<string> => {
-    const response: AxiosResponse<string> = await api.get(`/notebooks/${notebookId}/export`, {
+    const response: AxiosResponse<any> = await api.get(`/notebooks/${notebookId}/export`, {
       params: { format }
     })
+    
+    // Handle the case where JSON is automatically parsed by axios
+    if (format === 'json' && typeof response.data === 'object') {
+      return JSON.stringify(response.data, null, 2)
+    }
+    
     return response.data
   },
 

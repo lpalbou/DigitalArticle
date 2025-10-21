@@ -773,13 +773,118 @@ print("LLM service is currently unavailable, using fallback code.")
             return None
         
         if format == "json":
-            return json.dumps(notebook.dict(), indent=2, default=str)
+            return json.dumps(self._create_clean_export_structure(notebook), indent=2, default=str)
         elif format == "markdown":
             return self._export_to_markdown(notebook)
         elif format == "html":
             return self._export_to_html(notebook)
         else:
             raise ValueError(f"Unsupported export format: {format}")
+    
+    def _create_clean_export_structure(self, notebook: Notebook) -> Dict[str, Any]:
+        """
+        Create a clean, optimized export structure for JSON export.
+        
+        This structure focuses on the essential content and metadata,
+        removing internal application state and execution details.
+        
+        Args:
+            notebook: Notebook to export
+            
+        Returns:
+            Clean dictionary structure for export
+        """
+        # Core notebook metadata
+        export_data = {
+            "digital_article": {
+                "version": "0.0.3",
+                "export_timestamp": datetime.now().isoformat()
+            },
+            "metadata": {
+                "id": str(notebook.id),
+                "title": notebook.title,
+                "description": notebook.description,
+                "author": notebook.author,
+                "created_at": notebook.created_at.isoformat(),
+                "updated_at": notebook.updated_at.isoformat(),
+                "version": notebook.version,
+                "tags": notebook.tags
+            },
+            "configuration": {
+                "llm_provider": notebook.llm_provider,
+                "llm_model": notebook.llm_model
+            },
+            "cells": []
+        }
+        
+        # Process cells with clean structure
+        for cell in notebook.cells:
+            cell_data = {
+                "id": str(cell.id),
+                "type": cell.cell_type.value,
+                "created_at": cell.created_at.isoformat(),
+                "updated_at": cell.updated_at.isoformat(),
+                "content": {}
+            }
+            
+            # Core content based on cell type
+            if cell.cell_type == CellType.PROMPT:
+                cell_data["content"] = {
+                    "prompt": cell.prompt,
+                    "code": cell.code,
+                    "methodology": cell.scientific_explanation
+                }
+            elif cell.cell_type == CellType.CODE:
+                cell_data["content"] = {
+                    "code": cell.code,
+                    "methodology": cell.scientific_explanation if cell.scientific_explanation else None
+                }
+            elif cell.cell_type == CellType.MARKDOWN:
+                cell_data["content"] = {
+                    "markdown": cell.markdown
+                }
+            elif cell.cell_type == CellType.METHODOLOGY:
+                cell_data["content"] = {
+                    "prompt": cell.prompt,
+                    "code": cell.code,
+                    "methodology": cell.scientific_explanation
+                }
+            
+            # Execution summary (without heavy data)
+            if cell.last_result and cell.last_result.status == ExecutionStatus.SUCCESS:
+                cell_data["execution"] = {
+                    "status": "success",
+                    "execution_count": cell.execution_count,
+                    "last_executed": cell.last_result.timestamp.isoformat(),
+                    "execution_time": cell.last_result.execution_time,
+                    "has_output": bool(cell.last_result.stdout),
+                    "has_plots": len(cell.last_result.plots) > 0,
+                    "has_tables": len(cell.last_result.tables) > 0,
+                    "has_interactive_plots": len(cell.last_result.interactive_plots) > 0
+                }
+            elif cell.last_result and cell.last_result.status == ExecutionStatus.ERROR:
+                cell_data["execution"] = {
+                    "status": "error",
+                    "execution_count": cell.execution_count,
+                    "last_executed": cell.last_result.timestamp.isoformat(),
+                    "error_type": cell.last_result.error_type,
+                    "error_message": cell.last_result.error_message
+                }
+            else:
+                cell_data["execution"] = {
+                    "status": "not_executed",
+                    "execution_count": cell.execution_count
+                }
+            
+            # Optional metadata
+            if cell.tags:
+                cell_data["tags"] = cell.tags
+            if cell.metadata:
+                cell_data["metadata"] = cell.metadata
+                
+            export_data["cells"].append(cell_data)
+        
+        return export_data
     
     def _export_to_markdown(self, notebook: Notebook) -> str:
         """Export notebook to Markdown format."""

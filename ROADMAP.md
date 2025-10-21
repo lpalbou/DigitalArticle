@@ -662,3 +662,30 @@ Timelines are estimates; actual delivery may vary. Features may be added, remove
 **Current Focus**: Phase 1 (Stabilization & Core Improvements)
 
 For questions or suggestions, open an issue or discussion on GitHub.
+
+
+
+Others
+- How to see the existing notebooks
+- Export
+   - fix export json
+   - improve export pdf
+- Code
+   - should be able to edit it
+- Code execution
+   - should be able to cancel an execution
+   - How to force a re-run of a cell (and invalidate the next ones)
+- Variables in context vs files in context
+   - LLM might confuses a file and a variable (when trying to access it)
+   - files : do we even need the subfolder data/ ? especially as it creates potential issues ?
+- if the X retries failed, it should output a custom error panel
+   - human readable message on what was the problem
+   - error stack
+   - what was attempted ?
+   - CRITICAL : make sure that each attempt becomes part of the context, so that the AI doesn’t try the same solution twice
+- Article Abstract : button to generate it
+    - take into account (prompt, code, methodology, result) of all cells (that’s potentially a lot ?)
+        - might need to do it sequentially
+- Rules : how a user could give specific rules beyond the cells
+    - eg system prompt like rules
+

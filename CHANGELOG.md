@@ -5,6 +5,65 @@ All notable changes to the Digital Article project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.3] - 2025-10-21
+
+### Fixed
+- **JSON Export Bug**: Fixed critical issue where JSON export was downloading `"[object Object]"` instead of proper JSON content
+  - Root cause: Axios was auto-parsing JSON responses, then the parsed object was being incorrectly converted to string
+  - Solution: Enhanced frontend API client to detect auto-parsed JSON responses and re-stringify them properly
+  - File: `frontend/src/services/api.ts`
+
+### Enhanced
+- **JSON Export Structure**: Completely redesigned JSON export format for better usability and actionability
+  - **Clean Structure**: Removed internal application state (execution flags, retry counters, etc.)
+  - **Organized Sections**: Clear separation between metadata, configuration, and content
+  - **Cell Content Focus**: Each cell now has a clean `content` object with `prompt`, `code`, and `methodology`
+  - **Execution Summary**: Lightweight execution status without heavy data (plots, tables stored as boolean flags)
+  - **Export Metadata**: Added export timestamp and version tracking
+  - **Improved Readability**: Structured for easy parsing and human readability
+
+### Added
+- **Export Documentation**: New `docs/export.md` documenting the export system and JSON structure
+- **Version Tracking**: Export files now include Digital Article version and export timestamp
+
+### Technical Details
+
+**New JSON Export Structure**:
+```json
+{
+  "digital_article": {
+    "version": "0.0.3",
+    "export_timestamp": "2025-10-21T07:53:25.083962"
+  },
+  "metadata": {
+    "title": "Article Title",
+    "description": "Article Description", 
+    "author": "Author Name",
+    "created_at": "...",
+    "updated_at": "..."
+  },
+  "configuration": {
+    "llm_provider": "lmstudio",
+    "llm_model": "qwen/qwen3-next-80b"
+  },
+  "cells": [
+    {
+      "type": "prompt",
+      "content": {
+        "prompt": "Natural language prompt",
+        "code": "Generated Python code",
+        "methodology": "Scientific explanation"
+      },
+      "execution": {
+        "status": "success",
+        "has_plots": true,
+        "has_tables": false
+      }
+    }
+  ]
+}
+```
+
 ## [0.0.2] - 2025-10-20
 
 ### Documentation
