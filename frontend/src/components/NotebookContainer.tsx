@@ -471,6 +471,23 @@ const NotebookContainer: React.FC = () => {
     setTempDescription('')
   }, [])
 
+  const selectNotebook = useCallback((notebookId: string) => {
+    navigate(`/notebook/${notebookId}`)
+  }, [navigate])
+
+  const deleteNotebook = useCallback(async (notebookId: string) => {
+    try {
+      await notebookAPI.delete(notebookId)
+      // If we're deleting the current notebook, navigate to home
+      if (notebookId === notebook?.id) {
+        navigate('/')
+      }
+    } catch (err) {
+      const apiError = handleAPIError(err)
+      setError(`Failed to delete notebook: ${apiError.message}`)
+    }
+  }, [notebook?.id, navigate])
+
   // Memoized values
   const hasCells = useMemo(() => notebook?.cells && notebook.cells.length > 0, [notebook])
 
@@ -521,7 +538,11 @@ const NotebookContainer: React.FC = () => {
         onSaveNotebook={saveNotebook}
         onExportNotebook={exportNotebook}
         onExportPDF={exportNotebookPDF}
+        onSelectNotebook={selectNotebook}
+        onDeleteNotebook={deleteNotebook}
         isGeneratingPDF={isGeneratingPDF}
+        currentNotebookId={notebook?.id}
+        currentNotebookTitle={notebook?.title}
       />
 
       {/* PDF Generation Modal */}

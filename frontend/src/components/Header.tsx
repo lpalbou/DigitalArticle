@@ -2,13 +2,19 @@ import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BookOpen, Plus, Save, Download, AlertTriangle, ChevronDown, Settings } from 'lucide-react'
 import LLMSettingsModal from './LLMSettingsModal'
+import ArticleQuickAccess from './ArticleQuickAccess'
+import ArticleBrowserModal from './ArticleBrowserModal'
 
 interface HeaderProps {
   onNewNotebook?: () => void
   onSaveNotebook?: () => void
   onExportNotebook?: () => void
   onExportPDF?: (includeCode: boolean) => void
+  onSelectNotebook?: (notebookId: string) => void
+  onDeleteNotebook?: (notebookId: string) => void
   isGeneratingPDF?: boolean
+  currentNotebookId?: string
+  currentNotebookTitle?: string
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -16,11 +22,16 @@ const Header: React.FC<HeaderProps> = ({
   onSaveNotebook,
   onExportNotebook,
   onExportPDF,
-  isGeneratingPDF = false
+  onSelectNotebook,
+  onDeleteNotebook,
+  isGeneratingPDF = false,
+  currentNotebookId,
+  currentNotebookTitle
 }) => {
   const [showConfirmModal, setShowConfirmModal] = useState(false)
   const [showExportDropdown, setShowExportDropdown] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [showBrowserModal, setShowBrowserModal] = useState(false)
 
   const handleNewNotebook = () => {
     setShowConfirmModal(true)
@@ -40,12 +51,21 @@ const Header: React.FC<HeaderProps> = ({
       <header className="fixed top-0 left-0 right-0 z-50 bg-white shadow-sm border-b border-gray-200">
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-16">
-            {/* Logo and Title */}
+            {/* Logo and Article Selector */}
             <div className="flex items-center space-x-4">
               <Link to="/" className="flex items-center space-x-2 text-blue-600 hover:text-blue-700">
                 <BookOpen className="h-8 w-8" />
                 <span className="text-xl font-bold">Digital Article</span>
               </Link>
+              
+              {/* Article Quick Access */}
+              <ArticleQuickAccess
+                currentArticleId={currentNotebookId}
+                currentArticleTitle={currentNotebookTitle}
+                onSelectArticle={(id) => onSelectNotebook?.(id)}
+                onNewArticle={() => onNewNotebook?.()}
+                onBrowseAll={() => setShowBrowserModal(true)}
+              />
             </div>
 
             {/* Action Buttons */}
@@ -142,6 +162,15 @@ const Header: React.FC<HeaderProps> = ({
           onClose={() => setShowSettingsModal(false)}
         />
       )}
+
+      {/* Article Browser Modal */}
+      <ArticleBrowserModal
+        isOpen={showBrowserModal}
+        onClose={() => setShowBrowserModal(false)}
+        onSelectArticle={(id) => onSelectNotebook?.(id)}
+        onDeleteArticle={onDeleteNotebook}
+        currentArticleId={currentNotebookId}
+      />
 
       {/* Confirmation Modal */}
       {showConfirmModal && (

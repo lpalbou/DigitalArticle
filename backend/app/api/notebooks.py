@@ -43,6 +43,19 @@ async def list_notebooks():
         )
 
 
+@router.get("/summaries")
+async def list_notebook_summaries():
+    """Get notebook summaries for browsing interface."""
+    try:
+        summaries = notebook_service.get_notebook_summaries()
+        return summaries
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get notebook summaries: {str(e)}"
+        )
+
+
 @router.get("/{notebook_id}", response_model=Notebook)
 async def get_notebook(notebook_id: str):
     """Get a specific notebook by ID."""

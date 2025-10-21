@@ -65,6 +65,12 @@ export const notebookAPI = {
     return response.data
   },
 
+  // Get notebook summaries for browsing
+  getSummaries: async (): Promise<any[]> => {
+    const response: AxiosResponse<any[]> = await api.get('/notebooks/summaries')
+    return response.data
+  },
+
   // Get a specific notebook by ID
   get: async (notebookId: string): Promise<Notebook> => {
     const response: AxiosResponse<Notebook> = await api.get(`/notebooks/${notebookId}`)

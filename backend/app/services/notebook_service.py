@@ -295,6 +295,67 @@ print("LLM service is currently unavailable, using fallback code.")
         """
         return list(self._notebooks.values())
     
+    def get_notebook_summaries(self) -> List[Dict[str, Any]]:
+        """
+        Get notebook summaries for browsing interface.
+        
+        Returns:
+            List of notebook summaries with metadata and statistics
+        """
+        summaries = []
+        
+        for notebook in self._notebooks.values():
+            # Calculate statistics
+            total_cells = len(notebook.cells)
+            executed_cells = sum(1 for cell in notebook.cells if cell.last_result and cell.last_result.status == ExecutionStatus.SUCCESS)
+            prompt_cells = sum(1 for cell in notebook.cells if cell.cell_type == CellType.PROMPT)
+            code_cells = sum(1 for cell in notebook.cells if cell.cell_type == CellType.CODE)
+            markdown_cells = sum(1 for cell in notebook.cells if cell.cell_type == CellType.MARKDOWN)
+            
+            # Get latest activity
+            latest_activity = notebook.updated_at
+            for cell in notebook.cells:
+                if cell.updated_at > latest_activity:
+                    latest_activity = cell.updated_at
+            
+            # Check if has content
+            has_content = any(cell.prompt or cell.code or cell.markdown for cell in notebook.cells)
+            has_results = any(cell.last_result and cell.last_result.status == ExecutionStatus.SUCCESS for cell in notebook.cells)
+            
+            # Create summary
+            summary = {
+                "id": str(notebook.id),
+                "title": notebook.title,
+                "description": notebook.description,
+                "author": notebook.author,
+                "created_at": notebook.created_at.isoformat(),
+                "updated_at": notebook.updated_at.isoformat(),
+                "latest_activity": latest_activity.isoformat(),
+                "tags": notebook.tags,
+                "llm_provider": notebook.llm_provider,
+                "llm_model": notebook.llm_model,
+                "statistics": {
+                    "total_cells": total_cells,
+                    "executed_cells": executed_cells,
+                    "prompt_cells": prompt_cells,
+                    "code_cells": code_cells,
+                    "markdown_cells": markdown_cells,
+                    "execution_rate": round(executed_cells / total_cells * 100, 1) if total_cells > 0 else 0
+                },
+                "status": {
+                    "has_content": has_content,
+                    "has_results": has_results,
+                    "is_empty": total_cells == 0 or not has_content
+                }
+            }
+            
+            summaries.append(summary)
+        
+        # Sort by latest activity (most recent first)
+        summaries.sort(key=lambda x: x["latest_activity"], reverse=True)
+        
+        return summaries
+    
     def update_notebook(self, notebook_id: str, request: NotebookUpdateRequest) -> Optional[Notebook]:
         """
         Update notebook metadata.
