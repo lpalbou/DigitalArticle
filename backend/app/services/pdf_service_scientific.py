@@ -256,8 +256,8 @@ class ScientificPDFService:
         # Title page
         self._add_title_page(story, notebook)
         
-        # Abstract (now context-aware)
-        self._add_abstract(story, scientific_content.get('abstract', ''))
+        # Abstract (use notebook's stored abstract)
+        self._add_abstract(story, notebook.abstract)
         
         # Introduction (now with analysis plan)
         self._add_introduction(story, scientific_content.get('introduction', ''))
@@ -277,6 +277,257 @@ class ScientificPDFService:
         
         logger.info(f"Scientific PDF generated successfully: {len(pdf_bytes)} bytes")
         return pdf_bytes
+
+    def generate_scientific_article_pdf(self, scientific_article: Dict[str, Any], notebook: Notebook, include_code: bool = False) -> bytes:
+        """
+        Generate a PDF from an LLM-generated scientific article.
+        
+        Args:
+            scientific_article: Complete article structure with LLM-generated content
+            notebook: Original notebook for metadata and empirical evidence
+            include_code: Whether to include code snippets as empirical evidence
+            
+        Returns:
+            PDF content as bytes
+        """
+        logger.info(f"Generating PDF from LLM-generated scientific article: {scientific_article.get('title', 'Untitled')}")
+        
+        # Create PDF buffer
+        buffer = io.BytesIO()
+        
+        # Create document with professional layout
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=2.5*cm,
+            leftMargin=2.5*cm,
+            topMargin=2.5*cm,
+            bottomMargin=2.5*cm,
+            title=scientific_article.get('title', notebook.title),
+            author=notebook.author
+        )
+        
+        # Build document content
+        story = []
+        
+        # Title page with LLM-generated title
+        self._add_article_title_page(story, scientific_article, notebook)
+        
+        # Abstract (from notebook)
+        if scientific_article.get('abstract'):
+            self._add_abstract(story, scientific_article['abstract'])
+        
+        # LLM-generated sections with figures
+        sections = scientific_article.get('sections', {})
+        section_order = ['introduction', 'methodology', 'results', 'discussion', 'conclusions']
+        
+        figure_counter = 1
+        for section_name in section_order:
+            if section_name in sections and sections[section_name]:
+                self._add_article_section(story, section_name, sections[section_name])
+                
+                # Add figures after Results section
+                if section_name == 'results':
+                    figure_counter = self._add_figures_to_results(story, notebook, figure_counter)
+        
+        # Empirical evidence (code snippets, data outputs)
+        if include_code:
+            self._add_empirical_evidence_section(story, notebook)
+        
+        # Acknowledgments
+        self._add_acknowledgments(story, scientific_article.get('metadata', {}))
+        
+        # Build PDF
+        doc.build(story)
+        
+        # Get PDF bytes
+        pdf_bytes = buffer.getvalue()
+        buffer.close()
+        
+        logger.info(f"LLM-generated scientific article PDF created successfully: {len(pdf_bytes)} bytes")
+        return pdf_bytes
+
+    def _add_article_title_page(self, story: List, scientific_article: Dict[str, Any], notebook: Notebook):
+        """Add title page with LLM-generated title."""
+        # Use LLM-generated title if available, otherwise notebook title
+        title = scientific_article.get('title', notebook.title)
+        
+        # Title
+        title_para = Paragraph(self._clean_text_for_pdf(title), self.styles['Title'])
+        story.append(title_para)
+        story.append(Spacer(1, 0.5*inch))
+        
+        # Author and metadata
+        author_text = f"<b>Author:</b> {notebook.author}"
+        author_para = Paragraph(author_text, self.styles['AuthorInfo'])
+        story.append(author_para)
+        
+        # Generation timestamp
+        generated_at = scientific_article.get('metadata', {}).get('generated_at', '')
+        if generated_at:
+            from datetime import datetime
+            try:
+                dt = datetime.fromisoformat(generated_at.replace('Z', '+00:00'))
+                timestamp_text = f"<b>Generated:</b> {dt.strftime('%B %d, %Y at %H:%M UTC')}"
+                timestamp_para = Paragraph(timestamp_text, self.styles['AuthorInfo'])
+                story.append(timestamp_para)
+            except:
+                pass
+        
+        story.append(Spacer(1, 0.5*inch))
+        story.append(PageBreak())
+
+    def _add_article_section(self, story: List, section_name: str, section_content: str):
+        """Add a section with LLM-generated content."""
+        if not section_content:
+            return
+        
+        # Section heading
+        section_title = section_name.replace('_', ' ').title()
+        heading = Paragraph(section_title, self.styles['SectionHeading'])
+        story.append(heading)
+        
+        # Section content (LLM-generated)
+        content_para = Paragraph(self._clean_text_for_pdf(section_content), self.styles['BodyText'])
+        story.append(content_para)
+        story.append(Spacer(1, 0.2*inch))
+
+    def _add_empirical_evidence_section(self, story: List, notebook: Notebook):
+        """Add empirical evidence section with code snippets and outputs."""
+        # Section heading
+        heading = Paragraph("Empirical Evidence", self.styles['SectionHeading'])
+        story.append(heading)
+        
+        intro_text = "The following code implementations and outputs provide empirical support for the analysis presented in this article."
+        intro_para = Paragraph(intro_text, self.styles['BodyText'])
+        story.append(intro_para)
+        story.append(Spacer(1, 0.1*inch))
+        
+        # Add code, results, and figures from each cell
+        figure_counter = 1
+        for i, cell in enumerate(notebook.cells, 1):
+            if cell.code and cell.code.strip():
+                # Code snippet
+                code_heading = Paragraph(f"Code Snippet {i}", self.styles['SubsectionHeading'])
+                story.append(code_heading)
+                
+                # Clean and format code
+                clean_code = self._clean_text_for_pdf(cell.code)
+                code_para = Paragraph(f"<font name='Courier' size='8'>{clean_code}</font>", self.styles['CodeBlock'])
+                story.append(code_para)
+                
+                # Output if available
+                if cell.last_result and cell.last_result.stdout:
+                    output_text = f"<b>Output:</b><br/>{self._clean_text_for_pdf(cell.last_result.stdout)}"
+                    output_para = Paragraph(output_text, self.styles['Results'])
+                    story.append(output_para)
+                
+                # Figures if available
+                if cell.last_result and cell.last_result.plots:
+                    for plot_data in cell.last_result.plots:
+                        try:
+                            # Add figure
+                            self._add_figure_to_story(story, plot_data, f"Figure {figure_counter}", 
+                                                    f"Visualization generated from Code Snippet {i}")
+                            figure_counter += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to add figure to PDF: {e}")
+                
+                story.append(Spacer(1, 0.1*inch))
+
+    def _add_acknowledgments(self, story: List, metadata: Dict[str, Any]):
+        """Add acknowledgments section."""
+        # Section heading
+        heading = Paragraph("Acknowledgments", self.styles['SectionHeading'])
+        story.append(heading)
+        
+        # Acknowledgment text
+        ack_text = ("This article was generated using Digital Article, an open-source platform for "
+                   "reproducible data analysis and scientific writing. The platform combines computational "
+                   "analysis with AI-powered scientific writing to create publication-ready research articles. "
+                   "Digital Article is available at: github.com/lpalbou/digitalarticle")
+        
+        ack_para = Paragraph(ack_text, self.styles['BodyText'])
+        story.append(ack_para)
+        
+        # Timestamp
+        generated_at = metadata.get('generated_at', '')
+        if generated_at:
+            from datetime import datetime
+            try:
+                dt = datetime.fromisoformat(generated_at.replace('Z', '+00:00'))
+                timestamp_text = f"<br/><br/><i>Article generated on {dt.strftime('%B %d, %Y at %H:%M UTC')}</i>"
+                timestamp_para = Paragraph(timestamp_text, self.styles['BodyText'])
+                story.append(timestamp_para)
+            except:
+                pass
+
+    def _add_figure_to_story(self, story: List, plot_data: str, figure_title: str, caption: str):
+        """Add a figure to the PDF story."""
+        try:
+            import base64
+            from reportlab.platypus import Image
+            from reportlab.lib.units import inch
+            import io
+            from PIL import Image as PILImage
+            
+            # Decode base64 image data
+            image_data = base64.b64decode(plot_data)
+            
+            # Create PIL image to get dimensions
+            pil_image = PILImage.open(io.BytesIO(image_data))
+            original_width, original_height = pil_image.size
+            
+            # Calculate scaled dimensions (max width 6 inches)
+            max_width = 6 * inch
+            scale_factor = min(max_width / original_width, 1.0)
+            scaled_width = original_width * scale_factor
+            scaled_height = original_height * scale_factor
+            
+            # Create ReportLab Image
+            img = Image(io.BytesIO(image_data), width=scaled_width, height=scaled_height)
+            
+            # Add figure title
+            figure_heading = Paragraph(figure_title, self.styles['SubsectionHeading'])
+            story.append(figure_heading)
+            
+            # Add the image
+            story.append(img)
+            
+            # Add caption
+            if caption:
+                caption_para = Paragraph(f"<i>{caption}</i>", self.styles['Caption'])
+                story.append(caption_para)
+            
+            story.append(Spacer(1, 0.2*inch))
+            
+        except Exception as e:
+            logger.error(f"Failed to add figure to PDF: {e}")
+            # Add placeholder text instead
+            error_para = Paragraph(f"<i>[Figure {figure_title} could not be displayed]</i>", self.styles['BodyText'])
+            story.append(error_para)
+
+    def _add_figures_to_results(self, story: List, notebook: Notebook, figure_counter: int) -> int:
+        """Add figures inline with the Results section."""
+        for i, cell in enumerate(notebook.cells, 1):
+            if cell.last_result and cell.last_result.plots:
+                for plot_data in cell.last_result.plots:
+                    try:
+                        # Create descriptive caption based on cell content
+                        caption = f"Figure {figure_counter}. "
+                        if cell.prompt:
+                            # Use first part of prompt as caption
+                            prompt_summary = cell.prompt[:100] + "..." if len(cell.prompt) > 100 else cell.prompt
+                            caption += f"Visualization of {prompt_summary.lower()}"
+                        else:
+                            caption += f"Data visualization from analysis step {i}"
+                        
+                        self._add_figure_to_story(story, plot_data, f"Figure {figure_counter}", caption)
+                        figure_counter += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to add figure {figure_counter} to results: {e}")
+        
+        return figure_counter
     
     def _add_title_page(self, story: List, notebook: Notebook):
         """Add professional title page."""

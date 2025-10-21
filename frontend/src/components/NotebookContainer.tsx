@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Plus, AlertCircle, Edit2, Check, X } from 'lucide-react'
+import { Plus, AlertCircle, Edit2, Check, X, FileText, Loader2 } from 'lucide-react'
 import Header from './Header'
 import FileContextPanel from './FileContextPanel'
 import NotebookCell from './NotebookCell'
@@ -51,10 +51,12 @@ const NotebookContainer: React.FC = () => {
   const [editingDescription, setEditingDescription] = useState(false)
   const [tempTitle, setTempTitle] = useState('')
   const [tempDescription, setTempDescription] = useState('')
+  const [abstract, setAbstract] = useState<string>('')
+  const [isGeneratingAbstract, setIsGeneratingAbstract] = useState(false)
   
   // PDF generation state
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
-  const [pdfGenerationStage, setPdfGenerationStage] = useState<'analyzing' | 'generating_content' | 'creating_pdf' | 'complete'>('analyzing')
+  const [pdfGenerationStage, setPdfGenerationStage] = useState<'analyzing' | 'regenerating_abstract' | 'planning_article' | 'writing_introduction' | 'writing_methodology' | 'writing_results' | 'writing_discussion' | 'writing_conclusions' | 'creating_pdf' | 'complete'>('analyzing')
 
   // LLM settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -114,9 +116,18 @@ const NotebookContainer: React.FC = () => {
       
       setNotebook(notebookWithDefaultTabs)
       setHasUnsavedChanges(false)
+      
+      // Load existing abstract if available
+      if (notebookWithDefaultTabs.abstract) {
+        setAbstract(notebookWithDefaultTabs.abstract)
+      } else {
+        setAbstract('')
+      }
     } catch (err) {
       const apiError = handleAPIError(err)
       setError(apiError.message)
+      // Clear abstract on error
+      setAbstract('')
     } finally {
       setLoading(false)
     }
@@ -157,6 +168,9 @@ const NotebookContainer: React.FC = () => {
       const newNotebook = await notebookAPI.create(request)
       setNotebook(newNotebook)
       setHasUnsavedChanges(false)
+      
+      // Clear abstract for new notebook
+      setAbstract('')
 
       // Navigate to the new notebook URL
       navigate(`/notebook/${newNotebook.id}`, { replace: true })
@@ -222,17 +236,41 @@ const NotebookContainer: React.FC = () => {
       
       // Stage 1: Analyzing
       setPdfGenerationStage('analyzing')
-      await new Promise(resolve => setTimeout(resolve, 1000)) // Simulate analysis time
+      await new Promise(resolve => setTimeout(resolve, 800))
       
-      // Stage 2: Generating content
-      setPdfGenerationStage('generating_content')
-      await new Promise(resolve => setTimeout(resolve, 1500)) // Simulate LLM processing
+      // Stage 2: Regenerating Abstract
+      setPdfGenerationStage('regenerating_abstract')
+      await new Promise(resolve => setTimeout(resolve, 1200))
       
-      // Stage 3: Creating PDF
+      // Stage 3: Planning Article
+      setPdfGenerationStage('planning_article')
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      // Stage 4: Writing Introduction
+      setPdfGenerationStage('writing_introduction')
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      
+      // Stage 5: Writing Methodology
+      setPdfGenerationStage('writing_methodology')
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      
+      // Stage 6: Writing Results
+      setPdfGenerationStage('writing_results')
+      await new Promise(resolve => setTimeout(resolve, 1800))
+      
+      // Stage 7: Writing Discussion
+      setPdfGenerationStage('writing_discussion')
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      
+      // Stage 8: Writing Conclusions
+      setPdfGenerationStage('writing_conclusions')
+      await new Promise(resolve => setTimeout(resolve, 1200))
+      
+      // Stage 9: Creating PDF
       setPdfGenerationStage('creating_pdf')
       const pdfBlob = await notebookAPI.exportPDF(notebook.id, includeCode)
       
-      // Stage 4: Complete
+      // Stage 10: Complete
       setPdfGenerationStage('complete')
       
       // Create download link
@@ -584,6 +622,30 @@ const NotebookContainer: React.FC = () => {
     }
   }, [notebook?.id, navigate])
 
+  const generateAbstract = useCallback(async () => {
+    if (!notebook?.id) {
+      setError('No notebook selected')
+      return
+    }
+
+    setIsGeneratingAbstract(true)
+    setError(null)
+
+    try {
+      const generatedAbstract = await notebookAPI.generateAbstract(notebook.id)
+      setAbstract(generatedAbstract)
+      setToast({
+        message: 'Abstract generated successfully',
+        type: 'success'
+      })
+    } catch (err) {
+      const apiError = handleAPIError(err)
+      setError(`Failed to generate abstract: ${apiError.message}`)
+    } finally {
+      setIsGeneratingAbstract(false)
+    }
+  }, [notebook?.id])
+
   // Memoized values
   const hasCells = useMemo(() => notebook?.cells && notebook.cells.length > 0, [notebook])
 
@@ -720,20 +782,37 @@ const NotebookContainer: React.FC = () => {
               </button>
             </div>
           ) : (
-            <div 
-              className="group cursor-pointer rounded-lg hover:bg-gray-50 transition-all duration-300 p-3 -m-3"
-              onClick={handleTitleEdit}
-              title="Click to edit title"
-            >
-              <div className="flex items-center space-x-2">
-                <h1 className="text-2xl font-bold flex-1 text-gray-900 group-hover:text-gray-700 transition-colors editable-field">
-                  {notebook.title}
-                </h1>
-                <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-70 transition-all duration-300">
-                  <Edit2 className="h-4 w-4 text-gray-500" />
-                  <span className="text-xs text-gray-500 font-medium">Click to edit</span>
+            <div className="flex items-start justify-between">
+              <div 
+                className="group cursor-pointer rounded-lg hover:bg-gray-50 transition-all duration-300 p-3 -m-3 flex-1"
+                onClick={handleTitleEdit}
+                title="Click to edit title"
+              >
+                <div className="flex items-center space-x-2">
+                  <h1 className="text-2xl font-bold flex-1 text-gray-900 group-hover:text-gray-700 transition-colors editable-field">
+                    {notebook.title}
+                  </h1>
+                  <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-70 transition-all duration-300">
+                    <Edit2 className="h-4 w-4 text-gray-500" />
+                    <span className="text-xs text-gray-500 font-medium">Click to edit</span>
+                  </div>
                 </div>
               </div>
+              
+              {/* Abstract Button */}
+              <button
+                onClick={generateAbstract}
+                disabled={isGeneratingAbstract}
+                className="btn btn-primary flex items-center space-x-2 ml-4"
+                title="Generate Abstract - Analyzes all cells including: prompts (objectives), generated code (methods), execution results (data/outputs), and scientific explanations (analysis) to create a comprehensive scientific abstract grounded in empirical evidence"
+              >
+                {isGeneratingAbstract ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="h-4 w-4" />
+                )}
+                <span>{isGeneratingAbstract ? 'Generating...' : 'Abstract'}</span>
+              </button>
             </div>
           )}
         </div>
@@ -789,6 +868,21 @@ const NotebookContainer: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Abstract Section */}
+        {abstract && (
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center space-x-2 mb-3">
+              <FileText className="h-5 w-5 text-blue-600" />
+              <h3 className="text-lg font-semibold text-blue-900">Abstract</h3>
+            </div>
+            <div className="prose prose-sm max-w-none">
+              <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">
+                {abstract}
+              </p>
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between text-sm text-gray-500">
           <span>Author: {notebook.author}</span>

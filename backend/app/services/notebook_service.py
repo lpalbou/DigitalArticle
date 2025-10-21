@@ -1028,7 +1028,9 @@ print("LLM service is currently unavailable, using fallback code.")
                 "created_at": notebook.created_at.isoformat(),
                 "updated_at": notebook.updated_at.isoformat(),
                 "version": notebook.version,
-                "tags": notebook.tags
+                "tags": notebook.tags,
+                "abstract": notebook.abstract,
+                "abstract_generated_at": notebook.abstract_generated_at.isoformat() if notebook.abstract_generated_at else None
             },
             "configuration": {
                 "llm_provider": notebook.llm_provider,
@@ -1195,7 +1197,13 @@ print("LLM service is currently unavailable, using fallback code.")
     
     def export_notebook_pdf(self, notebook_id: str, include_code: bool = False) -> Optional[bytes]:
         """
-        Export a notebook to PDF format.
+        Export a notebook to PDF format as a complete scientific article.
+        
+        This method:
+        1. Regenerates the abstract to ensure it's current
+        2. Uses LLM to generate a complete article plan and content
+        3. Creates a human-readable scientific article with proper structure
+        4. Includes empirical evidence and acknowledgments
         
         Args:
             notebook_id: Notebook UUID
@@ -1209,9 +1217,27 @@ print("LLM service is currently unavailable, using fallback code.")
             return None
         
         try:
-            logger.info(f"Exporting notebook {notebook_id} to PDF (include_code={include_code})")
-            pdf_bytes = self.pdf_service.generate_pdf(notebook, include_code)
-            logger.info(f"PDF export successful: {len(pdf_bytes)} bytes")
+            logger.info(f"Exporting notebook {notebook_id} to LLM-generated scientific article PDF (include_code={include_code})")
+            
+            # Step 1: Regenerate abstract to ensure it's current
+            logger.info("🎯 Step 1: Regenerating abstract for PDF export...")
+            try:
+                self.generate_abstract(notebook_id)
+                # Reload notebook to get updated abstract
+                notebook = self._notebooks.get(notebook_id)
+            except Exception as e:
+                logger.warning(f"Failed to regenerate abstract for PDF: {e}")
+                # Continue with existing abstract or empty if none
+            
+            # Step 2: Generate complete scientific article using LLM
+            logger.info("🎯 Step 2: Generating complete scientific article...")
+            scientific_article = self.generate_scientific_article(notebook_id)
+            
+            # Step 3: Generate PDF from the LLM-generated article
+            logger.info("🎯 Step 3: Creating PDF from scientific article...")
+            pdf_bytes = self.pdf_service.generate_scientific_article_pdf(scientific_article, notebook, include_code)
+            
+            logger.info(f"🎯 LLM-driven scientific PDF export successful: {len(pdf_bytes)} bytes")
             return pdf_bytes
         except Exception as e:
             logger.error(f"Failed to export notebook {notebook_id} to PDF: {e}")
@@ -1262,3 +1288,160 @@ print("LLM service is currently unavailable, using fallback code.")
         except Exception as e:
             logger.error(f"Failed to set custom seed: {e}")
             return False
+
+    def generate_abstract(self, notebook_id: str) -> str:
+        """
+        Generate a scientific abstract for the entire digital article.
+        
+        Args:
+            notebook_id: ID of the notebook to generate abstract for
+            
+        Returns:
+            Generated abstract as a string
+            
+        Raises:
+            ValueError: If notebook not found
+            Exception: If abstract generation fails
+        """
+        notebook = self._notebooks.get(notebook_id)
+        if not notebook:
+            raise ValueError(f"Notebook {notebook_id} not found")
+        
+        try:
+            # Convert notebook to dictionary format for LLM service
+            notebook_data = {
+                'id': str(notebook.id),
+                'title': notebook.title,
+                'description': notebook.description,
+                'author': notebook.author,
+                'cells': []
+            }
+            
+            # Convert cells to dictionary format
+            for cell in notebook.cells:
+                cell_data = {
+                    'prompt': cell.prompt,
+                    'code': cell.code,
+                    'scientific_explanation': cell.scientific_explanation,
+                    'last_result': None
+                }
+                
+                # Include execution results if available
+                if cell.last_result:
+                    cell_data['last_result'] = {
+                        'output': cell.last_result.stdout,  # Use stdout instead of output
+                        'status': cell.last_result.status.value if cell.last_result.status else None,
+                        'execution_time': cell.last_result.execution_time
+                    }
+                
+                notebook_data['cells'].append(cell_data)
+            
+            # Generate abstract using LLM service
+            abstract = self.llm_service.generate_abstract(notebook_data)
+            
+            # Save abstract to notebook
+            notebook.abstract = abstract
+            notebook.abstract_generated_at = datetime.now()
+            self._save_notebook(notebook)
+            
+            logger.info(f"🎯 Generated and saved abstract for notebook {notebook_id}: {len(abstract)} characters")
+            return abstract
+            
+        except Exception as e:
+            logger.error(f"Failed to generate abstract for notebook {notebook_id}: {e}")
+            raise
+
+    def generate_scientific_article(self, notebook_id: str) -> Dict[str, Any]:
+        """
+        Generate a complete scientific article with LLM-driven content.
+        
+        Args:
+            notebook_id: ID of the notebook to generate article for
+            
+        Returns:
+            Dictionary with article structure and content
+            
+        Raises:
+            ValueError: If notebook not found
+            Exception: If article generation fails
+        """
+        notebook = self._notebooks.get(notebook_id)
+        if not notebook:
+            raise ValueError(f"Notebook {notebook_id} not found")
+        
+        try:
+            logger.info(f"🎯 Generating complete scientific article for notebook {notebook_id}")
+            
+            # Convert notebook to dictionary format for LLM service
+            notebook_data = {
+                'id': str(notebook.id),
+                'title': notebook.title,
+                'description': notebook.description,
+                'author': notebook.author,
+                'abstract': notebook.abstract,
+                'cells': []
+            }
+            
+            # Convert cells to dictionary format
+            for cell in notebook.cells:
+                cell_data = {
+                    'prompt': cell.prompt,
+                    'code': cell.code,
+                    'scientific_explanation': cell.scientific_explanation,
+                    'last_result': None
+                }
+                
+                # Include execution results if available
+                if cell.last_result:
+                    cell_data['last_result'] = {
+                        'output': cell.last_result.stdout,
+                        'status': cell.last_result.status.value if cell.last_result.status else None,
+                        'execution_time': cell.last_result.execution_time,
+                        'plots': cell.last_result.plots if cell.last_result.plots else []
+                    }
+                
+                notebook_data['cells'].append(cell_data)
+            
+            # Step 1: Generate article plan
+            logger.info("🎯 Step 1: Generating article plan...")
+            article_plan = self.llm_service.generate_article_plan(notebook_data)
+            
+            # Step 2: Generate each section based on the plan
+            logger.info("🎯 Step 2: Generating article sections...")
+            sections = {}
+            section_names = ['introduction', 'methodology', 'results', 'discussion', 'conclusions']
+            
+            for section_name in section_names:
+                if section_name in article_plan.get('sections', {}):
+                    logger.info(f"🎯 Generating {section_name} section...")
+                    section_plan = article_plan['sections'][section_name]
+                    section_content = self.llm_service.generate_article_section(
+                        section_name, section_plan, notebook_data, article_plan
+                    )
+                    sections[section_name] = section_content
+                else:
+                    logger.warning(f"🎯 No plan found for {section_name} section, skipping...")
+            
+            # Step 3: Compile complete article
+            complete_article = {
+                'title': article_plan.get('title', notebook.title),
+                'abstract': notebook.abstract,
+                'sections': sections,
+                'metadata': {
+                    'author': notebook.author,
+                    'generated_at': datetime.now().isoformat(),
+                    'notebook_id': notebook_id,
+                    'digital_article_version': '0.0.3'
+                },
+                'plan': article_plan
+            }
+            
+            logger.info(f"🎯 Generated complete scientific article for notebook {notebook_id}")
+            logger.info(f"🎯 Article sections: {list(sections.keys())}")
+            logger.info(f"🎯 Total content length: {sum(len(content) for content in sections.values())} characters")
+            
+            return complete_article
+            
+        except Exception as e:
+            logger.error(f"Failed to generate scientific article for notebook {notebook_id}: {e}")
+            raise

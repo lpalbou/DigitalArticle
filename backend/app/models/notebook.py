@@ -133,6 +133,10 @@ class Notebook(BaseModel):
 
     # Token tracking
     last_context_tokens: int = 0  # Last known context size from generation
+    
+    # Abstract
+    abstract: str = ""  # Generated scientific abstract
+    abstract_generated_at: Optional[datetime] = None  # When abstract was last generated
 
     class Config:
         """Pydantic configuration."""

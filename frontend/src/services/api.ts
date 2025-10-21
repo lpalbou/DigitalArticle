@@ -129,6 +129,12 @@ export const notebookAPI = {
     })
     return response.data
   },
+
+  // Generate abstract for the entire digital article
+  generateAbstract: async (notebookId: string): Promise<string> => {
+    const response: AxiosResponse<{ abstract: string }> = await api.post(`/notebooks/${notebookId}/generate-abstract`)
+    return response.data.abstract
+  },
 }
 
 // Cell API

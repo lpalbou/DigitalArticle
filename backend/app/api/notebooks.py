@@ -259,3 +259,21 @@ async def set_notebook_seed(notebook_id: str, seed_data: dict):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to set seed: {str(e)}"
         )
+
+
+@router.post("/{notebook_id}/generate-abstract")
+async def generate_abstract(notebook_id: str):
+    """Generate a scientific abstract for the entire digital article."""
+    try:
+        abstract = notebook_service.generate_abstract(notebook_id)
+        return {"abstract": abstract}
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate abstract: {str(e)}"
+        )

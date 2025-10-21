@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "DigitalArticle"
-version = "0.1.1"
+dynamic = ["version"]
 description = "Command-line tools for Digital Article notebook application"
 readme = "README.md"
 authors = [
@@ -92,6 +92,9 @@ include = ["digitalarticle*"]
 
 [tool.setuptools.package-data]
 digitalarticle = ["py.typed"]
+
+[tool.setuptools.dynamic]
+version = {attr = "digitalarticle._version.__version__"}
 
 # Black configuration
 [tool.black]

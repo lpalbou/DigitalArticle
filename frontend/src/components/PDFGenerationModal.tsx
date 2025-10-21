@@ -3,7 +3,7 @@ import { Loader2, FileText, Brain, Sparkles } from 'lucide-react'
 
 interface PDFGenerationModalProps {
   isVisible: boolean
-  stage: 'analyzing' | 'generating_content' | 'creating_pdf' | 'complete'
+  stage: 'analyzing' | 'regenerating_abstract' | 'planning_article' | 'writing_introduction' | 'writing_methodology' | 'writing_results' | 'writing_discussion' | 'writing_conclusions' | 'creating_pdf' | 'complete'
 }
 
 const PDFGenerationModal: React.FC<PDFGenerationModalProps> = ({
@@ -19,27 +19,69 @@ const PDFGenerationModal: React.FC<PDFGenerationModalProps> = ({
           icon: <Brain className="h-8 w-8 text-blue-500" />,
           title: 'Analyzing Content',
           description: 'Examining notebook cells and extracting insights...',
+          progress: 5
+        }
+      case 'regenerating_abstract':
+        return {
+          icon: <Sparkles className="h-8 w-8 text-blue-500" />,
+          title: 'Regenerating Abstract',
+          description: 'Creating current abstract based on all research data...',
+          progress: 15
+        }
+      case 'planning_article':
+        return {
+          icon: <Brain className="h-8 w-8 text-purple-500" />,
+          title: 'Planning Article Structure',
+          description: 'AI is analyzing research and creating article outline...',
           progress: 25
         }
-      case 'generating_content':
+      case 'writing_introduction':
         return {
           icon: <Sparkles className="h-8 w-8 text-purple-500" />,
-          title: 'Generating Scientific Content',
-          description: 'Creating abstract, introduction, and conclusions with AI...',
-          progress: 60
+          title: 'Writing Introduction',
+          description: 'Crafting compelling introduction with context and objectives...',
+          progress: 35
+        }
+      case 'writing_methodology':
+        return {
+          icon: <Sparkles className="h-8 w-8 text-purple-500" />,
+          title: 'Writing Methodology',
+          description: 'Describing analytical approaches and implementation details...',
+          progress: 50
+        }
+      case 'writing_results':
+        return {
+          icon: <Sparkles className="h-8 w-8 text-purple-500" />,
+          title: 'Writing Results',
+          description: 'Presenting key findings with empirical evidence...',
+          progress: 65
+        }
+      case 'writing_discussion':
+        return {
+          icon: <Sparkles className="h-8 w-8 text-purple-500" />,
+          title: 'Writing Discussion',
+          description: 'Interpreting results and discussing implications...',
+          progress: 75
+        }
+      case 'writing_conclusions':
+        return {
+          icon: <Sparkles className="h-8 w-8 text-purple-500" />,
+          title: 'Writing Conclusions',
+          description: 'Summarizing contributions and future directions...',
+          progress: 85
         }
       case 'creating_pdf':
         return {
           icon: <FileText className="h-8 w-8 text-green-500" />,
           title: 'Creating PDF Document',
-          description: 'Formatting and assembling the scientific article...',
-          progress: 90
+          description: 'Formatting article with figures and assembling final PDF...',
+          progress: 95
         }
       case 'complete':
         return {
           icon: <FileText className="h-8 w-8 text-green-500" />,
-          title: 'PDF Generated Successfully',
-          description: 'Your scientific article is ready for download.',
+          title: 'Scientific Article Generated',
+          description: 'Your publication-ready article is ready for download.',
           progress: 100
         }
       default:
@@ -93,18 +135,42 @@ const PDFGenerationModal: React.FC<PDFGenerationModalProps> = ({
               </div>
 
               {/* Stage indicators */}
-              <div className="flex space-x-4 text-xs text-gray-500">
-                <div className={`flex items-center space-x-1 ${stage === 'analyzing' || stageInfo.progress > 25 ? 'text-blue-600' : ''}`}>
-                  <div className={`w-2 h-2 rounded-full ${stageInfo.progress > 25 ? 'bg-blue-600' : 'bg-gray-300'}`}></div>
+              <div className="flex flex-wrap justify-center gap-2 text-xs text-gray-500">
+                <div className={`flex items-center space-x-1 ${stageInfo.progress > 5 ? 'text-blue-600' : ''}`}>
+                  <div className={`w-2 h-2 rounded-full ${stageInfo.progress > 5 ? 'bg-blue-600' : 'bg-gray-300'}`}></div>
                   <span>Analyze</span>
                 </div>
-                <div className={`flex items-center space-x-1 ${stage === 'generating_content' || stageInfo.progress > 60 ? 'text-purple-600' : ''}`}>
-                  <div className={`w-2 h-2 rounded-full ${stageInfo.progress > 60 ? 'bg-purple-600' : 'bg-gray-300'}`}></div>
-                  <span>Generate</span>
+                <div className={`flex items-center space-x-1 ${stageInfo.progress > 15 ? 'text-blue-600' : ''}`}>
+                  <div className={`w-2 h-2 rounded-full ${stageInfo.progress > 15 ? 'bg-blue-600' : 'bg-gray-300'}`}></div>
+                  <span>Abstract</span>
                 </div>
-                <div className={`flex items-center space-x-1 ${stage === 'creating_pdf' || stageInfo.progress > 90 ? 'text-green-600' : ''}`}>
-                  <div className={`w-2 h-2 rounded-full ${stageInfo.progress > 90 ? 'bg-green-600' : 'bg-gray-300'}`}></div>
-                  <span>Create PDF</span>
+                <div className={`flex items-center space-x-1 ${stageInfo.progress > 25 ? 'text-purple-600' : ''}`}>
+                  <div className={`w-2 h-2 rounded-full ${stageInfo.progress > 25 ? 'bg-purple-600' : 'bg-gray-300'}`}></div>
+                  <span>Plan</span>
+                </div>
+                <div className={`flex items-center space-x-1 ${stageInfo.progress > 35 ? 'text-purple-600' : ''}`}>
+                  <div className={`w-2 h-2 rounded-full ${stageInfo.progress > 35 ? 'bg-purple-600' : 'bg-gray-300'}`}></div>
+                  <span>Intro</span>
+                </div>
+                <div className={`flex items-center space-x-1 ${stageInfo.progress > 50 ? 'text-purple-600' : ''}`}>
+                  <div className={`w-2 h-2 rounded-full ${stageInfo.progress > 50 ? 'bg-purple-600' : 'bg-gray-300'}`}></div>
+                  <span>Methods</span>
+                </div>
+                <div className={`flex items-center space-x-1 ${stageInfo.progress > 65 ? 'text-purple-600' : ''}`}>
+                  <div className={`w-2 h-2 rounded-full ${stageInfo.progress > 65 ? 'bg-purple-600' : 'bg-gray-300'}`}></div>
+                  <span>Results</span>
+                </div>
+                <div className={`flex items-center space-x-1 ${stageInfo.progress > 75 ? 'text-purple-600' : ''}`}>
+                  <div className={`w-2 h-2 rounded-full ${stageInfo.progress > 75 ? 'bg-purple-600' : 'bg-gray-300'}`}></div>
+                  <span>Discussion</span>
+                </div>
+                <div className={`flex items-center space-x-1 ${stageInfo.progress > 85 ? 'text-purple-600' : ''}`}>
+                  <div className={`w-2 h-2 rounded-full ${stageInfo.progress > 85 ? 'bg-purple-600' : 'bg-gray-300'}`}></div>
+                  <span>Conclusions</span>
+                </div>
+                <div className={`flex items-center space-x-1 ${stageInfo.progress > 95 ? 'text-green-600' : ''}`}>
+                  <div className={`w-2 h-2 rounded-full ${stageInfo.progress > 95 ? 'bg-green-600' : 'bg-gray-300'}`}></div>
+                  <span>PDF</span>
                 </div>
               </div>
             </div>

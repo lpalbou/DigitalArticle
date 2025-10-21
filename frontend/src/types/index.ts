@@ -101,6 +101,8 @@ export interface Notebook {
   llm_model: string
   llm_provider: string
   last_context_tokens?: number  // Last known context size from generation
+  abstract?: string  // Generated scientific abstract
+  abstract_generated_at?: string  // When abstract was last generated
 }
 
 // API Request types

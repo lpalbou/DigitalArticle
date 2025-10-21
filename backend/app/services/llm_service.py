@@ -748,3 +748,495 @@ Write a scientific explanation of what was done and the results obtained:"""
             print(f"🔬 LLM SERVICE: Traceback: {traceback.format_exc()}")
             logger.error(f"Scientific explanation generation failed: {e}")
             raise LLMError(f"Failed to generate scientific explanation: {e}")
+
+    def generate_abstract(self, notebook_data: Dict[str, Any]) -> str:
+        """
+        Generate a scientific abstract for the entire digital article.
+        
+        Args:
+            notebook_data: Complete notebook data including all cells with prompts, code, results, and methodologies
+            
+        Returns:
+            Generated abstract as a string
+        """
+        try:
+            # Get notebook seed for consistent generation
+            notebook_id = notebook_data.get('id', 'unknown')
+            seed = self._get_notebook_seed(notebook_id)
+            
+            # Build comprehensive context from all cells
+            cells_summary = []
+            for i, cell in enumerate(notebook_data.get('cells', []), 1):
+                cell_summary = f"Cell {i}:"
+                
+                if cell.get('prompt'):
+                    cell_summary += f"\n  Objective: {cell['prompt']}"
+                
+                if cell.get('code'):
+                    cell_summary += f"\n  Implementation: {cell['code'][:200]}{'...' if len(cell['code']) > 200 else ''}"
+                
+                if cell.get('last_result') and cell['last_result'].get('output'):
+                    output = cell['last_result']['output']
+                    cell_summary += f"\n  Results: {output[:300]}{'...' if len(output) > 300 else ''}"
+                
+                if cell.get('scientific_explanation'):
+                    explanation = cell['scientific_explanation']
+                    cell_summary += f"\n  Analysis: {explanation[:400]}{'...' if len(explanation) > 400 else ''}"
+                
+                cells_summary.append(cell_summary)
+            
+            cells_content = "\n\n".join(cells_summary)
+            
+            # Create system prompt for abstract generation
+            system_prompt = """You are a scientific writing expert specializing in creating high-quality abstracts for data analysis articles.
+
+Your task is to generate a concise, professional abstract that follows scientific writing standards.
+
+CRITICAL REQUIREMENTS:
+1. EMPIRICAL GROUNDING: Base ALL claims on the actual data, code, and results provided. Never invent or assume information.
+2. STRUCTURE: Follow standard scientific abstract format (Background/Objective, Methods, Results, Conclusions)
+3. CONCISENESS: Keep it between 150-250 words
+4. PRECISION: Use specific numbers, metrics, and findings from the actual results
+5. OBJECTIVITY: Present findings objectively without speculation beyond what the data shows
+6. TECHNICAL ACCURACY: Ensure all technical details are correct based on the provided code and outputs
+
+ABSTRACT STRUCTURE:
+- Background/Objective (1-2 sentences): What problem is being addressed and why
+- Methods (2-3 sentences): What approaches/techniques were used (based on actual code)
+- Results (2-4 sentences): Key findings with specific numbers/metrics from actual outputs
+- Conclusions/Implications (1-2 sentences): What the results mean, with brief perspectives on future directions
+
+STYLE GUIDELINES:
+- Use past tense for completed work
+- Be specific with numbers and metrics
+- Avoid vague terms like "significant" without quantification
+- Use active voice where appropriate
+- Maintain professional, academic tone
+- Do NOT include any headers, titles, or formatting like "**Abstract**" - provide only the abstract text"""
+
+            user_prompt = f"""Generate a scientific abstract for this digital article based on the following comprehensive analysis:
+
+ARTICLE METADATA:
+Title: {notebook_data.get('title', 'Untitled Digital Article')}
+Description: {notebook_data.get('description', 'A data analysis article')}
+Author: {notebook_data.get('author', 'Unknown')}
+
+COMPLETE ANALYSIS CONTENT:
+{cells_content}
+
+INSTRUCTIONS:
+1. Analyze ALL the provided content (objectives, code implementations, actual results, and scientific explanations)
+2. Create an abstract that accurately reflects what was actually done and found
+3. Ground every statement in the empirical evidence provided
+4. Include specific metrics, numbers, and findings from the actual outputs
+5. End with brief perspectives on implications or future directions based on the analysis
+6. IMPORTANT: Provide ONLY the abstract text - no headers, no "**Abstract**", no formatting
+
+Generate a professional scientific abstract now:"""
+
+            print(f"🎯 ABSTRACT GENERATION: Generating abstract for notebook {notebook_id}")
+            logger.info(f"Generating abstract for notebook {notebook_id}")
+            
+            response = self.llm.generate(
+                user_prompt,
+                system_prompt=system_prompt,
+                seed=seed  # Use AbstractCore's native SEED parameter
+            )
+            
+            # Track token usage
+            if hasattr(response, 'usage') and response.usage:
+                # Handle both dict and object formats
+                if isinstance(response.usage, dict):
+                    usage_data = response.usage
+                    prompt_tokens = response.usage.get('prompt_tokens', 0)
+                    completion_tokens = response.usage.get('completion_tokens', 0)
+                else:
+                    usage_data = {
+                        'prompt_tokens': response.usage.prompt_tokens,
+                        'completion_tokens': response.usage.completion_tokens,
+                        'total_tokens': getattr(response.usage, 'total_tokens', response.usage.prompt_tokens + response.usage.completion_tokens)
+                    }
+                    prompt_tokens = response.usage.prompt_tokens
+                    completion_tokens = response.usage.completion_tokens
+                
+                self.token_tracker.track_generation(
+                    notebook_id=notebook_id,
+                    cell_id='abstract',  # Use 'abstract' as placeholder cell_id
+                    usage_data=usage_data
+                )
+                print(f"🎯 ABSTRACT GENERATION: Used {prompt_tokens} input + {completion_tokens} output tokens")
+            
+            abstract = response.content.strip()
+            print(f"🎯 ABSTRACT GENERATION: Generated {len(abstract)} character abstract")
+            logger.info(f"Abstract generation successful for notebook {notebook_id}")
+            
+            return abstract
+            
+        except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
+            print(f"🎯 ABSTRACT GENERATION: API error: {e}")
+            logger.error(f"LLM API error during abstract generation: {e}")
+            raise LLMError(f"LLM API error: {e}")
+        except Exception as e:
+            print(f"🎯 ABSTRACT GENERATION: Exception: {e}")
+            import traceback
+            print(f"🎯 ABSTRACT GENERATION: Traceback: {traceback.format_exc()}")
+            logger.error(f"Abstract generation failed: {e}")
+            raise LLMError(f"Failed to generate abstract: {e}")
+
+    def generate_article_plan(self, notebook_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate a comprehensive article plan/outline for the digital article.
+        
+        Args:
+            notebook_data: Complete notebook data including all cells with prompts, code, results, and methodologies
+            
+        Returns:
+            Dictionary with article structure and section plans
+        """
+        try:
+            # Get notebook seed for consistent generation
+            notebook_id = notebook_data.get('id', 'unknown')
+            seed = self._get_notebook_seed(notebook_id)
+            
+            # Build comprehensive context from all cells
+            cells_summary = []
+            for i, cell in enumerate(notebook_data.get('cells', []), 1):
+                cell_summary = f"Cell {i}:"
+                
+                if cell.get('prompt'):
+                    cell_summary += f"\n  Research Question/Objective: {cell['prompt']}"
+                
+                if cell.get('code'):
+                    cell_summary += f"\n  Implementation: {cell['code'][:300]}{'...' if len(cell['code']) > 300 else ''}"
+                
+                if cell.get('last_result') and cell['last_result'].get('output'):
+                    output = cell['last_result']['output']
+                    cell_summary += f"\n  Results: {output[:400]}{'...' if len(output) > 400 else ''}"
+                
+                if cell.get('scientific_explanation'):
+                    explanation = cell['scientific_explanation']
+                    cell_summary += f"\n  Analysis: {explanation[:500]}{'...' if len(explanation) > 500 else ''}"
+                
+                cells_summary.append(cell_summary)
+            
+            cells_content = "\n\n".join(cells_summary)
+            
+            # Create system prompt for article planning
+            system_prompt = """You are a scientific writing expert specializing in creating comprehensive article outlines for data analysis research.
+
+Your task is to analyze the provided research work and create a detailed article plan that will guide the writing of a complete scientific article.
+
+CRITICAL REQUIREMENTS:
+1. COMPREHENSIVE ANALYSIS: Analyze ALL provided content to understand the complete research story
+2. LOGICAL STRUCTURE: Create a coherent narrative flow from research questions to conclusions
+3. SECTION PLANNING: Plan each section with specific content focus and key points
+4. EMPIRICAL GROUNDING: Ensure each section is supported by actual data and results
+5. SCIENTIFIC RIGOR: Follow standard scientific article structure and conventions
+
+ARTICLE STRUCTURE TO PLAN:
+1. Introduction - Context, motivation, research questions, objectives
+2. Methodology - Approaches, techniques, implementation details
+3. Results - Findings, data analysis, key discoveries
+4. Discussion - Interpretation, implications, limitations
+5. Conclusions - Summary, contributions, future work
+
+OUTPUT FORMAT:
+Return a JSON structure with:
+{
+  "title": "Compelling article title based on the research",
+  "sections": {
+    "introduction": {
+      "focus": "Main focus of this section",
+      "key_points": ["Point 1", "Point 2", "Point 3"],
+      "empirical_support": "What data/results support this section"
+    },
+    "methodology": { ... },
+    "results": { ... },
+    "discussion": { ... },
+    "conclusions": { ... }
+  },
+  "narrative_flow": "Brief description of how the story flows from section to section"
+}"""
+
+            user_prompt = f"""Create a comprehensive article plan for this digital article based on the following research work:
+
+ARTICLE METADATA:
+Title: {notebook_data.get('title', 'Untitled Digital Article')}
+Description: {notebook_data.get('description', 'A data analysis article')}
+Author: {notebook_data.get('author', 'Unknown')}
+Abstract: {notebook_data.get('abstract', 'No abstract available')}
+
+COMPLETE RESEARCH CONTENT:
+{cells_content}
+
+INSTRUCTIONS:
+1. Analyze the entire research work to understand the story being told
+2. Create a compelling article title that reflects the actual research conducted
+3. Plan each section with specific focus, key points, and empirical support
+4. Ensure the narrative flows logically from research questions to conclusions
+5. Ground every section in the actual data, code, and results provided
+6. Make the plan detailed enough to guide comprehensive article writing
+
+Create the article plan now:"""
+
+            print(f"🎯 ARTICLE PLANNING: Generating article plan for notebook {notebook_id}")
+            logger.info(f"Generating article plan for notebook {notebook_id}")
+            
+            response = self.llm.generate(
+                user_prompt,
+                system_prompt=system_prompt,
+                seed=seed
+            )
+            
+            # Track token usage
+            if hasattr(response, 'usage') and response.usage:
+                # Handle both dict and object formats
+                if isinstance(response.usage, dict):
+                    usage_data = response.usage
+                    prompt_tokens = response.usage.get('prompt_tokens', 0)
+                    completion_tokens = response.usage.get('completion_tokens', 0)
+                else:
+                    usage_data = {
+                        'prompt_tokens': response.usage.prompt_tokens,
+                        'completion_tokens': response.usage.completion_tokens,
+                        'total_tokens': getattr(response.usage, 'total_tokens', response.usage.prompt_tokens + response.usage.completion_tokens)
+                    }
+                    prompt_tokens = response.usage.prompt_tokens
+                    completion_tokens = response.usage.completion_tokens
+                
+                self.token_tracker.track_generation(
+                    notebook_id=notebook_id,
+                    cell_id='article_plan',
+                    usage_data=usage_data
+                )
+                print(f"🎯 ARTICLE PLANNING: Used {prompt_tokens} input + {completion_tokens} output tokens")
+            
+            plan_text = response.content.strip()
+            
+            # Try to parse as JSON, fallback to text if needed
+            try:
+                import json
+                article_plan = json.loads(plan_text)
+            except json.JSONDecodeError:
+                # If JSON parsing fails, create a basic structure
+                article_plan = {
+                    "title": notebook_data.get('title', 'Data Analysis Study'),
+                    "sections": {
+                        "introduction": {"focus": "Research context and objectives", "key_points": [], "empirical_support": ""},
+                        "methodology": {"focus": "Analysis approach", "key_points": [], "empirical_support": ""},
+                        "results": {"focus": "Key findings", "key_points": [], "empirical_support": ""},
+                        "discussion": {"focus": "Interpretation", "key_points": [], "empirical_support": ""},
+                        "conclusions": {"focus": "Summary and implications", "key_points": [], "empirical_support": ""}
+                    },
+                    "narrative_flow": plan_text
+                }
+            
+            print(f"🎯 ARTICLE PLANNING: Generated plan with {len(article_plan.get('sections', {}))} sections")
+            logger.info(f"Article plan generation successful for notebook {notebook_id}")
+            
+            return article_plan
+            
+        except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
+            print(f"🎯 ARTICLE PLANNING: API error: {e}")
+            logger.error(f"LLM API error during article planning: {e}")
+            raise LLMError(f"LLM API error: {e}")
+        except Exception as e:
+            print(f"🎯 ARTICLE PLANNING: Exception: {e}")
+            import traceback
+            print(f"🎯 ARTICLE PLANNING: Traceback: {traceback.format_exc()}")
+            logger.error(f"Article planning failed: {e}")
+            raise LLMError(f"Failed to generate article plan: {e}")
+
+    def generate_article_section(self, section_name: str, section_plan: Dict[str, Any], 
+                                notebook_data: Dict[str, Any], article_plan: Dict[str, Any]) -> str:
+        """
+        Generate a specific section of the scientific article.
+        
+        Args:
+            section_name: Name of the section (introduction, methodology, results, discussion, conclusions)
+            section_plan: Plan for this specific section
+            notebook_data: Complete notebook data
+            article_plan: Complete article plan for context
+            
+        Returns:
+            Generated section content as a string
+        """
+        try:
+            # Get notebook seed for consistent generation
+            notebook_id = notebook_data.get('id', 'unknown')
+            seed = self._get_notebook_seed(notebook_id)
+            
+            # Build comprehensive context from all cells
+            cells_summary = []
+            for i, cell in enumerate(notebook_data.get('cells', []), 1):
+                cell_summary = f"Cell {i}:"
+                
+                if cell.get('prompt'):
+                    cell_summary += f"\n  Research Question/Objective: {cell['prompt']}"
+                
+                if cell.get('code'):
+                    cell_summary += f"\n  Implementation: {cell['code']}"
+                
+                if cell.get('last_result') and cell['last_result'].get('output'):
+                    output = cell['last_result']['output']
+                    cell_summary += f"\n  Results: {output}"
+                
+                # Check for figures/plots
+                if cell.get('last_result') and cell['last_result'].get('plots'):
+                    plots = cell['last_result']['plots']
+                    if plots:
+                        cell_summary += f"\n  Figures: {len(plots)} plot(s) generated - Figure {i} shows visualization of the data"
+                
+                if cell.get('scientific_explanation'):
+                    explanation = cell['scientific_explanation']
+                    cell_summary += f"\n  Analysis: {explanation}"
+                
+                cells_summary.append(cell_summary)
+            
+            cells_content = "\n\n".join(cells_summary)
+            
+            # Create section-specific system prompt
+            system_prompt = f"""You are a scientific writing expert specializing in writing high-quality {section_name} sections for data analysis research articles.
+
+Your task is to write a comprehensive, engaging, and scientifically rigorous {section_name} section based on the provided research work and article plan.
+
+CRITICAL REQUIREMENTS:
+1. EMPIRICAL GROUNDING: Base ALL statements on the actual data, code, and results provided
+2. SCIENTIFIC RIGOR: Use appropriate scientific language and methodology
+3. NARRATIVE COHERENCE: Write in a flowing, human-readable style that tells a compelling story
+4. EVIDENCE-BASED: Reference specific findings, numbers, and results from the research
+5. PROFESSIONAL TONE: Maintain academic writing standards while being accessible
+6. LOGICAL FLOW: Ensure the section flows logically and connects to the overall article narrative
+
+SECTION-SPECIFIC GUIDELINES:
+{self._get_section_guidelines(section_name)}
+
+WRITING STYLE:
+- Use past tense for completed work
+- Be specific with numbers, metrics, and findings
+- Avoid speculation beyond what the data shows
+- Use active voice where appropriate
+- Write for a scientific audience but keep it engaging
+- Include specific references to the empirical evidence (code outputs, data results, etc.)
+- CRITICAL: When figures/plots are available, reference them explicitly in the text (e.g., "as shown in Figure 1", "Figure 2 illustrates", "the scatter plot in Figure 1 reveals")
+
+OUTPUT REQUIREMENTS:
+- Write ONLY the section content - no headers, no section titles
+- Make it substantial and comprehensive (aim for 2-4 paragraphs depending on section)
+- Ensure it reads like professional scientific writing
+- Ground every claim in the actual research conducted"""
+
+            user_prompt = f"""Write the {section_name} section for this scientific article based on the following information:
+
+ARTICLE PLAN CONTEXT:
+Title: {article_plan.get('title', 'Research Study')}
+Overall Narrative: {article_plan.get('narrative_flow', 'Data analysis study')}
+
+SECTION PLAN:
+Focus: {section_plan.get('focus', 'Section content')}
+Key Points: {', '.join(section_plan.get('key_points', []))}
+Empirical Support: {section_plan.get('empirical_support', 'Research data')}
+
+ARTICLE METADATA:
+Title: {notebook_data.get('title', 'Untitled Digital Article')}
+Description: {notebook_data.get('description', 'A data analysis article')}
+Author: {notebook_data.get('author', 'Unknown')}
+Abstract: {notebook_data.get('abstract', 'No abstract available')}
+
+COMPLETE RESEARCH CONTENT:
+{cells_content}
+
+INSTRUCTIONS:
+1. Write a comprehensive {section_name} section that follows the section plan
+2. Ground every statement in the actual research data and results provided
+3. Use specific numbers, findings, and evidence from the cell outputs
+4. Write in a flowing, engaging scientific style
+5. Ensure the section contributes to the overall article narrative
+6. Make it substantial and informative while being concise
+
+Write the {section_name} section now:"""
+
+            print(f"🎯 SECTION WRITING: Generating {section_name} section for notebook {notebook_id}")
+            logger.info(f"Generating {section_name} section for notebook {notebook_id}")
+            
+            response = self.llm.generate(
+                user_prompt,
+                system_prompt=system_prompt,
+                seed=seed
+            )
+            
+            # Track token usage
+            if hasattr(response, 'usage') and response.usage:
+                # Handle both dict and object formats
+                if isinstance(response.usage, dict):
+                    usage_data = response.usage
+                    prompt_tokens = response.usage.get('prompt_tokens', 0)
+                    completion_tokens = response.usage.get('completion_tokens', 0)
+                else:
+                    usage_data = {
+                        'prompt_tokens': response.usage.prompt_tokens,
+                        'completion_tokens': response.usage.completion_tokens,
+                        'total_tokens': getattr(response.usage, 'total_tokens', response.usage.prompt_tokens + response.usage.completion_tokens)
+                    }
+                    prompt_tokens = response.usage.prompt_tokens
+                    completion_tokens = response.usage.completion_tokens
+                
+                self.token_tracker.track_generation(
+                    notebook_id=notebook_id,
+                    cell_id=f'article_{section_name}',
+                    usage_data=usage_data
+                )
+                print(f"🎯 SECTION WRITING: Used {prompt_tokens} input + {completion_tokens} output tokens for {section_name}")
+            
+            section_content = response.content.strip()
+            print(f"🎯 SECTION WRITING: Generated {len(section_content)} character {section_name} section")
+            logger.info(f"{section_name} section generation successful for notebook {notebook_id}")
+            
+            return section_content
+            
+        except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
+            print(f"🎯 SECTION WRITING: API error: {e}")
+            logger.error(f"LLM API error during {section_name} section generation: {e}")
+            raise LLMError(f"LLM API error: {e}")
+        except Exception as e:
+            print(f"🎯 SECTION WRITING: Exception: {e}")
+            import traceback
+            print(f"🎯 SECTION WRITING: Traceback: {traceback.format_exc()}")
+            logger.error(f"{section_name} section generation failed: {e}")
+            raise LLMError(f"Failed to generate {section_name} section: {e}")
+
+    def _get_section_guidelines(self, section_name: str) -> str:
+        """Get specific guidelines for each section type."""
+        guidelines = {
+            'introduction': """
+- Provide context and background for the research
+- Clearly state the research questions and objectives
+- Explain the motivation and importance of the study
+- Set up the reader for what follows in the article""",
+            
+            'methodology': """
+- Describe the analytical approaches and techniques used
+- Explain the implementation details and tools
+- Justify the methodological choices made
+- Provide enough detail for reproducibility""",
+            
+            'results': """
+- Present the key findings and discoveries
+- Include specific numbers, statistics, and measurements
+- Describe patterns, trends, and relationships found in the data
+- Use empirical evidence to support all claims""",
+            
+            'discussion': """
+- Interpret the results and their implications
+- Discuss the significance of the findings
+- Address limitations and potential sources of error
+- Connect findings to broader scientific context""",
+            
+            'conclusions': """
+- Summarize the main contributions and findings
+- Highlight the key insights and their importance
+- Suggest future research directions and applications
+- Provide a strong closing that ties everything together"""
+        }
+        
+        return guidelines.get(section_name, "Write a comprehensive and well-structured section.")

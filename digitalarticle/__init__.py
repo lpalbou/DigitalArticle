@@ -4,6 +4,21 @@ Digital Article CLI Package
 Provides command-line tools for starting the Digital Article backend and frontend servers.
 """
 
-__version__ = "1.0.0"
-__author__ = "Digital Article Team"
-__description__ = "Command-line tools for Digital Article notebook application"
+from ._version import (
+    __version__,
+    __version_info__,
+    __author__,
+    __author_email__,
+    __description__,
+    __url__,
+)
+
+# Expose version information at package level
+__all__ = [
+    "__version__",
+    "__version_info__",
+    "__author__",
+    "__author_email__",
+    "__description__",
+    "__url__",
+]
