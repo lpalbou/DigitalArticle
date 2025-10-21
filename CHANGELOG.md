@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.0.6] - 2025-10-22
+
+### Fixed
+
+- **Files in Context UI**: Removed redundant eye button from Files in Context section since it's already a collapsible section
+- **Enhanced File Awareness**: Significantly improved LLM awareness of available files with comprehensive metadata and previews
+  - **Rich File Previews**: Added detailed previews for CSV (columns, shape, sample data), JSON (schema analysis), Excel (sheet names), and text files
+  - **Smart JSON Schema Analysis**: Automatically analyzes JSON structure to provide object/array type information and property schemas
+  - **LLM Context Integration**: Files are now prominently displayed in LLM prompts with full metadata, making the LLM aware of available data
+  - **File Size Formatting**: Human-readable file sizes (B, KB, MB, GB) in both UI and LLM context
+  - **Structured Information**: LLM receives file paths, types, sizes, and content previews for better code generation
+  - Files: `frontend/src/components/FileContextPanel.tsx`, `backend/app/services/llm_service.py`, `backend/app/services/data_manager_clean.py`
+
+
 ## [0.0.5] - 2025-10-22
 
 ### Enhanced

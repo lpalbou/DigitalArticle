@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { Upload, File, X, Database, BarChart3, FileText, Eye } from 'lucide-react'
+import { Upload, File, X, Database, BarChart3, FileText } from 'lucide-react'
 import { filesAPI, handleAPIError } from '../services/api'
 import FileViewerModal from './FileViewerModal'
 
@@ -216,9 +216,6 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
             />
           </label>
           
-          <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors" title="Toggle view">
-            <Eye className="h-4 w-4" />
-          </button>
         </div>
       </div>
 

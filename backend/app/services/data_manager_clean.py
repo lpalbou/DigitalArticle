@@ -88,7 +88,7 @@ class DataManager:
                     'lastModified': datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
                 }
                 
-                # Add preview for CSV files
+                # Add preview for different file types
                 try:
                     if file_path.suffix == '.csv':
                         df_preview = pd.read_csv(file_path, nrows=5)
@@ -96,7 +96,51 @@ class DataManager:
                         file_info['preview'] = {
                             'rows': len(df_full),
                             'columns': df_preview.columns.tolist(),
-                            'shape': [len(df_full), len(df_preview.columns)]
+                            'shape': [len(df_full), len(df_preview.columns)],
+                            'sample_data': df_preview.head(3).to_dict('records') if len(df_preview) > 0 else []
+                        }
+                    elif file_path.suffix == '.json':
+                        import json
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            json_data = json.load(f)
+                        
+                        # Analyze JSON structure
+                        if isinstance(json_data, list):
+                            file_info['preview'] = {
+                                'type': 'array',
+                                'length': len(json_data),
+                                'sample_item': json_data[0] if len(json_data) > 0 else None,
+                                'schema': self._analyze_json_schema(json_data[0] if len(json_data) > 0 else {})
+                            }
+                        elif isinstance(json_data, dict):
+                            file_info['preview'] = {
+                                'type': 'object',
+                                'keys': list(json_data.keys())[:10],  # First 10 keys
+                                'total_keys': len(json_data.keys()),
+                                'schema': self._analyze_json_schema(json_data)
+                            }
+                        else:
+                            file_info['preview'] = {
+                                'type': type(json_data).__name__,
+                                'value': str(json_data)[:100]
+                            }
+                    elif file_path.suffix in ['.xlsx', '.xls']:
+                        # Basic Excel file info
+                        import openpyxl
+                        wb = openpyxl.load_workbook(file_path, read_only=True)
+                        file_info['preview'] = {
+                            'sheets': wb.sheetnames,
+                            'total_sheets': len(wb.sheetnames)
+                        }
+                        wb.close()
+                    elif file_path.suffix == '.txt':
+                        # First few lines of text file
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            lines = [f.readline().strip() for _ in range(5)]
+                            lines = [line for line in lines if line]  # Remove empty lines
+                        file_info['preview'] = {
+                            'first_lines': lines,
+                            'encoding': 'utf-8'
                         }
                 except Exception as e:
                     logger.warning(f"Could not read preview for {file_path.name}: {e}")
@@ -105,6 +149,27 @@ class DataManager:
                 files_info.append(file_info)
                 
         return sorted(files_info, key=lambda x: x['name'])
+    
+    def _analyze_json_schema(self, data: Any, max_depth: int = 2, current_depth: int = 0) -> Dict[str, Any]:
+        """Analyze JSON data structure to provide schema information."""
+        if current_depth >= max_depth:
+            return {'type': type(data).__name__, 'truncated': True}
+        
+        if isinstance(data, dict):
+            schema = {'type': 'object', 'properties': {}}
+            for key, value in list(data.items())[:10]:  # Limit to first 10 properties
+                schema['properties'][key] = self._analyze_json_schema(value, max_depth, current_depth + 1)
+            if len(data) > 10:
+                schema['additional_properties'] = f"... and {len(data) - 10} more"
+            return schema
+        elif isinstance(data, list):
+            if len(data) == 0:
+                return {'type': 'array', 'items': 'unknown', 'length': 0}
+            # Analyze first item to understand array structure
+            item_schema = self._analyze_json_schema(data[0], max_depth, current_depth + 1)
+            return {'type': 'array', 'items': item_schema, 'length': len(data)}
+        else:
+            return {'type': type(data).__name__, 'example': str(data)[:50]}
     
     def get_execution_context(self) -> Dict[str, Any]:
         """Get context for LLM code generation."""

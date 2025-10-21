@@ -475,10 +475,95 @@ plt.show()
                 user_prompt += "  # NOT: np.random.seed(42); x = np.random.randn(20)  # ❌ BAD - system handles seeds\n"
                 user_prompt += "=" * 60 + "\n\n"
 
+        # THIRD: Add available files information
+        if context and 'files_in_context' in context:
+            files = context['files_in_context']
+            if files:
+                user_prompt += "AVAILABLE DATA FILES:\n"
+                user_prompt += "=" * 60 + "\n"
+                for file_info in files:
+                    user_prompt += f"📄 {file_info['name']}\n"
+                    user_prompt += f"   Path: {file_info['path']}\n"
+                    user_prompt += f"   Type: {file_info['type']}\n"
+                    user_prompt += f"   Size: {self._format_file_size(file_info['size'])}\n"
+                    
+                    # Add preview information for structured data
+                    if 'preview' in file_info and file_info['preview']:
+                        preview = file_info['preview']
+                        if 'error' not in preview:
+                            if file_info['type'] == 'csv':
+                                user_prompt += f"   Shape: {preview['shape'][0]} rows × {preview['shape'][1]} columns\n"
+                                columns = preview['columns'][:5]  # Show first 5 columns
+                                cols_str = ', '.join(columns)
+                                if len(preview['columns']) > 5:
+                                    cols_str += f", ... ({len(preview['columns'])} total)"
+                                user_prompt += f"   Columns: {cols_str}\n"
+                            elif file_info['type'] == 'json':
+                                if preview.get('type') == 'array':
+                                    user_prompt += f"   JSON array with {preview['length']} items\n"
+                                    if 'schema' in preview and preview['schema']:
+                                        user_prompt += f"   Item structure: {self._format_json_schema(preview['schema'])}\n"
+                                elif preview.get('type') == 'object':
+                                    user_prompt += f"   JSON object with {preview.get('total_keys', len(preview.get('keys', [])))} properties\n"
+                                    if preview.get('keys'):
+                                        keys_str = ', '.join(preview['keys'][:5])
+                                        if len(preview['keys']) > 5:
+                                            keys_str += f", ... ({len(preview['keys'])} total)"
+                                        user_prompt += f"   Keys: {keys_str}\n"
+                            elif file_info['type'] in ['xlsx', 'xls']:
+                                if 'sheets' in preview:
+                                    sheets_str = ', '.join(preview['sheets'][:3])
+                                    if len(preview['sheets']) > 3:
+                                        sheets_str += f", ... ({len(preview['sheets'])} total)"
+                                    user_prompt += f"   Excel sheets: {sheets_str}\n"
+                            elif file_info['type'] == 'txt':
+                                if 'first_lines' in preview and preview['first_lines']:
+                                    user_prompt += f"   Text preview: {preview['first_lines'][0][:50]}...\n"
+                    user_prompt += "\n"
+                
+                user_prompt += "IMPORTANT: Use 'data/filename.csv' format to access these files!\n"
+                user_prompt += "=" * 60 + "\n\n"
+
         user_prompt += f"CURRENT REQUEST:\n{prompt}\n\n"
         user_prompt += "Generate the Python code (no explanations, just code):"
 
         return user_prompt
+    
+    def _format_file_size(self, bytes_size: int) -> str:
+        """Format file size in human-readable format."""
+        if bytes_size == 0:
+            return "0 B"
+        
+        units = ['B', 'KB', 'MB', 'GB']
+        size = float(bytes_size)
+        unit_index = 0
+        
+        while size >= 1024 and unit_index < len(units) - 1:
+            size /= 1024
+            unit_index += 1
+        
+        if unit_index == 0:
+            return f"{int(size)} {units[unit_index]}"
+        else:
+            return f"{size:.1f} {units[unit_index]}"
+    
+    def _format_json_schema(self, schema: Dict[str, Any]) -> str:
+        """Format JSON schema information for LLM prompt."""
+        if schema.get('type') == 'object' and 'properties' in schema:
+            props = []
+            for key, value in list(schema['properties'].items())[:3]:  # Show first 3 properties
+                prop_type = value.get('type', 'unknown')
+                props.append(f"{key}: {prop_type}")
+            result = "{" + ", ".join(props)
+            if len(schema['properties']) > 3:
+                result += f", ... ({len(schema['properties'])} total)"
+            result += "}"
+            return result
+        elif schema.get('type') == 'array':
+            item_type = schema.get('items', {}).get('type', 'unknown')
+            return f"[{item_type}]"
+        else:
+            return schema.get('type', 'unknown')
     
     def _extract_code_from_response(self, response: str) -> str:
         """
