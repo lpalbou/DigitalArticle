@@ -34,9 +34,10 @@ interface ArticleSummary {
   statistics: {
     total_cells: number
     executed_cells: number
-    prompt_cells: number
-    code_cells: number
-    markdown_cells: number
+    cells_with_prompts: number
+    cells_with_code: number
+    cells_with_methodology: number
+    cells_with_markdown: number
     execution_rate: number
   }
   status: {
@@ -371,19 +372,24 @@ const ArticleBrowserModal: React.FC<ArticleBrowserModalProps> = ({
 
                         {/* Statistics */}
                         <div className="flex items-center space-x-4 text-xs">
-                          {article.statistics.prompt_cells > 0 && (
+                          {article.statistics.cells_with_prompts > 0 && (
                             <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded">
-                              {article.statistics.prompt_cells} prompts
+                              {article.statistics.cells_with_prompts} prompts
                             </span>
                           )}
-                          {article.statistics.code_cells > 0 && (
+                          {article.statistics.cells_with_code > 0 && (
                             <span className="px-2 py-1 bg-green-100 text-green-700 rounded">
-                              {article.statistics.code_cells} code
+                              {article.statistics.cells_with_code} code
                             </span>
                           )}
-                          {article.statistics.markdown_cells > 0 && (
+                          {article.statistics.cells_with_methodology > 0 && (
+                            <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded">
+                              {article.statistics.cells_with_methodology} methodology
+                            </span>
+                          )}
+                          {article.statistics.cells_with_markdown > 0 && (
                             <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded">
-                              {article.statistics.markdown_cells} docs
+                              {article.statistics.cells_with_markdown} docs
                             </span>
                           )}
                         </div>

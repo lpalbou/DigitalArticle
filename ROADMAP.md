@@ -689,3 +689,8 @@ Others
 - Rules : how a user could give specific rules beyond the cells
     - eg system prompt like rules
 
+"""5 - scientific validity : this is really the main concern, but that's why users have access to the code, so that a non-technical expert can share its digital article to a technical expert who can validate or correct the analysis"""
+=> we need an ability to put side note / comments
+
+- what about scientific references as well ?
+

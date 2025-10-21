@@ -305,12 +305,15 @@ print("LLM service is currently unavailable, using fallback code.")
         summaries = []
         
         for notebook in self._notebooks.values():
-            # Calculate statistics
+            # Calculate statistics based on content, not cell type
             total_cells = len(notebook.cells)
             executed_cells = sum(1 for cell in notebook.cells if cell.last_result and cell.last_result.status == ExecutionStatus.SUCCESS)
-            prompt_cells = sum(1 for cell in notebook.cells if cell.cell_type == CellType.PROMPT)
-            code_cells = sum(1 for cell in notebook.cells if cell.cell_type == CellType.CODE)
-            markdown_cells = sum(1 for cell in notebook.cells if cell.cell_type == CellType.MARKDOWN)
+            
+            # Count cells by actual content presence (more accurate than cell_type)
+            cells_with_prompts = sum(1 for cell in notebook.cells if cell.prompt and cell.prompt.strip())
+            cells_with_code = sum(1 for cell in notebook.cells if cell.code and cell.code.strip())
+            cells_with_methodology = sum(1 for cell in notebook.cells if cell.scientific_explanation and cell.scientific_explanation.strip())
+            cells_with_markdown = sum(1 for cell in notebook.cells if cell.markdown and cell.markdown.strip())
             
             # Get latest activity
             latest_activity = notebook.updated_at
@@ -337,9 +340,10 @@ print("LLM service is currently unavailable, using fallback code.")
                 "statistics": {
                     "total_cells": total_cells,
                     "executed_cells": executed_cells,
-                    "prompt_cells": prompt_cells,
-                    "code_cells": code_cells,
-                    "markdown_cells": markdown_cells,
+                    "cells_with_prompts": cells_with_prompts,
+                    "cells_with_code": cells_with_code,
+                    "cells_with_methodology": cells_with_methodology,
+                    "cells_with_markdown": cells_with_markdown,
                     "execution_rate": round(executed_cells / total_cells * 100, 1) if total_cells > 0 else 0
                 },
                 "status": {

@@ -11,6 +11,10 @@ interface ArticleSummary {
   statistics: {
     total_cells: number
     executed_cells: number
+    cells_with_prompts: number
+    cells_with_code: number
+    cells_with_methodology: number
+    cells_with_markdown: number
     execution_rate: number
   }
   status: {
