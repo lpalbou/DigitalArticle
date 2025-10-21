@@ -195,6 +195,31 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
 
         {/* Controls on the right */}
         <div className="flex items-center space-x-2">
+          {/* Generation Metadata - iPhone style */}
+          {(cell.last_execution_timestamp || cell.last_generation_time_ms) && (
+            <div className="text-xs text-gray-400 flex items-center space-x-1">
+              {cell.last_execution_timestamp && (
+                <span>
+                  {new Date(cell.last_execution_timestamp).toLocaleTimeString([], { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                  })}
+                </span>
+              )}
+              {cell.last_execution_timestamp && cell.last_generation_time_ms && (
+                <span>|</span>
+              )}
+              {cell.last_generation_time_ms && (
+                <span>
+                  {cell.last_generation_time_ms < 1000 
+                    ? `${Math.round(cell.last_generation_time_ms)}ms`
+                    : `${(cell.last_generation_time_ms / 1000).toFixed(1)}s`
+                  }
+                </span>
+              )}
+            </div>
+          )}
+          
           {/* Execution Count Badge */}
           {cell.execution_count > 0 && (
             <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">

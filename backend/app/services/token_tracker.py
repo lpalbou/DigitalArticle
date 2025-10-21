@@ -15,12 +15,13 @@ logger = logging.getLogger(__name__)
 
 class TokenTracker:
     """
-    Track actual token usage from AbstractCore GenerateResponse.usage.
+    Track actual token usage and generation time from AbstractCore GenerateResponse.
 
     This service relies ENTIRELY on AbstractCore providing:
-    - prompt_tokens: Input tokens (context + user prompt)
-    - completion_tokens: Output tokens (generated code)
+    - input_tokens/prompt_tokens: Input tokens (context + user prompt)
+    - output_tokens/completion_tokens: Output tokens (generated code)
     - total_tokens: Sum of both
+    - gen_time: Generation time in milliseconds (AbstractCore 2.4.8+)
 
     NO custom estimation logic - only real counts from LLM.
     """
@@ -42,16 +43,19 @@ class TokenTracker:
         self,
         notebook_id: str,
         cell_id: str,
-        usage_data: Optional[Dict[str, int]]
+        usage_data: Optional[Dict[str, int]],
+        generation_time_ms: Optional[float] = None
     ) -> None:
         """
-        Track token usage from an AbstractCore response.
+        Track token usage and generation time from an AbstractCore response.
 
         Args:
             notebook_id: ID of the notebook
             cell_id: ID of the cell
             usage_data: The response.usage dict from AbstractCore
-                       Expected: {'prompt_tokens': int, 'completion_tokens': int, 'total_tokens': int}
+                       Expected: {'input_tokens': int, 'output_tokens': int, 'total_tokens': int}
+                       Or legacy: {'prompt_tokens': int, 'completion_tokens': int, 'total_tokens': int}
+            generation_time_ms: Generation time in milliseconds (from response.gen_time)
 
         Note:
             If usage_data is None or missing required fields, logs warning but doesn't fail.
@@ -61,66 +65,74 @@ class TokenTracker:
             logger.warning(f"⚠️ No usage data provided for cell {cell_id} - LLM provider may not support token counting")
             return
 
-        # Validate required fields
-        required_fields = ['prompt_tokens', 'completion_tokens', 'total_tokens']
-        missing_fields = [f for f in required_fields if f not in usage_data]
+        # Support both new and legacy field names from AbstractCore 2.4.8+
+        # New format: input_tokens, output_tokens, total_tokens
+        # Legacy format: prompt_tokens, completion_tokens, total_tokens
+        input_tokens = usage_data.get('input_tokens') or usage_data.get('prompt_tokens')
+        output_tokens = usage_data.get('output_tokens') or usage_data.get('completion_tokens')
+        total_tokens = usage_data.get('total_tokens')
 
-        if missing_fields:
+        if input_tokens is None or output_tokens is None or total_tokens is None:
             logger.warning(
-                f"⚠️ Usage data missing fields {missing_fields} for cell {cell_id}. "
+                f"⚠️ Usage data missing required token fields for cell {cell_id}. "
                 f"Got: {list(usage_data.keys())}"
             )
             return
 
-        prompt_tokens = usage_data['prompt_tokens']
-        completion_tokens = usage_data['completion_tokens']
-        total_tokens = usage_data['total_tokens']
-
         # Track by notebook (cumulative)
         if notebook_id not in self._notebook_usage:
             self._notebook_usage[notebook_id] = {
-                'prompt_tokens': 0,
-                'completion_tokens': 0,
+                'input_tokens': 0,
+                'output_tokens': 0,
                 'total_tokens': 0,
+                'total_generation_time_ms': 0.0,
                 'generations': 0,
                 'cells': set(),
                 'last_updated': None
             }
 
         nb_usage = self._notebook_usage[notebook_id]
-        nb_usage['prompt_tokens'] += prompt_tokens
-        nb_usage['completion_tokens'] += completion_tokens
+        nb_usage['input_tokens'] += input_tokens
+        nb_usage['output_tokens'] += output_tokens
         nb_usage['total_tokens'] += total_tokens
         nb_usage['generations'] += 1
         nb_usage['cells'].add(cell_id)
         nb_usage['last_updated'] = datetime.now()
+        
+        # Add generation time if provided
+        if generation_time_ms is not None:
+            nb_usage['total_generation_time_ms'] += generation_time_ms
 
         # Track by cell (latest generation)
         self._cell_usage[cell_id] = {
-            'prompt_tokens': prompt_tokens,
-            'completion_tokens': completion_tokens,
+            'input_tokens': input_tokens,
+            'output_tokens': output_tokens,
             'total_tokens': total_tokens,
+            'generation_time_ms': generation_time_ms,
             'timestamp': datetime.now(),
             'notebook_id': notebook_id
         }
 
         logger.info(
             f"📊 Tracked generation for cell {cell_id}: "
-            f"prompt={prompt_tokens}, completion={completion_tokens}, total={total_tokens}"
+            f"input={input_tokens}, output={output_tokens}, total={total_tokens}"
+            f"{f', time={generation_time_ms}ms' if generation_time_ms else ''}"
         )
 
     def get_notebook_usage(self, notebook_id: str) -> Dict[str, Any]:
         """
-        Get cumulative token usage for a notebook.
+        Get cumulative token usage and generation time for a notebook.
 
         Args:
             notebook_id: ID of the notebook
 
         Returns:
             Dict with:
-            - prompt_tokens: Total input tokens across all generations
-            - completion_tokens: Total output tokens
+            - input_tokens: Total input tokens across all generations
+            - output_tokens: Total output tokens
             - total_tokens: Sum of both
+            - total_generation_time_ms: Total generation time in milliseconds
+            - avg_generation_time_ms: Average generation time per call
             - generations: Number of LLM calls
             - cells_with_generations: Number of cells with tracked generations
             - last_updated: Timestamp of last generation
@@ -132,19 +144,26 @@ class TokenTracker:
 
         if not usage:
             return {
-                'prompt_tokens': 0,
-                'completion_tokens': 0,
+                'input_tokens': 0,
+                'output_tokens': 0,
                 'total_tokens': 0,
+                'total_generation_time_ms': 0.0,
+                'avg_generation_time_ms': 0.0,
                 'generations': 0,
                 'cells_with_generations': 0,
                 'last_updated': None
             }
 
+        # Calculate average generation time
+        avg_time = (usage['total_generation_time_ms'] / usage['generations']) if usage['generations'] > 0 else 0.0
+
         # Convert set to count for JSON serialization
         return {
-            'prompt_tokens': usage['prompt_tokens'],
-            'completion_tokens': usage['completion_tokens'],
+            'input_tokens': usage['input_tokens'],
+            'output_tokens': usage['output_tokens'],
             'total_tokens': usage['total_tokens'],
+            'total_generation_time_ms': usage['total_generation_time_ms'],
+            'avg_generation_time_ms': round(avg_time, 1),
             'generations': usage['generations'],
             'cells_with_generations': len(usage['cells']),
             'last_updated': usage['last_updated'].isoformat() if usage['last_updated'] else None
@@ -152,7 +171,7 @@ class TokenTracker:
 
     def get_cell_usage(self, cell_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get token usage for a specific cell's latest generation.
+        Get token usage and generation time for a specific cell's latest generation.
 
         Args:
             cell_id: ID of the cell
@@ -166,9 +185,10 @@ class TokenTracker:
             return None
 
         return {
-            'prompt_tokens': usage['prompt_tokens'],
-            'completion_tokens': usage['completion_tokens'],
+            'input_tokens': usage['input_tokens'],
+            'output_tokens': usage['output_tokens'],
             'total_tokens': usage['total_tokens'],
+            'generation_time_ms': usage['generation_time_ms'],
             'timestamp': usage['timestamp'].isoformat(),
             'notebook_id': usage['notebook_id']
         }
@@ -213,8 +233,8 @@ class TokenTracker:
                     recent_cell = cell_usage
 
         if recent_cell:
-            logger.info(f"✅ Returning {recent_cell['prompt_tokens']} tokens from most recent cell")
-            return recent_cell['prompt_tokens']
+            logger.info(f"✅ Returning {recent_cell['input_tokens']} tokens from most recent cell")
+            return recent_cell['input_tokens']
 
         logger.warning(f"⚠️ No cells found for notebook {notebook_id}")
         return 0
@@ -235,21 +255,24 @@ class TokenTracker:
 
     def get_session_summary(self) -> Dict[str, Any]:
         """
-        Get summary of token usage across all notebooks in this session.
+        Get summary of token usage and generation time across all notebooks in this session.
 
         Returns:
             Dict with total usage stats and per-notebook breakdown
         """
-        total_prompt = sum(nb['prompt_tokens'] for nb in self._notebook_usage.values())
-        total_completion = sum(nb['completion_tokens'] for nb in self._notebook_usage.values())
+        total_input = sum(nb['input_tokens'] for nb in self._notebook_usage.values())
+        total_output = sum(nb['output_tokens'] for nb in self._notebook_usage.values())
         total_tokens = sum(nb['total_tokens'] for nb in self._notebook_usage.values())
+        total_time = sum(nb['total_generation_time_ms'] for nb in self._notebook_usage.values())
         total_generations = sum(nb['generations'] for nb in self._notebook_usage.values())
 
         return {
             'session_start': self._session_start.isoformat(),
-            'total_prompt_tokens': total_prompt,
-            'total_completion_tokens': total_completion,
+            'total_input_tokens': total_input,
+            'total_output_tokens': total_output,
             'total_tokens': total_tokens,
+            'total_generation_time_ms': total_time,
+            'avg_generation_time_ms': round(total_time / total_generations, 1) if total_generations > 0 else 0.0,
             'total_generations': total_generations,
             'notebooks_tracked': len(self._notebook_usage),
             'cells_tracked': len(self._cell_usage)

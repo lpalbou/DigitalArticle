@@ -83,6 +83,10 @@ export interface Cell {
   scientific_explanation: string
   tags: string[]
   metadata: Record<string, any>
+  
+  // Generation metadata (AbstractCore 2.4.8+)
+  last_generation_time_ms?: number  // Generation time in milliseconds
+  last_execution_timestamp?: string  // When the cell was last executed
 }
 
 export interface Notebook {

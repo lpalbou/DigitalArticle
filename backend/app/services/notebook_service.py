@@ -723,17 +723,21 @@ print("LLM service is currently unavailable, using fallback code.")
                         
                         # Generate code
                         logger.info("Calling LLM service for code generation...")
-                        generated_code = self.llm_service.generate_code_from_prompt(cell.prompt, context)
+                        generated_code, generation_time = self.llm_service.generate_code_from_prompt(cell.prompt, context)
                         cell.code = generated_code
+                        cell.last_generation_time_ms = generation_time
+                        cell.last_execution_timestamp = datetime.now()
                         cell.updated_at = datetime.now()
-                        logger.info(f"Successfully generated {len(generated_code)} characters of code")
+                        logger.info(f"Successfully generated {len(generated_code)} characters of code" + 
+                                  (f" in {generation_time}ms" if generation_time else ""))
 
                         # Update notebook's last context tokens from the generation
                         try:
-                            last_ctx = self.llm_service.token_tracker.get_current_context_tokens(str(notebook.id))
-                            if last_ctx > 0:
-                                notebook.last_context_tokens = last_ctx
-                                logger.info(f"📊 Updated notebook last_context_tokens: {last_ctx}")
+                            # Get the most recent cell usage which should have the input tokens
+                            cell_usage = self.llm_service.token_tracker.get_cell_usage(str(cell.id))
+                            if cell_usage and cell_usage.get('input_tokens', 0) > 0:
+                                notebook.last_context_tokens = cell_usage['input_tokens']
+                                logger.info(f"📊 Updated notebook last_context_tokens: {cell_usage['input_tokens']}")
                         except Exception as token_err:
                             logger.warning(f"Could not update last_context_tokens: {token_err}")
 
@@ -888,18 +892,30 @@ print("LLM service is currently unavailable, using fallback code.")
                     }
                     
                     print("🔬 About to call LLM service for methodology...")
-                    explanation = self.llm_service.generate_scientific_explanation(
+                    explanation, explanation_gen_time = self.llm_service.generate_scientific_explanation(
                         cell.prompt, 
                         cell.code, 
                         execution_data,
                         context  # Pass context for seed consistency
                     )
-                    print(f"🔬 LLM returned explanation: {len(explanation)} chars")
+                    print(f"🔬 LLM returned explanation: {len(explanation)} chars" + 
+                          (f" in {explanation_gen_time}ms" if explanation_gen_time else ""))
                     print(f"🔬 Explanation content: {explanation[:200]}...")
                     
                     # Update cell with explanation
                     cell.scientific_explanation = explanation
+                    # Note: We don't update last_generation_time_ms here as it's for code generation
                     print(f"🔬 Cell updated with explanation: {len(cell.scientific_explanation)} chars")
+                    
+                    # Update notebook's last context tokens from methodology generation
+                    try:
+                        # Get the most recent cell usage which should have the input tokens from methodology generation
+                        cell_usage = self.llm_service.token_tracker.get_cell_usage(str(cell.id))
+                        if cell_usage and cell_usage.get('input_tokens', 0) > 0:
+                            notebook.last_context_tokens = cell_usage['input_tokens']
+                            logger.info(f"📊 Updated notebook last_context_tokens from methodology: {cell_usage['input_tokens']}")
+                    except Exception as token_err:
+                        logger.warning(f"Could not update last_context_tokens from methodology: {token_err}")
                     
                 except Exception as e:
                     print(f"🔬 ERROR generating scientific explanation: {e}")

@@ -91,6 +91,10 @@ class Cell(BaseModel):
     retry_count: int = 0  # Number of retry attempts
     cell_state: CellState = CellState.FRESH  # Content freshness state
     
+    # Generation metadata (AbstractCore 2.4.8+)
+    last_generation_time_ms: Optional[float] = None  # Generation time in milliseconds
+    last_execution_timestamp: Optional[datetime] = None  # When the cell was last executed
+    
     # Display preferences
     show_code: bool = False  # Toggle between prompt and code view
     

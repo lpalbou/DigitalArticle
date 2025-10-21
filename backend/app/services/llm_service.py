@@ -123,7 +123,7 @@ class LLMService:
         seed = int(hashlib.md5(notebook_id.encode()).hexdigest()[:8], 16) % (2**31)
         return seed
     
-    def generate_code_from_prompt(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> str:
+    def generate_code_from_prompt(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> tuple[str, Optional[float]]:
         """
         Convert a natural language prompt to Python code.
 
@@ -132,7 +132,7 @@ class LLMService:
             context: Additional context information (variables, data info, etc.)
 
         Returns:
-            Generated Python code as a string
+            Tuple of (generated Python code as string, generation time in milliseconds)
 
         Raises:
             LLMError: If code generation fails
@@ -187,34 +187,44 @@ class LLMService:
             logger.info(f"🔍 response.usage type: {type(response.usage) if hasattr(response, 'usage') else 'NO USAGE ATTR'}")
             logger.info(f"🔍 response.usage value: {response.usage if hasattr(response, 'usage') else 'NO USAGE'}")
 
-            # Track actual token usage from AbstractCore response.usage
+            # Track actual token usage and generation time from AbstractCore response
             if context and 'notebook_id' in context and 'cell_id' in context:
                 logger.info(f"📝 Context has notebook_id={context['notebook_id']}, cell_id={context['cell_id']}")
 
                 usage_data = getattr(response, 'usage', None)
+                generation_time = getattr(response, 'gen_time', None)  # AbstractCore 2.4.8+ provides gen_time in ms
+                
                 logger.info(f"📊 About to track generation with usage_data: {usage_data}")
+                logger.info(f"⏱️ Generation time: {generation_time}ms" if generation_time else "⏱️ No generation time available")
 
                 self.token_tracker.track_generation(
                     notebook_id=context['notebook_id'],
                     cell_id=context['cell_id'],
-                    usage_data=usage_data  # AbstractCore provides: {prompt_tokens, completion_tokens, total_tokens}
+                    usage_data=usage_data,  # AbstractCore provides: {input_tokens, output_tokens, total_tokens} or legacy names
+                    generation_time_ms=generation_time
                 )
 
                 if usage_data:
+                    # Support both new and legacy field names
+                    input_tokens = usage_data.get('input_tokens') or usage_data.get('prompt_tokens', 'N/A')
+                    output_tokens = usage_data.get('output_tokens') or usage_data.get('completion_tokens', 'N/A')
+                    total_tokens = usage_data.get('total_tokens', 'N/A')
+                    
                     logger.info(
-                        f"✅ Token usage - prompt: {usage_data.get('prompt_tokens') if isinstance(usage_data, dict) else getattr(usage_data, 'prompt_tokens', 'N/A')}, "
-                        f"completion: {usage_data.get('completion_tokens') if isinstance(usage_data, dict) else getattr(usage_data, 'completion_tokens', 'N/A')}, "
-                        f"total: {usage_data.get('total_tokens') if isinstance(usage_data, dict) else getattr(usage_data, 'total_tokens', 'N/A')}"
+                        f"✅ Token usage - input: {input_tokens}, "
+                        f"output: {output_tokens}, total: {total_tokens}"
+                        f"{f', time: {generation_time}ms' if generation_time else ''}"
                     )
                 else:
                     logger.warning(f"⚠️ NO USAGE DATA in response!")
 
             # Extract code from the response
             code = self._extract_code_from_response(response.content)
+            generation_time = getattr(response, 'gen_time', None)
 
             logger.info(f"🚨 EXTRACTED CODE: {code}")
             logger.info(f"Generated code for prompt: {prompt[:50]}...")
-            return code
+            return code, generation_time
             
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
             logger.error(f"LLM API error during code generation: {e}")
@@ -634,7 +644,7 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
             # Fallback to original error message if analysis fails
             return f"{error_type}: {error_message}\n\nTraceback:\n{traceback}"
     
-    def generate_scientific_explanation(self, prompt: str, code: str, execution_result: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> str:
+    def generate_scientific_explanation(self, prompt: str, code: str, execution_result: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> tuple[str, Optional[float]]:
         """
         Generate a scientific article-style explanation of what was done and why.
         
@@ -734,9 +744,10 @@ Write a scientific explanation of what was done and the results obtained:"""
             print(f"🔬 LLM SERVICE: Response content: {response.content[:100]}...")
             
             explanation = response.content.strip()
+            generation_time = getattr(response, 'gen_time', None)
             print(f"🔬 LLM SERVICE: Final explanation: {len(explanation)} characters")
             logger.info(f"Generated scientific explanation: {len(explanation)} characters")
-            return explanation
+            return explanation, generation_time
             
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
             print(f"🔬 LLM SERVICE: API error: {e}")
