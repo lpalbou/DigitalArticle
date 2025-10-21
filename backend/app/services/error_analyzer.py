@@ -42,6 +42,7 @@ class ErrorAnalyzer:
         """Initialize the error analyzer with registered analyzers."""
         # Ordered list of analyzer methods to try
         self.analyzers = [
+            self._analyze_matplotlib_color_error,  # NEW: Handle color mapping errors
             self._analyze_matplotlib_subplot_error,
             self._analyze_matplotlib_figure_error,
             self._analyze_numpy_timedelta_error,
@@ -94,6 +95,71 @@ class ErrorAnalyzer:
     # ============================================================================
     # MATPLOTLIB ERROR ANALYZERS
     # ============================================================================
+
+    def _analyze_matplotlib_color_error(
+        self,
+        error_message: str,
+        error_type: str,
+        traceback: str,
+        code: str
+    ) -> Optional[ErrorContext]:
+        """Analyze matplotlib color mapping errors."""
+        if error_type != "ValueError":
+            return None
+        
+        # Check for color-related errors
+        color_patterns = [
+            r"'c' argument must be a color",
+            r"Invalid RGBA argument",
+            r"to_rgba_array",
+            r"_parse_scatter_color_args"
+        ]
+        
+        if not any(re.search(pattern, error_message) or re.search(pattern, traceback) for pattern in color_patterns):
+            return None
+        
+        # Extract the problematic data from error message
+        data_match = re.search(r"not (.+?)(?:\n|$)", error_message)
+        problematic_data = data_match.group(1) if data_match else "categorical data"
+        
+        suggestions = [
+            "MATPLOTLIB COLOR ERROR - Categorical data used as colors",
+            "",
+            "🎨 PROBLEM: You're passing categorical/text data to the 'c' parameter",
+            "   Matplotlib expects colors or numeric values, not text labels like 'SD', 'PR', 'CR'",
+            "",
+            "🔧 SOLUTIONS:",
+            "",
+            "1. MAP CATEGORIES TO COLORS:",
+            "   # Create a color mapping",
+            "   color_map = {'SD': 'blue', 'PR': 'green', 'CR': 'red', 'PD': 'orange'}",
+            "   colors = df['RESPONSE'].map(color_map)",
+            "   plt.scatter(x, y, c=colors)",
+            "",
+            "2. USE NUMERIC ENCODING:",
+            "   # Convert categories to numbers",
+            "   from sklearn.preprocessing import LabelEncoder",
+            "   le = LabelEncoder()",
+            "   numeric_colors = le.fit_transform(df['RESPONSE'])",
+            "   plt.scatter(x, y, c=numeric_colors, cmap='viridis')",
+            "",
+            "3. USE SEABORN (HANDLES CATEGORIES AUTOMATICALLY):",
+            "   import seaborn as sns",
+            "   sns.scatterplot(data=df, x='x_col', y='y_col', hue='RESPONSE')",
+            "",
+            "4. PANDAS FACTORIZE (SIMPLE):",
+            "   colors = pd.factorize(df['RESPONSE'])[0]",
+            "   plt.scatter(x, y, c=colors, cmap='tab10')",
+            "",
+            "💡 RECOMMENDED: Use seaborn for automatic categorical color handling"
+        ]
+
+        return ErrorContext(
+            original_error=error_message,
+            error_type=error_type,
+            enhanced_message="Categorical data passed to matplotlib color parameter - need color mapping",
+            suggestions=suggestions
+        )
 
     def _analyze_matplotlib_subplot_error(
         self,
@@ -629,7 +695,7 @@ Quick fix: Convert numpy types to Python types using .item() or int()/float()
         traceback: str,
         code: str
     ) -> Optional[ErrorContext]:
-        """Analyze import errors."""
+        """Analyze import errors with simple, targeted suggestions."""
         if error_type not in ("ImportError", "ModuleNotFoundError"):
             return None
 
@@ -638,36 +704,74 @@ Quick fix: Convert numpy types to Python types using .item() or int()/float()
         match = re.search(module_pattern, error_message)
         module = match.group(1) if match else "unknown"
 
+        # Simple keyword-based suggestions
+        quick_fixes = self._get_simple_import_suggestions(module, code)
+        
         suggestions = [
             f"IMPORT ERROR - Module '{module}' not available",
             "",
-            "Available libraries in execution environment:",
-            "  - pandas (pd)",
-            "  - numpy (np)",
-            "  - matplotlib.pyplot (plt)",
-            "  - plotly.express (px)",
-            "  - plotly.graph_objects (go)",
-            "  - seaborn (sns)",
-            "  - scipy.stats (stats)",
-            "  - sklearn (scikit-learn)",
-            "",
-            "Solutions:",
-            f"1. If '{module}' is a typo, fix the import",
-            f"2. Use alternative library from available list",
-            f"3. If essential, inform user that library is not available",
-            "",
-            "Common alternatives:",
-            "  - Use pandas instead of openpyxl for Excel",
-            "  - Use scipy.stats instead of statsmodels",
-            "  - Use sklearn instead of tensorflow/pytorch",
         ]
+        
+        if quick_fixes:
+            suggestions.extend(quick_fixes)
+            suggestions.append("")
+        
+        suggestions.extend([
+            "📚 AVAILABLE LIBRARIES:",
+            "  - pandas (pd), numpy (np), matplotlib.pyplot (plt)",
+            "  - plotly.express (px), seaborn (sns), scipy.stats (stats)",
+            "  - sklearn (machine learning), scanpy (sc), umap",
+            "  - PIL (images), requests (web), openpyxl (Excel)",
+            "",
+            "💡 SOLUTIONS:",
+            f"1. Check spelling: '{module}'",
+            f"2. Use available alternative from list above",
+            f"3. If essential, inform user library needs installation",
+        ])
 
         return ErrorContext(
             original_error=error_message,
             error_type=error_type,
-            enhanced_message=f"Module '{module}' not available in execution environment",
+            enhanced_message=f"Module '{module}' not available",
             suggestions=suggestions
         )
+    
+    def _get_simple_import_suggestions(self, module: str, code: str) -> List[str]:
+        """Simple keyword matching for common import issues."""
+        module_lower = module.lower()
+        suggestions = []
+        
+        # Common substitutions
+        if 'tensorflow' in module_lower or 'torch' in module_lower or 'keras' in module_lower:
+            suggestions.extend([
+                "🔄 DEEP LEARNING → Use sklearn instead:",
+                "   from sklearn.neural_network import MLPClassifier",
+                "   from sklearn.ensemble import RandomForestClassifier"
+            ])
+        elif 'cv2' in module_lower or 'opencv' in module_lower:
+            suggestions.extend([
+                "🖼️ COMPUTER VISION → Use PIL for basic image tasks:",
+                "   from PIL import Image",
+                "   img = Image.open('data/image.jpg')"
+            ])
+        elif 'pil' in module_lower and 'cannot import name' in code:
+            suggestions.extend([
+                "🖼️ PIL IMPORT → Try:",
+                "   from PIL import Image  # (PIL is available)"
+            ])
+        elif 'umap' in code and 'sklearn.manifold' in code:
+            suggestions.extend([
+                "🎯 UMAP FIX → Use correct import:",
+                "   from umap import UMAP  # (not from sklearn.manifold)"
+            ])
+        elif 'excel' in module_lower or 'xlsx' in module_lower:
+            suggestions.extend([
+                "📊 EXCEL FILES → Use pandas or openpyxl:",
+                "   df = pd.read_excel('data/file.xlsx')",
+                "   import openpyxl  # (available)"
+            ])
+        
+        return suggestions
 
     # ============================================================================
     # GENERIC ERROR ANALYZERS
@@ -839,12 +943,16 @@ Quick fix: Convert numpy types to Python types using .item() or int()/float()
 
         return suggestions if suggestions else [(1, num_subplots)]
 
-    def format_for_llm(self, context: ErrorContext) -> str:
+    def format_for_llm(self, context: ErrorContext, traceback: str = "") -> str:
         """
         Format error context for LLM consumption.
 
         Returns a formatted string that provides maximum helpful context
         for the LLM to fix the error during auto-retry.
+        
+        Args:
+            context: Enhanced error context from analyzer
+            traceback: Full Python traceback
         """
         formatted = f"""
 {'=' * 80}
@@ -866,6 +974,17 @@ ORIGINAL ERROR MESSAGE
 {context.original_error}
 
 """.strip()
+
+        # Add full traceback if provided
+        if traceback and traceback.strip():
+            formatted += f"""
+
+{'=' * 80}
+FULL PYTHON STACK TRACE
+{'=' * 80}
+
+{traceback.strip()}
+"""
 
         if context.relevant_docs:
             formatted += f"\n\nRELEVANT DOCUMENTATION:\n{context.relevant_docs}"

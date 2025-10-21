@@ -49,10 +49,9 @@ class DataManager:
         logger.info(f"   Data Dir: {self.data_dir}")
         logger.info(f"   Working Dir: {os.getcwd()}")
         
-        # Copy sample data if data directory is empty
-        if not any(self.data_dir.iterdir()):
-            self._copy_sample_data()
-            
+        # NOTE: Sample data is no longer automatically copied to new notebooks
+        # Users must upload their own data files or manually copy sample data if needed
+        
         logger.info(f"   Available files: {[f['name'] for f in self.list_available_files()]}")
     
     def _copy_sample_data(self):

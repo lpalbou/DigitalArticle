@@ -236,6 +236,6 @@ def get_data_manager() -> DataManager:
     global _data_manager
     if _data_manager is None:
         _data_manager = DataManager()
-        # Set up sample data on first initialization
-        _data_manager.setup_sample_data()
+        # NOTE: Sample data is no longer automatically set up for new notebooks
+        # _data_manager.setup_sample_data()  # Commented out - users must upload their own data
     return _data_manager

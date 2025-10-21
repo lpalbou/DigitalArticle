@@ -756,7 +756,7 @@ print("LLM service is currently unavailable, using fallback code.")
                 cell.execution_count += 1
                 
                 # Auto-retry logic: if execution failed and we have a prompt or generated code, try to fix it with LLM
-                max_retries = 3
+                max_retries = 5
                 should_auto_retry = (
                     result.status == ExecutionStatus.ERROR and 
                     (cell.cell_type == CellType.PROMPT or 

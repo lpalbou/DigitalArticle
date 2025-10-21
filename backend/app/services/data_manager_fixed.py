@@ -47,7 +47,8 @@ class DataManager:
         notebook_working_dir = self.notebook_data_dir.parent  # This is workspace/data/{notebook_id}/..
         os.chdir(str(notebook_working_dir))
         
-        self._copy_sample_data()
+        # NOTE: Sample data is no longer automatically copied to new notebooks
+        # self._copy_sample_data()  # Commented out - users must upload their own data
         
         logger.info(f"Fixed Data Manager initialized:")
         logger.info(f"  Notebook ID: {self.notebook_id}")

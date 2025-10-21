@@ -158,6 +158,11 @@ class ExecutionService:
             'go': None,  # Will import plotly.graph_objects lazily
             'sns': None,  # Will import seaborn lazily
             'stats': None,  # Will import scipy.stats lazily
+            'sc': None,  # Will import scanpy lazily
+            'umap': None,  # Will import umap lazily
+            # Essential additions
+            'requests': None,  # Will import requests lazily
+            'openpyxl': None,  # Will import openpyxl lazily
             # Add datetime types
             'timedelta': timedelta,
             'datetime': datetime,
@@ -402,8 +407,19 @@ class ExecutionService:
                 processed_lines.append("sns = _lazy_import('seaborn', 'sns')")
             elif 'import scipy.stats as stats' in line:
                 processed_lines.append("stats = _lazy_import('scipy.stats', 'stats')")
+            elif 'import scanpy as sc' in line:
+                processed_lines.append("sc = _lazy_import('scanpy', 'sc')")
+            elif 'from umap import UMAP' in line:
+                processed_lines.append("umap = _lazy_import('umap', 'umap')")
+                processed_lines.append("UMAP = umap.UMAP")
+            elif 'import umap' in line and 'as' not in line:
+                processed_lines.append("umap = _lazy_import('umap', 'umap')")
+            elif 'import requests' in line:
+                processed_lines.append("requests = _lazy_import('requests', 'requests')")
+            elif 'import openpyxl' in line:
+                processed_lines.append("openpyxl = _lazy_import('openpyxl', 'openpyxl')")
             elif 'from sklearn' in line:
-                # Handle sklearn imports
+                # Handle sklearn imports - pass through as they are standard
                 processed_lines.append(line)
             elif '.show()' in line and ('fig' in line or 'plot' in line):
                 # Replace .show() calls with variable assignment to capture the plot

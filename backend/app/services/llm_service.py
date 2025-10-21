@@ -259,14 +259,19 @@ RULES:
 11. RANDOM DATA: Generate random data without setting seeds - the system handles reproducibility automatically
 
 AVAILABLE LIBRARIES:
-- pandas as pd
-- numpy as np
-- matplotlib.pyplot as plt
-- plotly.express as px
-- plotly.graph_objects as go
-- seaborn as sns
-- scipy.stats as stats
-- sklearn (all modules)
+- pandas as pd (data manipulation)
+- numpy as np (numerical computing)
+- matplotlib.pyplot as plt (plotting)
+- plotly.express as px (interactive plots)
+- plotly.graph_objects as go (advanced plots)
+- seaborn as sns (statistical visualization)
+- scipy.stats as stats (statistical functions)
+- sklearn (scikit-learn - machine learning)
+- scanpy as sc (single-cell analysis)
+- umap (UMAP dimensionality reduction)
+- PIL (pillow - image manipulation)
+- requests (HTTP requests)
+- openpyxl (Excel files)
 - datetime, timedelta, date (from datetime module)
 
 TYPE SAFETY HELPERS (automatically available):
@@ -310,6 +315,35 @@ patients = pd.read_csv('data/patient_data.csv')
 
 # WRONG - Don't use bare filenames
 df = pd.read_csv('gene_expression.csv')  # This will fail!
+```
+
+ADDITIONAL LIBRARY EXAMPLES:
+```python
+# Image handling with PIL
+from PIL import Image
+img = Image.open('data/image.jpg')
+img_resized = img.resize((100, 100))
+
+# Excel file handling
+df = pd.read_excel('data/file.xlsx', sheet_name='Sheet1')
+# OR for advanced Excel operations:
+import openpyxl
+wb = openpyxl.load_workbook('data/file.xlsx')
+
+# Web requests
+import requests
+response = requests.get('https://api.example.com/data')
+data = response.json()
+
+# UMAP dimensionality reduction
+from umap import UMAP
+reducer = UMAP(n_neighbors=15, min_dist=0.1, n_components=2)
+embedding = reducer.fit_transform(data)
+
+# Scanpy single-cell analysis
+import scanpy as sc
+sc.pp.filter_cells(adata, min_genes=200)
+sc.pp.filter_genes(adata, min_cells=3)
 ```
 
 COMPLETE EXAMPLE:
@@ -633,7 +667,7 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
 
             analyzer = ErrorAnalyzer()
             context = analyzer.analyze_error(error_message, error_type, traceback, code)
-            formatted = analyzer.format_for_llm(context)
+            formatted = analyzer.format_for_llm(context, traceback)
 
             logger.info(f"Error enhanced with {len(context.suggestions)} suggestions")
 
