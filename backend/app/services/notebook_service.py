@@ -89,6 +89,10 @@ class NotebookService:
         """Load all notebooks from disk."""
         try:
             for notebook_file in self.notebooks_dir.glob("*.json"):
+                # Skip temporary files
+                if notebook_file.name.endswith('.tmp'):
+                    continue
+                    
                 try:
                     with open(notebook_file, 'r', encoding='utf-8') as f:
                         data = json.load(f)
@@ -97,8 +101,19 @@ class NotebookService:
                     self._notebooks[str(notebook.id)] = notebook
                     logger.info(f"Loaded notebook: {notebook.title}")
                     
+                except json.JSONDecodeError as e:
+                    logger.error(f"Corrupted JSON in notebook {notebook_file.name}: {e}")
+                    logger.error(f"Consider moving {notebook_file.name} to a backup location for manual recovery")
+                    # Optionally, move corrupted file to a backup location
+                    backup_file = notebook_file.with_suffix('.json.corrupted')
+                    try:
+                        notebook_file.rename(backup_file)
+                        logger.info(f"Moved corrupted file to {backup_file.name}")
+                    except Exception as rename_error:
+                        logger.error(f"Could not backup corrupted file: {rename_error}")
+                        
                 except Exception as e:
-                    logger.error(f"Failed to load notebook {notebook_file}: {e}")
+                    logger.error(f"Failed to load notebook {notebook_file.name}: {e}")
                     
         except Exception as e:
             logger.error(f"Failed to load notebooks: {e}")
@@ -713,15 +728,17 @@ print("LLM service is currently unavailable, using fallback code.")
 
     def _save_notebook(self, notebook: Notebook):
         """
-        Save a notebook to disk.
+        Save a notebook to disk using atomic write pattern.
         
         Args:
             notebook: Notebook to save
         """
         try:
             notebook_file = self.notebooks_dir / f"{notebook.id}.json"
+            temp_file = self.notebooks_dir / f"{notebook.id}.json.tmp"
             
-            with open(notebook_file, 'w', encoding='utf-8') as f:
+            # Write to temporary file first
+            with open(temp_file, 'w', encoding='utf-8') as f:
                 json.dump(
                     notebook.dict(),
                     f,
@@ -730,8 +747,15 @@ print("LLM service is currently unavailable, using fallback code.")
                     default=str  # Handle UUID and datetime serialization
                 )
             
+            # Atomic rename - this is the critical part that prevents corruption
+            temp_file.rename(notebook_file)
+            
         except Exception as e:
             logger.error(f"Failed to save notebook {notebook.title}: {e}")
+            # Clean up temporary file if it exists
+            temp_file = self.notebooks_dir / f"{notebook.id}.json.tmp"
+            if temp_file.exists():
+                temp_file.unlink()
     
     def export_notebook(self, notebook_id: str, format: str = "json") -> Optional[str]:
         """

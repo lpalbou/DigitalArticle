@@ -190,9 +190,15 @@ class TokenTracker:
             This is the REAL context size as measured by the LLM provider,
             not an estimate. It includes system prompt + previous cells + current prompt.
         """
+        logger.info(f"🔍 get_current_context_tokens called for notebook {notebook_id}")
+        logger.info(f"🔍 Available notebook_ids in tracker: {list(self._notebook_usage.keys())}")
+        logger.info(f"🔍 Available cell_ids in tracker: {list(self._cell_usage.keys())}")
+
         usage = self._notebook_usage.get(notebook_id)
+        logger.info(f"🔍 Notebook usage: {usage}")
 
         if not usage or not usage.get('last_updated'):
+            logger.warning(f"⚠️ No usage data for notebook {notebook_id}")
             return 0
 
         # Find the most recent cell for this notebook
@@ -201,13 +207,16 @@ class TokenTracker:
 
         for cell_id, cell_usage in self._cell_usage.items():
             if cell_usage['notebook_id'] == notebook_id:
+                logger.info(f"🔍 Found cell {cell_id} for notebook {notebook_id}: {cell_usage}")
                 if recent_time is None or cell_usage['timestamp'] > recent_time:
                     recent_time = cell_usage['timestamp']
                     recent_cell = cell_usage
 
         if recent_cell:
+            logger.info(f"✅ Returning {recent_cell['prompt_tokens']} tokens from most recent cell")
             return recent_cell['prompt_tokens']
 
+        logger.warning(f"⚠️ No cells found for notebook {notebook_id}")
         return 0
 
     def reset_notebook(self, notebook_id: str) -> None:

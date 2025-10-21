@@ -618,7 +618,7 @@ while result.status == ERROR and retry_count < max_retries:
         break
 ```
 
-**Rationale**: Dramatically improves success rate by allowing LLM to learn from and fix its own errors
+**Rationale**: Improves success rate by allowing LLM to learn from and fix its own errors
 
 ### 3. Persistent Execution Context
 **Location**: `ExecutionService`
@@ -738,7 +738,7 @@ def get_data_manager(notebook_id=None):
 - Modern async support (future-proof for concurrent LLM calls)
 - Automatic OpenAPI docs
 - Pydantic integration (type safety)
-- Excellent developer experience
+- Good developer experience
 
 ### Why React (not Jupyter)?
 - Full control over UX (article-first design)
@@ -821,13 +821,13 @@ File Storage (S3/MinIO for uploaded files)
 
 ## Developer Tools
 
-### CLI Package (`digital_article_cli/`)
+### CLI Package (`digitalarticle/`)
 
 The project includes a CLI package that provides convenient startup commands for both backend and frontend servers.
 
 **Package Structure**:
 ```
-digital_article_cli/
+digitalarticle/
   __init__.py          # Package metadata (version 1.0.0)
   backend.py           # da-backend command implementation
   frontend.py          # da-frontend command implementation
@@ -837,8 +837,8 @@ digital_article_cli/
 **Console Scripts** (registered in `pyproject.toml`):
 ```toml
 [project.scripts]
-da-backend = "digital_article_cli.backend:main"
-da-frontend = "digital_article_cli.frontend:main"
+da-backend = "digitalarticle.backend:main"
+da-frontend = "digitalarticle.frontend:main"
 ```
 
 #### `da-backend` Command
@@ -919,6 +919,6 @@ After installation, `da-backend` and `da-frontend` are available system-wide (or
 
 Digital Article implements a novel "article-first" notebook paradigm through careful orchestration of LLM services, code execution, and rich output capture. The architecture prioritizes user experience (optimistic updates, auto-retry) while maintaining extensibility and clear separation of concerns.
 
-The inclusion of well-designed CLI tools (`digital_article_cli`) demonstrates attention to developer experience—users can start the application from anywhere with automatic dependency and port management, reducing friction and setup errors.
+The CLI tools (`digitalarticle`) provide automatic dependency and port management, allowing users to start the application from any directory.
 
 The current implementation is suitable for single-user or small team deployment; production scaling would require containerized execution, database storage, and distributed LLM serving.

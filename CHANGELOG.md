@@ -216,7 +216,7 @@ This release represents the first stable beta version of Digital Article with co
 
 **Data & Scripts**:
 - Sample datasets in `sample_data/`
-- CLI scripts in `digital_article_cli/`
+- CLI scripts in `digitalarticle/`
 - Build and dist directories for package distribution
 
 ### Initial Release Notes

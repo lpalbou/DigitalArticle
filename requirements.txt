@@ -1,6 +1,6 @@
 fastapi>=0.104.1
 uvicorn[standard]>=0.24.0
-abstractcore[all]>=2.4.1
+abstractcore[all]>=2.4.5
 pandas>=2.1.4
 numpy>=1.26.0
 matplotlib>=3.8.2

@@ -194,8 +194,6 @@ class TestRealTimedeltaScenario:
         error_message = "unsupported type for timedelta days component: numpy.int64"
         error_type = "TypeError"
         traceback = """Traceback (most recent call last):
-  File "/Users/albou/projects/reverse-notebook/backend/app/services/execution_service.py", line 156, in execute_code
-    exec(processed_code, self.globals_dict)
   File "<string>", line 21, in <module>
 TypeError: unsupported type for timedelta days component: numpy.int64"""
 

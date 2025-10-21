@@ -96,21 +96,34 @@ class LLMService:
                 temperature=0.1  # Low temperature for consistent code generation
             )
 
-            logger.info(f"🚨 LLM RAW RESPONSE: {response.content}")
+            logger.info(f"🚨 LLM RAW RESPONSE: {response.content[:200]}...")
+
+            # Debug: Check what's in the response object
+            logger.info(f"🔍 Response attributes: {dir(response)}")
+            logger.info(f"🔍 response.usage type: {type(response.usage) if hasattr(response, 'usage') else 'NO USAGE ATTR'}")
+            logger.info(f"🔍 response.usage value: {response.usage if hasattr(response, 'usage') else 'NO USAGE'}")
 
             # Track actual token usage from AbstractCore response.usage
             if context and 'notebook_id' in context and 'cell_id' in context:
+                logger.info(f"📝 Context has notebook_id={context['notebook_id']}, cell_id={context['cell_id']}")
+
+                usage_data = getattr(response, 'usage', None)
+                logger.info(f"📊 About to track generation with usage_data: {usage_data}")
+
                 self.token_tracker.track_generation(
                     notebook_id=context['notebook_id'],
                     cell_id=context['cell_id'],
-                    usage_data=response.usage  # AbstractCore provides: {prompt_tokens, completion_tokens, total_tokens}
+                    usage_data=usage_data  # AbstractCore provides: {prompt_tokens, completion_tokens, total_tokens}
                 )
-                if response.usage:
+
+                if usage_data:
                     logger.info(
-                        f"📊 Token usage - prompt: {response.usage.get('prompt_tokens')}, "
-                        f"completion: {response.usage.get('completion_tokens')}, "
-                        f"total: {response.usage.get('total_tokens')}"
+                        f"✅ Token usage - prompt: {usage_data.get('prompt_tokens') if isinstance(usage_data, dict) else getattr(usage_data, 'prompt_tokens', 'N/A')}, "
+                        f"completion: {usage_data.get('completion_tokens') if isinstance(usage_data, dict) else getattr(usage_data, 'completion_tokens', 'N/A')}, "
+                        f"total: {usage_data.get('total_tokens') if isinstance(usage_data, dict) else getattr(usage_data, 'total_tokens', 'N/A')}"
                     )
+                else:
+                    logger.warning(f"⚠️ NO USAGE DATA in response!")
 
             # Extract code from the response
             code = self._extract_code_from_response(response.content)
@@ -235,7 +248,61 @@ plt.show()
 
         user_prompt = ""
 
-        # Add previous cells context for awareness
+        # FIRST: Show available variables prominently for maximum visibility
+        if context and 'available_variables' in context:
+            variables = context['available_variables']
+            if variables:
+                user_prompt += "=" * 70 + "\n"
+                user_prompt += "AVAILABLE VARIABLES IN CURRENT EXECUTION CONTEXT\n"
+                user_prompt += "=" * 70 + "\n\n"
+
+                # Separate DataFrames from other variables for emphasis
+                dataframes = {}
+                other_vars = {}
+
+                for name, info in variables.items():
+                    var_type = info.get('type', 'unknown') if isinstance(info, dict) else str(info)
+                    if 'DataFrame' in var_type:
+                        dataframes[name] = info
+                    else:
+                        other_vars[name] = info
+
+                # Show DataFrames FIRST (most important for reuse)
+                if dataframes:
+                    user_prompt += "DATAFRAMES (REUSE THESE - DO NOT RECREATE):\n"
+                    user_prompt += "-" * 70 + "\n"
+                    for name, info in dataframes.items():
+                        if isinstance(info, dict):
+                            shape = info.get('shape', 'unknown')
+                            columns = info.get('columns', [])
+                            user_prompt += f"  Variable: '{name}'\n"
+                            user_prompt += f"  Type: DataFrame\n"
+                            user_prompt += f"  Shape: {shape}\n"
+                            if columns:
+                                cols_preview = ', '.join(str(c) for c in columns[:8])
+                                if len(columns) > 8:
+                                    cols_preview += f", ... ({len(columns)} total columns)"
+                                user_prompt += f"  Columns: {cols_preview}\n"
+                            user_prompt += "\n"
+                        else:
+                            user_prompt += f"  '{name}': {info}\n\n"
+
+                # Show other variables
+                if other_vars:
+                    user_prompt += "OTHER VARIABLES:\n"
+                    user_prompt += "-" * 70 + "\n"
+                    for name, info in other_vars.items():
+                        if isinstance(info, dict):
+                            var_type = info.get('type', 'unknown')
+                            extra = info.get('shape') or info.get('length') or ''
+                            user_prompt += f"  '{name}': {var_type} {extra}\n"
+                        else:
+                            user_prompt += f"  '{name}': {info}\n"
+                    user_prompt += "\n"
+
+                user_prompt += "=" * 70 + "\n\n"
+
+        # SECOND: Add previous cells context for awareness
         if context and 'previous_cells' in context:
             previous_cells = context['previous_cells']
             if previous_cells:
@@ -250,15 +317,25 @@ plt.show()
                         user_prompt += f"  ✓ This cell created/modified DataFrames\n"
                 user_prompt += "=" * 60 + "\n\n"
 
-                user_prompt += "IMPORTANT INSTRUCTIONS FOR CODE REUSE:\n"
-                user_prompt += "- Variables from previous cells are ALREADY IN MEMORY and AVAILABLE\n"
-                user_prompt += "- If a DataFrame (like dm_df, vs_df, etc.) was created in a previous cell, DO NOT recreate it\n"
-                user_prompt += "- REUSE existing variables when possible instead of re-reading files\n"
-                user_prompt += "- Only re-read data files if you need to modify the original data or if explicitly requested\n"
-                user_prompt += "- Example: If 'dm_df' exists from Cell 1, just use it directly in Cell 2\n\n"
+                user_prompt += "CRITICAL INSTRUCTIONS FOR CODE REUSE:\n"
+                user_prompt += "=" * 60 + "\n"
+                user_prompt += "1. CHECK THE 'AVAILABLE VARIABLES' SECTION ABOVE FIRST!\n"
+                user_prompt += "2. If a DataFrame exists (e.g., 'sdtm_dataset'), REUSE IT by its exact name\n"
+                user_prompt += "3. DO NOT create new DataFrames from the same source with different names\n"
+                user_prompt += "4. DO NOT use pd.DataFrame(data) if a DataFrame already exists\n"
+                user_prompt += "5. DO NOT use pd.read_csv() if the data is already loaded in memory\n"
+                user_prompt += "\n"
+                user_prompt += "BAD Example (DO NOT DO THIS):\n"
+                user_prompt += "  df = pd.DataFrame(data)  # ❌ WRONG if 'sdtm_dataset' already exists\n"
+                user_prompt += "\n"
+                user_prompt += "GOOD Example (DO THIS):\n"
+                user_prompt += "  # Use existing 'sdtm_dataset' directly\n"
+                user_prompt += "  fig, axes = plt.subplots(2, 3)\n"
+                user_prompt += "  sns.countplot(data=sdtm_dataset, x='ARM', ax=axes[0,0])\n"
+                user_prompt += "=" * 60 + "\n\n"
 
         user_prompt += f"CURRENT REQUEST:\n{prompt}\n\n"
-        user_prompt += "Generate the Python code:"
+        user_prompt += "Generate the Python code (no explanations, just code):"
 
         return user_prompt
     

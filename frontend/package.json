@@ -2,6 +2,7 @@
   "name": "digital-article-frontend",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -13,12 +14,12 @@
     "axios": "^1.6.2",
     "lucide-react": "^0.294.0",
     "marked": "^16.4.0",
-    "plotly.js": "^2.27.1",
+    "plotly.js": "^3.1.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-plotly.js": "^2.6.0",
     "react-router-dom": "^6.20.1",
-    "tailwindcss": "^3.3.6"
+    "tailwindcss": "^3.4.18"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",
@@ -30,8 +31,12 @@
     "eslint": "^8.53.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.4",
-    "postcss": "^8.4.32",
+    "postcss": "^8.5.6",
     "typescript": "^5.2.2",
-    "vite": "^4.5.0"
+    "vite": "^7.1.11"
+  },
+  "overrides": {
+    "readable-stream": "^4.0.0",
+    "util-deprecate": "^1.0.2"
   }
 }

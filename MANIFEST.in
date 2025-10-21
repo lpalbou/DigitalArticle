@@ -3,8 +3,8 @@ include README.md
 include LICENSE*
 
 # Include the package data
-recursive-include digital_article_cli *.py
-recursive-include digital_article_cli *.pyi
+recursive-include digitalarticle *.py
+recursive-include digitalarticle *.pyi
 
 # Exclude development and build files
 exclude .gitignore

@@ -171,7 +171,7 @@ da-backend
 da-frontend
 ```
 
-**What the CLI commands do** (provided by `digital_article_cli` package):
+**What the CLI commands do** (provided by `digitalarticle` package):
 
 **`da-backend`**:
 - Auto-discovers project root (searches for `backend/` directory)
