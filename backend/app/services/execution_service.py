@@ -11,6 +11,7 @@ import traceback
 import base64
 import time
 import logging
+import warnings
 from contextlib import redirect_stdout, redirect_stderr
 from typing import Dict, Any, List, Optional
 import matplotlib
@@ -23,6 +24,10 @@ from ..models.notebook import ExecutionResult, ExecutionStatus
 
 # Configure matplotlib for non-interactive backend
 matplotlib.use('Agg')
+
+# Suppress matplotlib non-interactive backend warnings
+warnings.filterwarnings('ignore', message='.*non-interactive.*')
+warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib.*')
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +137,15 @@ class ExecutionService:
                 return float(value.item())
             return float(value)
 
+        # Override plt.show() to prevent warnings about non-interactive backend
+        # Plots are captured automatically, so showing them is not needed
+        def noop_show(*args, **kwargs):
+            """No-op replacement for plt.show() to prevent non-interactive backend warnings."""
+            pass
+
+        # Replace plt.show with no-op version
+        plt.show = noop_show
+
         globals_dict = {
             '__builtins__': __builtins__,
             'pd': pd,
@@ -208,12 +222,18 @@ class ExecutionService:
         # Prepare output capture
         stdout_buffer = io.StringIO()
         stderr_buffer = io.StringIO()
-        
+
         try:
+            # Configure warnings to be written to stderr
+            warnings.simplefilter('always')  # Show all warnings
+            # But suppress the specific non-interactive matplotlib warning
+            warnings.filterwarnings('ignore', message='.*non-interactive.*')
+            warnings.filterwarnings('ignore', message='.*FigureCanvasAgg.*')
+
             # Clear any existing plots
             plt.clf()
             plt.close('all')
-            
+
             # Track variables before execution to only capture new DataFrames
             pre_execution_vars = set(self.globals_dict.keys())
             pre_execution_dataframes = {

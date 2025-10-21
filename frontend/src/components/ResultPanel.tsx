@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import Plot from 'react-plotly.js'
-import { AlertCircle, CheckCircle, Image as ImageIcon, BarChart3, Table } from 'lucide-react'
+import { AlertCircle, CheckCircle, Image as ImageIcon, BarChart3, Table, ChevronRight, ChevronDown } from 'lucide-react'
 import { ExecutionResult, ExecutionStatus, TableData } from '../types'
 
 interface ResultPanelProps {
@@ -8,10 +8,12 @@ interface ResultPanelProps {
 }
 
 const ResultPanel: React.FC<ResultPanelProps> = ({ result }) => {
+  const [warningsCollapsed, setWarningsCollapsed] = useState(true)
+
   const hasOutput = useMemo(() => {
-    return result.stdout || 
-           result.plots.length > 0 || 
-           result.tables.length > 0 || 
+    return result.stdout ||
+           result.plots.length > 0 ||
+           result.tables.length > 0 ||
            result.interactive_plots.length > 0 ||
            result.images.length > 0
   }, [result])
@@ -67,15 +69,28 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result }) => {
         </div>
       )}
 
-      {/* Standard Error (non-fatal) */}
+      {/* Standard Error (non-fatal) - Collapsible Warnings */}
       {result.stderr && !hasError && (
         <div className="mb-4">
-          <div className="flex items-center space-x-2 mb-2">
+          <div
+            className="flex items-center space-x-2 mb-2 cursor-pointer hover:bg-gray-50 p-2 rounded -ml-2"
+            onClick={() => setWarningsCollapsed(!warningsCollapsed)}
+          >
+            {warningsCollapsed ? (
+              <ChevronRight className="h-4 w-4 text-gray-500" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-gray-500" />
+            )}
             <span className="text-sm font-medium text-gray-700">Warnings</span>
+            <span className="text-xs text-gray-500">
+              ({warningsCollapsed ? 'click to expand' : 'click to collapse'})
+            </span>
           </div>
-          <pre className="bg-yellow-50 border border-yellow-200 p-3 rounded text-sm overflow-x-auto whitespace-pre-wrap">
-            {result.stderr}
-          </pre>
+          {!warningsCollapsed && (
+            <pre className="bg-yellow-50 border border-yellow-200 p-3 rounded text-sm overflow-x-auto whitespace-pre-wrap">
+              {result.stderr}
+            </pre>
+          )}
         </div>
       )}
 
