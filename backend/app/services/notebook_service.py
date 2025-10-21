@@ -8,13 +8,14 @@ as well as coordinating between LLM and execution services.
 import json
 import os
 import uuid
+from uuid import UUID
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import logging
 
 from ..models.notebook import (
-    Notebook, Cell, CellType, ExecutionResult, ExecutionStatus,
+    Notebook, Cell, CellType, ExecutionResult, ExecutionStatus, CellState,
     NotebookCreateRequest, NotebookUpdateRequest,
     CellCreateRequest, CellUpdateRequest, CellExecuteRequest
 )
@@ -360,6 +361,145 @@ print("LLM service is currently unavailable, using fallback code.")
         
         return summaries
     
+    def mark_cells_as_stale(self, notebook_id: str, from_cell_index: int) -> bool:
+        """
+        Mark all cells below the given index as stale.
+        
+        Args:
+            notebook_id: Notebook UUID
+            from_cell_index: Index of the cell that was re-run (0-based)
+            
+        Returns:
+            True if cells were marked as stale, False if notebook not found
+        """
+        notebook = self._notebooks.get(notebook_id)
+        if not notebook:
+            return False
+        
+        # Mark all cells after the given index as stale
+        cells_marked = 0
+        for i in range(from_cell_index + 1, len(notebook.cells)):
+            cell = notebook.cells[i]
+            if cell.cell_state != CellState.STALE:
+                cell.cell_state = CellState.STALE
+                cell.updated_at = datetime.now()
+                cells_marked += 1
+        
+        if cells_marked > 0:
+            notebook.updated_at = datetime.now()
+            self._save_notebook(notebook)
+            logger.info(f"Marked {cells_marked} cells as stale in notebook {notebook.title}")
+        
+        return True
+    
+    def mark_cell_as_fresh(self, notebook_id: str, cell_id: UUID) -> bool:
+        """
+        Mark a specific cell as fresh (recently executed).
+        
+        Args:
+            notebook_id: Notebook UUID
+            cell_id: Cell UUID
+            
+        Returns:
+            True if cell was marked as fresh, False if not found
+        """
+        notebook = self._notebooks.get(notebook_id)
+        if not notebook:
+            return False
+        
+        cell = notebook.get_cell(cell_id)
+        if not cell:
+            return False
+        
+        cell.cell_state = CellState.FRESH
+        cell.updated_at = datetime.now()
+        notebook.updated_at = datetime.now()
+        self._save_notebook(notebook)
+        
+        logger.info(f"Marked cell {cell_id} as fresh in notebook {notebook.title}")
+        return True
+    
+    def bulk_update_cell_states(self, notebook_id: str, cell_updates: List[Dict[str, Any]]) -> bool:
+        """
+        Update multiple cell states in bulk.
+        
+        Args:
+            notebook_id: Notebook UUID
+            cell_updates: List of dicts with 'cell_id' and 'state' keys
+            
+        Returns:
+            True if updates were successful, False if notebook not found
+        """
+        notebook = self._notebooks.get(notebook_id)
+        if not notebook:
+            return False
+        
+        updated_count = 0
+        for update in cell_updates:
+            cell_id = update.get('cell_id')
+            new_state = update.get('state')
+            
+            if not cell_id or not new_state:
+                continue
+                
+            try:
+                cell_uuid = UUID(cell_id) if isinstance(cell_id, str) else cell_id
+                cell = notebook.get_cell(cell_uuid)
+                
+                if cell and hasattr(CellState, new_state.upper()):
+                    cell.cell_state = CellState(new_state.lower())
+                    cell.updated_at = datetime.now()
+                    updated_count += 1
+                    
+            except (ValueError, AttributeError) as e:
+                logger.warning(f"Invalid cell update: {update}, error: {e}")
+                continue
+        
+        if updated_count > 0:
+            notebook.updated_at = datetime.now()
+            self._save_notebook(notebook)
+            logger.info(f"Bulk updated {updated_count} cell states in notebook {notebook.title}")
+        
+        return True
+    
+    def get_cells_below_index(self, notebook_id: str, cell_index: int) -> List[Cell]:
+        """
+        Get all cells below a given index.
+        
+        Args:
+            notebook_id: Notebook UUID
+            cell_index: Index of the reference cell (0-based)
+            
+        Returns:
+            List of cells below the given index
+        """
+        notebook = self._notebooks.get(notebook_id)
+        if not notebook or cell_index < 0 or cell_index >= len(notebook.cells):
+            return []
+        
+        return notebook.cells[cell_index + 1:]
+    
+    def get_cell_index(self, notebook_id: str, cell_id: UUID) -> int:
+        """
+        Get the index of a cell in the notebook.
+        
+        Args:
+            notebook_id: Notebook UUID
+            cell_id: Cell UUID
+            
+        Returns:
+            Index of the cell (0-based), or -1 if not found
+        """
+        notebook = self._notebooks.get(notebook_id)
+        if not notebook:
+            return -1
+        
+        for i, cell in enumerate(notebook.cells):
+            if cell.id == cell_id:
+                return i
+        
+        return -1
+    
     def update_notebook(self, notebook_id: str, request: NotebookUpdateRequest) -> Optional[Notebook]:
         """
         Update notebook metadata.
@@ -606,7 +746,7 @@ print("LLM service is currently unavailable, using fallback code.")
                         logger.info("Using fallback code generation")
             
             # Execute code if available
-            if cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE):
+            if cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
                 # Set up notebook-specific context for execution
                 result = self.execution_service.execute_code(cell.code, str(cell.id), str(notebook.id))
                 cell.execution_count += 1
@@ -751,7 +891,8 @@ print("LLM service is currently unavailable, using fallback code.")
                     explanation = self.llm_service.generate_scientific_explanation(
                         cell.prompt, 
                         cell.code, 
-                        execution_data
+                        execution_data,
+                        context  # Pass context for seed consistency
                     )
                     print(f"🔬 LLM returned explanation: {len(explanation)} chars")
                     print(f"🔬 Explanation content: {explanation[:200]}...")
@@ -768,6 +909,20 @@ print("LLM service is currently unavailable, using fallback code.")
                     cell.scientific_explanation = ""
             else:
                 logger.info("🔬 Skipping scientific explanation generation (conditions not met)")
+            
+            # Update cell state management
+            if result.status == ExecutionStatus.SUCCESS:
+                # Mark this cell as fresh
+                cell.cell_state = CellState.FRESH
+                
+                # Mark downstream cells as stale
+                try:
+                    cell_index = self.get_cell_index(str(notebook.id), cell.id)
+                    if cell_index >= 0:
+                        self.mark_cells_as_stale(str(notebook.id), cell_index)
+                        logger.info(f"Marked cells below index {cell_index} as stale")
+                except Exception as e:
+                    logger.warning(f"Failed to mark downstream cells as stale: {e}")
             
             # Save notebook
             self._save_notebook(notebook)
@@ -1061,3 +1216,49 @@ print("LLM service is currently unavailable, using fallback code.")
         except Exception as e:
             logger.error(f"Failed to export notebook {notebook_id} to PDF: {e}")
             raise
+    
+    def set_notebook_custom_seed(self, notebook_id: str, seed: int) -> bool:
+        """
+        Set a custom seed for notebook reproducibility.
+        
+        This seed will be used for both LLM generation and execution environment
+        to ensure complete reproducibility.
+        
+        Args:
+            notebook_id: Notebook identifier
+            seed: Custom seed value (0-2147483647)
+            
+        Returns:
+            True if successful, False if notebook not found
+        """
+        notebook = self._notebooks.get(notebook_id)
+        if not notebook:
+            return False
+        
+        # Store custom seed in notebook metadata
+        if not hasattr(notebook, 'custom_seed'):
+            notebook.custom_seed = None
+        notebook.custom_seed = seed
+        
+        # Update both LLM and execution services to use this seed
+        try:
+            # Update LLM service seed (will be used in next generation)
+            if not hasattr(self.llm_service, '_custom_seeds'):
+                self.llm_service._custom_seeds = {}
+            self.llm_service._custom_seeds[notebook_id] = seed
+            
+            # Update execution service seed (will be used in next execution)
+            self.execution_service.notebook_execution_seed = None  # Reset to force re-initialization
+            if not hasattr(self.execution_service, '_custom_seeds'):
+                self.execution_service._custom_seeds = {}
+            self.execution_service._custom_seeds[notebook_id] = seed
+            
+            logger.info(f"🎲 Set custom seed {seed} for notebook {notebook_id}")
+            
+            # Save notebook with new seed
+            self._save_notebook(notebook)
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to set custom seed: {e}")
+            return False

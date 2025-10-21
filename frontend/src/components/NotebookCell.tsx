@@ -2,13 +2,13 @@ import React, { useCallback } from 'react'
 import { RotateCcw, AlertTriangle } from 'lucide-react'
 import PromptEditor from './PromptEditor'
 import ResultPanel from './ResultPanel'
-import { Cell, CellType } from '../types'
+import { Cell, CellType, CellState } from '../types'
 
 interface NotebookCellProps {
   cell: Cell
   onUpdateCell: (cellId: string, updates: Partial<Cell>) => void
   onDeleteCell: (cellId: string) => void
-  onExecuteCell: (cellId: string, forceRegenerate?: boolean) => void
+  onExecuteCell: (cellId: string, action: 'execute' | 'regenerate') => void
   onAddCellBelow: (cellId: string, cellType: CellType) => void
   isExecuting?: boolean
 }
@@ -25,14 +25,41 @@ const NotebookCell: React.FC<NotebookCellProps> = ({
     onUpdateCell(cell.id, updates)
   }, [cell.id, onUpdateCell])
 
-  const handleExecuteCell = useCallback((cellId: string, forceRegenerate?: boolean) => {
-    onExecuteCell(cellId, forceRegenerate)
+  const handleExecuteCell = useCallback((cellId: string, action: 'execute' | 'regenerate') => {
+    onExecuteCell(cellId, action)
   }, [onExecuteCell])
 
   const isRunning = isExecuting || cell.is_executing
 
+  // Get cell state styling
+  const getCellStateClass = () => {
+    const state = cell.cell_state || CellState.FRESH
+    switch (state) {
+      case CellState.FRESH:
+        return 'border-l-4 border-l-green-400'
+      case CellState.STALE:
+        return 'border-l-4 border-l-amber-400'
+      case CellState.EXECUTING:
+        return 'border-l-4 border-l-blue-400 animate-pulse'
+      default:
+        return ''
+    }
+  }
+
   return (
-    <div className="cell-container">
+    <div className={`cell-container ${getCellStateClass()}`}>
+      {/* Stale State Indicator */}
+      {cell.cell_state === CellState.STALE && (
+        <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg">
+          <div className="flex items-center space-x-2 text-amber-800">
+            <AlertTriangle className="h-4 w-4" />
+            <span className="text-sm">
+              This cell may be outdated due to changes in cells above
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Auto-Retry Status Indicator */}
       {cell.is_retrying && (
         <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">

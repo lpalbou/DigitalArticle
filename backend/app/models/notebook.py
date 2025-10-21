@@ -31,6 +31,13 @@ class ExecutionStatus(str, Enum):
     CANCELLED = "cancelled"  # Execution was cancelled
 
 
+class CellState(str, Enum):
+    """State of cell content freshness."""
+    FRESH = "fresh"          # Recently executed, results are current
+    STALE = "stale"          # May be outdated due to upstream changes
+    EXECUTING = "executing"  # Currently running
+
+
 class ExecutionResult(BaseModel):
     """Result of executing a cell."""
     
@@ -82,6 +89,7 @@ class Cell(BaseModel):
     is_writing_methodology: bool = False
     is_retrying: bool = False  # Track if auto-retry is in progress
     retry_count: int = 0  # Number of retry attempts
+    cell_state: CellState = CellState.FRESH  # Content freshness state
     
     # Display preferences
     show_code: bool = False  # Toggle between prompt and code view

@@ -73,6 +73,9 @@ class ExecutionService:
         
         self.globals_dict = self._initialize_globals()
         self.execution_count = 0
+        
+        # Execution environment seed management (separate from LLM seed)
+        self.notebook_execution_seed = None  # Will be set per notebook
     
     def _initialize_globals(self) -> Dict[str, Any]:
         """Initialize the global namespace for code execution."""
@@ -192,6 +195,40 @@ class ExecutionService:
 
         return globals_dict
     
+    def set_notebook_execution_seed(self, notebook_id: str, seed: Optional[int] = None):
+        """
+        Set random seed for the execution environment (separate from LLM seed).
+        
+        This ensures that when generated code runs random operations like np.random.randn(),
+        the results are consistent per notebook.
+        
+        Args:
+            notebook_id: Notebook identifier
+            seed: Random seed (if None, checks for custom seed then uses notebook_id hash)
+        """
+        if seed is None:
+            # Check for custom seed first
+            if hasattr(self, '_custom_seeds') and notebook_id in self._custom_seeds:
+                seed = self._custom_seeds[notebook_id]
+            else:
+                # Generate consistent seed from notebook_id hash
+                import hashlib
+                seed = int(hashlib.md5(notebook_id.encode()).hexdigest()[:8], 16) % (2**31)
+        
+        self.notebook_execution_seed = seed
+        
+        # Set seeds in the execution environment
+        import random
+        import numpy as np
+        
+        random.seed(seed)
+        np.random.seed(seed)
+        
+        # Also set in globals_dict so user code can access if needed
+        self.globals_dict['_notebook_execution_seed'] = seed
+        
+        logger.info(f"🎲 Set execution environment seed: {seed} for notebook {notebook_id}")
+    
     def execute_code(self, code: str, cell_id: str, notebook_id: Optional[str] = None) -> ExecutionResult:
         """
         Execute Python code and capture all outputs.
@@ -211,6 +248,10 @@ class ExecutionService:
             from .data_manager_clean import get_data_manager
             notebook_data_manager = get_data_manager(notebook_id)
             working_dir = notebook_data_manager.get_working_directory()
+            
+            # Set notebook-specific execution environment seed for consistency
+            if self.notebook_execution_seed is None:
+                self.set_notebook_execution_seed(notebook_id)
         else:
             working_dir = self.data_manager.get_working_directory()
         

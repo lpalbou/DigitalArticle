@@ -14,6 +14,12 @@ export enum ExecutionStatus {
   CANCELLED = 'cancelled'
 }
 
+export enum CellState {
+  FRESH = 'fresh',
+  STALE = 'stale',
+  EXECUTING = 'executing'
+}
+
 export interface ExecutionResult {
   success: boolean
   outputs: any[]
@@ -71,6 +77,7 @@ export interface Cell {
   is_writing_methodology: boolean
   is_retrying: boolean  // Track if auto-retry is in progress
   retry_count: number   // Number of retry attempts
+  cell_state: CellState // Content freshness state
   show_code: boolean
   markdown: string
   scientific_explanation: string

@@ -86,20 +86,6 @@ async def improve_code(request: CodeImprovementRequest):
         )
 
 
-@router.get("/status")
-async def get_llm_status():
-    """Get the status of the LLM service."""
-    try:
-        return {
-            "provider": llm_service.provider,
-            "model": llm_service.model,
-            "status": "ready" if llm_service.llm else "not_initialized"
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get LLM status: {str(e)}"
-        )
 
 
 class ProviderInfo(BaseModel):
@@ -311,21 +297,16 @@ async def get_llm_status(notebook_id: Optional[str] = None):
             "active_context_tokens": None
         }
 
-        # Check if LLM is properly initialized
+        # Check provider health using AbstractCore 2.4.6's provider.health() method
         try:
+            health_result = llm_service.check_provider_health()
+            status_info["status"] = health_result["status"]
+            if not health_result["healthy"]:
+                status_info["error_message"] = health_result["message"]
+            
+            # Get token configuration if LLM is available
             if hasattr(llm_service, 'llm') and llm_service.llm is not None:
                 llm = llm_service.llm
-
-                # Check if the LLM instance has the necessary attributes
-                if hasattr(llm, 'generate') and hasattr(llm, 'provider'):
-                    status_info["status"] = "connected"
-                    logger.debug("✅ LLM instance is properly initialized")
-                else:
-                    status_info["status"] = "error"
-                    status_info["error_message"] = "LLM instance missing required methods"
-                    logger.warning("❌ LLM instance missing required methods")
-
-                # Get token configuration
                 status_info["max_tokens"] = getattr(llm, 'max_tokens', None)
                 status_info["max_input_tokens"] = getattr(llm, 'max_input_tokens', None)
                 status_info["max_output_tokens"] = getattr(llm, 'max_output_tokens', None)
@@ -336,14 +317,11 @@ async def get_llm_status(notebook_id: Optional[str] = None):
                         status_info["token_summary"] = llm.get_token_configuration_summary()
                     except:
                         pass
-            else:
-                status_info["status"] = "error"
-                status_info["error_message"] = "LLM not initialized"
-                logger.warning("❌ LLM instance not initialized")
-        except Exception as init_error:
+                        
+        except Exception as health_error:
             status_info["status"] = "error"
-            status_info["error_message"] = f"LLM initialization check failed: {str(init_error)}"
-            logger.error(f"❌ LLM status check failed: {init_error}")
+            status_info["error_message"] = f"Health check failed: {str(health_error)}"
+            logger.error(f"❌ LLM health check failed: {health_error}")
 
         # Get ACTUAL context tokens from last generation (via AbstractCore response.usage)
         if notebook_id:

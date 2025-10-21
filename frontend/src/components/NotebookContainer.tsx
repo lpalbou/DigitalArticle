@@ -7,12 +7,14 @@ import NotebookCell from './NotebookCell'
 import PDFGenerationModal from './PDFGenerationModal'
 import LLMStatusFooter from './LLMStatusFooter'
 import LLMSettingsModal from './LLMSettingsModal'
+import DependencyModal from './DependencyModal'
 import Toast, { ToastType } from './Toast'
 import { notebookAPI, cellAPI, llmAPI, handleAPIError, downloadFile, getCurrentUser } from '../services/api'
 import { 
   Notebook, 
   Cell, 
   CellType, 
+  CellState,
   NotebookCreateRequest, 
   CellCreateRequest,
   CellUpdateRequest,
@@ -57,6 +59,15 @@ const NotebookContainer: React.FC = () => {
   // LLM settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false)
 
+  // Dependency modal state
+  const [showDependencyModal, setShowDependencyModal] = useState(false)
+  const [dependencyInfo, setDependencyInfo] = useState<{
+    cellsCount: number
+    action: 'execute' | 'regenerate'
+    cellId: string
+  } | null>(null)
+
+
   // Load notebook on component mount or ID change
   useEffect(() => {
     if (notebookId) {
@@ -86,7 +97,22 @@ const NotebookContainer: React.FC = () => {
     
     try {
       const loadedNotebook = await notebookAPI.get(id)
-      setNotebook(loadedNotebook)
+      
+      // Set default tab to Methodology when reloading existing articles
+      const notebookWithDefaultTabs = {
+        ...loadedNotebook,
+        cells: loadedNotebook.cells.map(cell => ({
+          ...cell,
+          // Default to Methodology tab for existing cells, unless generation failed (no methodology exists)
+          cell_type: cell.scientific_explanation && cell.scientific_explanation.trim()
+            ? CellType.METHODOLOGY  // Has methodology -> show it
+            : cell.code && cell.code.trim()
+            ? CellType.CODE         // Has code but no methodology -> show code
+            : CellType.PROMPT       // No code/methodology -> stay on prompt (generation failed)
+        }))
+      }
+      
+      setNotebook(notebookWithDefaultTabs)
       setHasUnsavedChanges(false)
     } catch (err) {
       const apiError = handleAPIError(err)
@@ -338,7 +364,7 @@ const NotebookContainer: React.FC = () => {
       if (!prev) return prev
       
       const newCells = prev.cells.map(cell => 
-        cell.id === cellId ? { ...cell, is_executing: true } : cell
+        cell.id === cellId ? { ...cell, is_executing: true, cell_state: CellState.EXECUTING } : cell
       )
       
       return { ...prev, cells: newCells }
@@ -360,7 +386,13 @@ const NotebookContainer: React.FC = () => {
       console.log('🔬 SCIENTIFIC EXPLANATION:', response.cell.scientific_explanation)
       console.log('🔬 SHOULD SWITCH TO METHODOLOGY:', shouldSwitchToMethodology)
 
+      // Refresh notebook to get updated cell states (including stale states for downstream cells)
+      if (notebookId) {
+        await loadNotebook(notebookId)
+      }
+
       // Update cell with both the updated cell data AND execution result
+      // IMPORTANT: Do this AFTER loadNotebook to preserve the cell_type switch
       setNotebook(prev => {
         if (!prev) return prev
 
@@ -428,6 +460,70 @@ const NotebookContainer: React.FC = () => {
       })
     }
   }, [notebook])
+
+  // Check for dependent cells and show modal if needed
+  const checkDependenciesAndExecute = useCallback(async (cellId: string, action: 'execute' | 'regenerate') => {
+    if (!notebook) return
+
+    try {
+      // Check if there are cells below this one
+      const dependencyInfo = await notebookAPI.getCellsBelow(notebook.id, cellId)
+      
+      if (dependencyInfo.cells_below_count > 0) {
+        // Show dependency modal
+        setDependencyInfo({
+          cellsCount: dependencyInfo.cells_below_count,
+          action,
+          cellId
+        })
+        setShowDependencyModal(true)
+      } else {
+        // No dependencies, execute directly
+        await executeCell(cellId, action === 'regenerate')
+      }
+    } catch (error) {
+      console.error('Error checking dependencies:', error)
+      // If dependency check fails, execute directly
+      await executeCell(cellId, action === 'regenerate')
+    }
+  }, [notebook, executeCell])
+
+  // Handle dependency modal actions
+  const handleDependencyAction = useCallback(async (action: 'rerun_all' | 'mark_stale' | 'do_nothing') => {
+    if (!dependencyInfo || !notebook) return
+
+    const { cellId, action: executeAction } = dependencyInfo
+
+    try {
+      // First execute the current cell
+      await executeCell(cellId, executeAction === 'regenerate')
+
+      // Handle downstream cells based on user choice
+      const cellIndex = notebook.cells.findIndex(cell => cell.id === cellId)
+      
+      if (action === 'rerun_all' && cellIndex >= 0) {
+        // Re-run all cells below
+        const cellsBelow = notebook.cells.slice(cellIndex + 1)
+        for (const cell of cellsBelow) {
+          if (cell.code && cell.code.trim()) {
+            await executeCell(cell.id, false) // Execute existing code
+          }
+        }
+        setToast({ message: 'Re-ran all affected cells', type: 'success' })
+      } else if (action === 'mark_stale' && cellIndex >= 0) {
+        // Mark cells below as stale (backend already handles this)
+        setToast({ message: 'Marked downstream cells as outdated', type: 'info' })
+      } else if (action === 'do_nothing') {
+        setToast({ message: 'Cell executed without affecting downstream cells', type: 'info' })
+      }
+    } catch (error) {
+      console.error('Error handling dependency action:', error)
+      setToast({ message: 'Error executing cells', type: 'error' })
+    } finally {
+      setShowDependencyModal(false)
+      setDependencyInfo(null)
+    }
+  }, [dependencyInfo, notebook, executeCell])
 
   const addCellBelow = useCallback((cellId: string, cellType: CellType) => {
     addCell(cellType, cellId)
@@ -712,7 +808,7 @@ const NotebookContainer: React.FC = () => {
               cell={cell}
               onUpdateCell={updateCell}
               onDeleteCell={deleteCell}
-              onExecuteCell={executeCell}
+              onExecuteCell={checkDependenciesAndExecute}
               onAddCellBelow={addCellBelow}
               isExecuting={executingCells.has(cell.id)}
             />
@@ -756,6 +852,21 @@ const NotebookContainer: React.FC = () => {
         <LLMSettingsModal
           isOpen={showSettingsModal}
           onClose={() => setShowSettingsModal(false)}
+        />
+      )}
+
+      {/* Dependency Modal */}
+      {showDependencyModal && dependencyInfo && (
+        <DependencyModal
+          isOpen={showDependencyModal}
+          affectedCellsCount={dependencyInfo.cellsCount}
+          onReRunAll={() => handleDependencyAction('rerun_all')}
+          onMarkStale={() => handleDependencyAction('mark_stale')}
+          onDoNothing={() => handleDependencyAction('do_nothing')}
+          onClose={() => {
+            setShowDependencyModal(false)
+            setDependencyInfo(null)
+          }}
         />
       )}
     </>

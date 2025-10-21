@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import Response
 
 from ..models.notebook import (
-    Notebook, NotebookCreateRequest, NotebookUpdateRequest
+    Notebook, NotebookCreateRequest, NotebookUpdateRequest, CellState
 )
 from ..services.shared import notebook_service
 
@@ -53,6 +53,89 @@ async def list_notebook_summaries():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get notebook summaries: {str(e)}"
+        )
+
+
+@router.post("/{notebook_id}/cells/mark-stale")
+async def mark_cells_as_stale(notebook_id: str, from_cell_index: int):
+    """Mark all cells below the given index as stale."""
+    try:
+        success = notebook_service.mark_cells_as_stale(notebook_id, from_cell_index)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notebook not found"
+            )
+        return {"success": True, "message": f"Marked cells below index {from_cell_index} as stale"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to mark cells as stale: {str(e)}"
+        )
+
+
+@router.post("/{notebook_id}/cells/{cell_id}/mark-fresh")
+async def mark_cell_as_fresh(notebook_id: str, cell_id: str):
+    """Mark a specific cell as fresh."""
+    try:
+        success = notebook_service.mark_cell_as_fresh(notebook_id, cell_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notebook or cell not found"
+            )
+        return {"success": True, "message": f"Marked cell {cell_id} as fresh"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to mark cell as fresh: {str(e)}"
+        )
+
+
+@router.post("/{notebook_id}/cells/bulk-update-states")
+async def bulk_update_cell_states(notebook_id: str, cell_updates: List[dict]):
+    """Update multiple cell states in bulk."""
+    try:
+        success = notebook_service.bulk_update_cell_states(notebook_id, cell_updates)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notebook not found"
+            )
+        return {"success": True, "message": f"Updated {len(cell_updates)} cell states"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to bulk update cell states: {str(e)}"
+        )
+
+
+@router.get("/{notebook_id}/cells/{cell_id}/cells-below")
+async def get_cells_below(notebook_id: str, cell_id: str):
+    """Get all cells below a specific cell."""
+    try:
+        # First get the cell index
+        cell_index = notebook_service.get_cell_index(notebook_id, cell_id)
+        if cell_index == -1:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Cell not found"
+            )
+        
+        # Get cells below this index
+        cells_below = notebook_service.get_cells_below_index(notebook_id, cell_index)
+        
+        return {
+            "cell_index": cell_index,
+            "cells_below_count": len(cells_below),
+            "cells_below": [{"id": str(cell.id), "cell_type": cell.cell_type} for cell in cells_below]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get cells below: {str(e)}"
         )
 
 
@@ -141,4 +224,38 @@ async def export_notebook(notebook_id: str, format: str = "json", include_code: 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to export notebook: {str(e)}"
+        )
+
+
+@router.post("/{notebook_id}/seed")
+async def set_notebook_seed(notebook_id: str, seed_data: dict):
+    """Set custom seed for notebook reproducibility."""
+    try:
+        seed = seed_data.get("seed")
+        if seed is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Seed value is required"
+            )
+        
+        if not isinstance(seed, int) or seed < 0 or seed > 2147483647:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Seed must be an integer between 0 and 2,147,483,647"
+            )
+        
+        success = notebook_service.set_notebook_custom_seed(notebook_id, seed)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notebook not found"
+            )
+        
+        return {"message": "Seed set successfully", "seed": seed}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to set seed: {str(e)}"
         )

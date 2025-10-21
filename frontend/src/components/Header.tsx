@@ -160,6 +160,7 @@ const Header: React.FC<HeaderProps> = ({
         <LLMSettingsModal
           isOpen={showSettingsModal}
           onClose={() => setShowSettingsModal(false)}
+          currentNotebookId={currentNotebookId}
         />
       )}
 

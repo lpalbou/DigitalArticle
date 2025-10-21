@@ -5,6 +5,40 @@ All notable changes to the Digital Article project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.4] - 2025-10-21
+
+### Enhanced
+- **Provider Health Check**: Upgraded to use AbstractCore 2.4.6's native `provider.health()` method
+  - **Real Health Status**: Now uses actual provider health checks instead of basic initialization checks
+  - **Better Error Messages**: More detailed health status information from AbstractCore
+  - **Automatic Updates**: Health status refreshes every 60 seconds in the UI (reasonable frequency)
+  - Files: `backend/app/services/llm_service.py`, `backend/app/api/llm.py`, `frontend/src/components/LLMStatusFooter.tsx`
+
+- **Dual Seed Management**: Implemented comprehensive seed management using both AbstractCore and execution environment
+  - **LLM Generation Seeds**: Uses AbstractCore's native SEED parameter for consistent code generation
+  - **Execution Environment Seeds**: Maintains global random state management for consistent code execution results
+  - **Provider Support**: AbstractCore SEED works with all providers except Anthropic (as per AbstractCore 2.4.6 spec)
+  - **Consistent Results**: Each notebook gets deterministic seeds based on notebook ID hash for both LLM and execution
+  - **Clean Code Generation**: LLM no longer generates `np.random.seed(42)` in code - system handles all reproducibility
+  - **Two-Layer Approach**: LLM seed ensures consistent code generation, execution seed ensures consistent random data
+  - Files: `backend/app/services/llm_service.py`, `backend/app/services/execution_service.py`
+
+- **User-Controlled Seed UI**: Added intuitive seed control interface for reproducibility management
+  - **LLM Settings Integration**: Seed control integrated into LLM Settings modal (gear icon)
+  - **Educational Tooltip**: Comprehensive tooltip explaining seeds and reproducibility for non-technical users
+  - **Smart Defaults**: Automatic seed generation based on notebook ID, with option for custom seeds
+  - **Random Generation**: One-click random seed generation with shuffle button
+  - **Dual Application**: Custom seeds affect both LLM generation and execution environment
+  - **Validation**: Input validation ensures seeds are within valid range (0-2,147,483,647)
+  - **Persistent Storage**: Custom seeds are saved with notebook metadata
+  - Files: `frontend/src/components/LLMSettingsModal.tsx`, `frontend/src/components/Header.tsx`, `backend/app/api/notebooks.py`, `backend/app/services/notebook_service.py`
+
+### Removed
+- **Redundant Seed Methods**: Eliminated some custom seed management methods in favor of cleaner dual approach
+  - Removed: `reset_random_state()`, `execute_code_with_fresh_random()` methods (complex state switching)
+  - Simplified: Cleaner separation between LLM seeds (AbstractCore) and execution seeds (environment)
+  - Cleaner: LLM prompts no longer need to instruct against seed usage
+
 ## [0.0.3] - 2025-10-21
 
 ### Fixed

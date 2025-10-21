@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { X, AlertCircle, CheckCircle, Loader, ExternalLink } from 'lucide-react'
+import { X, AlertCircle, CheckCircle, Loader, ExternalLink, HelpCircle, Shuffle } from 'lucide-react'
 import axios from 'axios'
 
 interface Provider {
@@ -14,15 +14,21 @@ interface Provider {
 interface LLMSettingsModalProps {
   isOpen: boolean
   onClose: () => void
+  currentNotebookId?: string
 }
 
-const LLMSettingsModal: React.FC<LLMSettingsModalProps> = ({ isOpen, onClose }) => {
+const LLMSettingsModal: React.FC<LLMSettingsModalProps> = ({ isOpen, onClose, currentNotebookId }) => {
   const [providers, setProviders] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedProvider, setSelectedProvider] = useState<string>('')
   const [selectedModel, setSelectedModel] = useState<string>('')
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  
+  // Seed management
+  const [customSeed, setCustomSeed] = useState<string>('')
+  const [useCustomSeed, setUseCustomSeed] = useState(true) // Enable by default
+  const [showSeedTooltip, setShowSeedTooltip] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
@@ -93,19 +99,57 @@ const LLMSettingsModal: React.FC<LLMSettingsModalProps> = ({ isOpen, onClose }) 
     }
   }
 
+  const generateRandomSeed = () => {
+    const seed = Math.floor(Math.random() * 2147483647) // Max 32-bit signed integer
+    setCustomSeed(seed.toString())
+  }
+
+  const handleSeedToggle = (enabled: boolean) => {
+    setUseCustomSeed(enabled)
+    if (enabled && !customSeed) {
+      generateRandomSeed()
+    }
+  }
+
+  // Initialize with random seed when modal opens
+  useEffect(() => {
+    if (isOpen && useCustomSeed && !customSeed) {
+      generateRandomSeed()
+    }
+  }, [isOpen, useCustomSeed, customSeed])
+
   const handleSave = async () => {
     if (!selectedProvider || !selectedModel) {
       setSaveMessage({ type: 'error', text: 'Please select both provider and model' })
       return
     }
 
+    // Validate seed if custom seed is enabled
+    if (useCustomSeed && customSeed) {
+      const seedNum = parseInt(customSeed)
+      if (isNaN(seedNum) || seedNum < 0 || seedNum > 2147483647) {
+        setSaveMessage({ type: 'error', text: 'Seed must be a number between 0 and 2,147,483,647' })
+        return
+      }
+    }
+
     try {
       setSaving(true)
+      
+      // Save LLM provider settings
       await axios.post('/api/llm/providers/select', {
         provider: selectedProvider,
         model: selectedModel
       })
-      setSaveMessage({ type: 'success', text: 'LLM provider updated successfully!' })
+      
+      // Save seed settings if notebook is available
+      if (currentNotebookId && useCustomSeed && customSeed) {
+        await axios.post(`/api/notebooks/${currentNotebookId}/seed`, {
+          seed: parseInt(customSeed)
+        })
+      }
+      
+      setSaveMessage({ type: 'success', text: 'Settings updated successfully!' })
       setTimeout(() => {
         onClose()
       }, 1500)
@@ -202,7 +246,7 @@ const LLMSettingsModal: React.FC<LLMSettingsModalProps> = ({ isOpen, onClose }) 
               </div>
             ) : (
               /* Provider selection UI */
-              <div className="space-y-6">
+              <div className="space-y-5">
                 {/* Provider Selection */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -248,9 +292,92 @@ const LLMSettingsModal: React.FC<LLMSettingsModalProps> = ({ isOpen, onClose }) 
                   </div>
                 )}
 
-                {/* Status Info */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-sm font-medium text-blue-900 mb-2">Available Providers:</h4>
+                {/* Reproducibility Settings */}
+                {currentNotebookId && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center space-x-2">
+                        <h4 className="text-sm font-semibold text-blue-900">Reproducibility Control</h4>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onMouseEnter={() => setShowSeedTooltip(true)}
+                            onMouseLeave={() => setShowSeedTooltip(false)}
+                            className="text-blue-500 hover:text-blue-700 transition-colors"
+                          >
+                            <HelpCircle className="h-4 w-4" />
+                          </button>
+                          {showSeedTooltip && (
+                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-80 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-lg z-10">
+                              <div className="font-medium mb-1">🎲 What is a seed?</div>
+                              <div className="mb-2">
+                                A seed ensures your notebook produces the same results every time you run it. 
+                                This is crucial for scientific reproducibility and sharing reliable analyses.
+                              </div>
+                              <div className="text-gray-300">
+                                • <strong>Same seed</strong> = Same random numbers, same results<br/>
+                                • <strong>Different seed</strong> = Different random data<br/>
+                                • <strong>Disable</strong> = Automatic seed based on notebook ID
+                              </div>
+                              <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={useCustomSeed}
+                          onChange={(e) => handleSeedToggle(e.target.checked)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="ml-2 text-sm font-medium text-blue-900">Custom Seed</span>
+                      </label>
+                    </div>
+
+                    {useCustomSeed && (
+                      <div className="space-y-3">
+                        <div className="flex space-x-2">
+                          <input
+                            type="number"
+                            value={customSeed}
+                            onChange={(e) => setCustomSeed(e.target.value)}
+                            placeholder="Enter seed (0-2147483647)"
+                            min="0"
+                            max="2147483647"
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white"
+                          />
+                          <button
+                            type="button"
+                            onClick={generateRandomSeed}
+                            className="px-3 py-2 bg-blue-100 hover:bg-blue-200 border border-blue-300 rounded-md transition-colors flex items-center space-x-1 text-blue-700"
+                            title="Generate random seed"
+                          >
+                            <Shuffle className="h-4 w-4" />
+                            <span className="text-sm font-medium">Random</span>
+                          </button>
+                        </div>
+                        <div className="bg-blue-100 rounded-md p-2">
+                          <p className="text-xs text-blue-800">
+                            <strong>🔒 Complete Reproducibility:</strong> This seed controls both AI code generation and random data to ensure identical results every time.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {!useCustomSeed && (
+                      <div className="bg-blue-100 rounded-md p-2">
+                        <p className="text-xs text-blue-800">
+                          <strong>🔄 Automatic Mode:</strong> Using notebook-based seed for consistent results within this notebook.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Provider Status */}
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3">Provider Status</h4>
                   <div className="space-y-2">
                     {providers.map((provider) => (
                       <div key={provider.name} className="flex items-start text-sm">

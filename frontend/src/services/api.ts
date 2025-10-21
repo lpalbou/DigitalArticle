@@ -71,6 +71,26 @@ export const notebookAPI = {
     return response.data
   },
 
+  // Cell state management
+  markCellsAsStale: async (notebookId: string, fromCellIndex: number): Promise<void> => {
+    await api.post(`/notebooks/${notebookId}/cells/mark-stale`, null, {
+      params: { from_cell_index: fromCellIndex }
+    })
+  },
+
+  markCellAsFresh: async (notebookId: string, cellId: string): Promise<void> => {
+    await api.post(`/notebooks/${notebookId}/cells/${cellId}/mark-fresh`)
+  },
+
+  bulkUpdateCellStates: async (notebookId: string, cellUpdates: Array<{cell_id: string, state: string}>): Promise<void> => {
+    await api.post(`/notebooks/${notebookId}/cells/bulk-update-states`, cellUpdates)
+  },
+
+  getCellsBelow: async (notebookId: string, cellId: string): Promise<{cell_index: number, cells_below_count: number, cells_below: Array<{id: string, cell_type: string}>}> => {
+    const response = await api.get(`/notebooks/${notebookId}/cells/${cellId}/cells-below`)
+    return response.data
+  },
+
   // Get a specific notebook by ID
   get: async (notebookId: string): Promise<Notebook> => {
     const response: AxiosResponse<Notebook> = await api.get(`/notebooks/${notebookId}`)

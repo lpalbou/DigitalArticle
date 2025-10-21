@@ -1,12 +1,13 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { Play, Copy, Check } from 'lucide-react'
-import { Cell, CellType } from '../types'
+import { Cell, CellType, CellState } from '../types'
 import CodeDisplay from './CodeDisplay'
+import ReRunDropdown from './ReRunDropdown'
 
 interface PromptEditorProps {
   cell: Cell
   onUpdateCell: (updates: Partial<Cell>) => void
-  onExecuteCell: (cellId: string, forceRegenerate?: boolean) => void
+  onExecuteCell: (cellId: string, action: 'execute' | 'regenerate') => void
   isExecuting?: boolean
 }
 
@@ -88,7 +89,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
       e.preventDefault()
       if (cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.CODE) {
         handleSave()
-        onExecuteCell(cell.id)
+        onExecuteCell(cell.id, 'execute')
       } else {
         handleSave()
       }
@@ -214,17 +215,29 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
             )}
           </button>
 
-          {/* Execute Button */}
-          {(cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.CODE) && (
-            <button
-              onClick={() => onExecuteCell(cell.id)}
-              disabled={isExecuting}
-              className="btn btn-primary flex items-center space-x-2 text-sm px-4 py-2 font-medium"
-              title="Execute Cell (Shift+Enter or Ctrl+Enter)"
-            >
-              <Play className="h-4 w-4" />
-              <span>{isExecuting ? 'Running...' : 'Run'}</span>
-            </button>
+          {/* Execute Button - Adaptive */}
+          {(cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.CODE || cell.cell_type === CellType.METHODOLOGY) && (
+            <>
+              {/* Show simple Run button for fresh cells */}
+              {(!cell.code && !cell.scientific_explanation) ? (
+                <button
+                  onClick={() => onExecuteCell(cell.id, 'execute')}
+                  disabled={isExecuting}
+                  className="btn btn-primary flex items-center space-x-2 text-sm px-4 py-2 font-medium"
+                  title="Execute Cell (Shift+Enter or Ctrl+Enter)"
+                >
+                  <Play className="h-4 w-4" />
+                  <span>{isExecuting ? 'Running...' : 'Run'}</span>
+                </button>
+              ) : (
+                /* Show Re-run dropdown for cells with content */
+                <ReRunDropdown
+                  onExecuteCode={() => onExecuteCell(cell.id, 'execute')}
+                  onRegenerateAndExecute={() => onExecuteCell(cell.id, 'regenerate')}
+                  isExecuting={isExecuting}
+                />
+              )}
+            </>
           )}
         </div>
       </div>

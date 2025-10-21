@@ -62,6 +62,67 @@ class LLMService:
             logger.error(f"❌ Unexpected error initializing LLM: {e}")
             self.llm = None  # Keep service alive but mark LLM as unavailable
     
+    def check_provider_health(self) -> Dict[str, Any]:
+        """
+        Check provider health using AbstractCore 2.4.6's provider.health() method.
+        
+        Returns:
+            Dict with health status information
+        """
+        if not self.llm:
+            return {
+                "status": "error",
+                "message": "LLM not initialized",
+                "healthy": False
+            }
+        
+        try:
+            # Use AbstractCore 2.4.6's provider.health() method
+            if hasattr(self.llm, 'provider') and hasattr(self.llm.provider, 'health'):
+                health_result = self.llm.provider.health()
+                logger.info(f"🏥 Provider health check: {health_result}")
+                return {
+                    "status": "healthy" if health_result.get("healthy", False) else "unhealthy",
+                    "message": health_result.get("message", "Unknown status"),
+                    "healthy": health_result.get("healthy", False),
+                    "details": health_result
+                }
+            else:
+                # Fallback for older AbstractCore versions
+                return {
+                    "status": "connected",
+                    "message": "Provider health check not available",
+                    "healthy": True
+                }
+        except Exception as e:
+            logger.error(f"❌ Provider health check failed: {e}")
+            return {
+                "status": "error",
+                "message": f"Health check failed: {str(e)}",
+                "healthy": False
+            }
+    
+    def _get_notebook_seed(self, notebook_id: str) -> int:
+        """
+        Generate a consistent seed for a notebook based on its ID.
+        
+        Checks for custom seeds first, then falls back to notebook ID hash.
+        
+        Args:
+            notebook_id: Notebook identifier
+            
+        Returns:
+            Consistent integer seed for the notebook
+        """
+        # Check for custom seed first
+        if hasattr(self, '_custom_seeds') and notebook_id in self._custom_seeds:
+            return self._custom_seeds[notebook_id]
+        
+        # Fall back to notebook ID hash
+        import hashlib
+        seed = int(hashlib.md5(notebook_id.encode()).hexdigest()[:8], 16) % (2**31)
+        return seed
+    
     def generate_code_from_prompt(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> str:
         """
         Convert a natural language prompt to Python code.
@@ -89,11 +150,34 @@ class LLMService:
             logger.info(f"🚨 CALLING LLM with prompt: {prompt[:100]}...")
             logger.info(f"🚨 System prompt length: {len(system_prompt)}")
             
+            # Debug: Log available variables
+            if context and 'available_variables' in context:
+                logger.info(f"🚨 Available variables: {context['available_variables']}")
+            else:
+                logger.info("🚨 No available variables in context")
+            
+            # Get notebook-specific seed for LLM generation reproducibility
+            # Note: This seed affects LLM code generation consistency, while execution 
+            # environment seeds (in ExecutionService) ensure consistent random data results
+            notebook_seed = None
+            if context and 'notebook_id' in context:
+                notebook_seed = self._get_notebook_seed(context['notebook_id'])
+            
+            # Prepare generation parameters
+            generation_params = {
+                "max_tokens": 2000,
+                "temperature": 0.1  # Low temperature for consistent code generation
+            }
+            
+            # Add seed parameter if provider supports it (all except Anthropic in AbstractCore 2.4.6)
+            if notebook_seed is not None and self.provider != 'anthropic':
+                generation_params["seed"] = notebook_seed
+                logger.info(f"🎲 Using LLM generation seed {notebook_seed} for {self.provider}")
+            
             response = self.llm.generate(
                 user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=2000,
-                temperature=0.1  # Low temperature for consistent code generation
+                **generation_params
             )
 
             logger.info(f"🚨 LLM RAW RESPONSE: {response.content[:200]}...")
@@ -162,6 +246,7 @@ RULES:
 8. Keep code concise but complete
 9. Always end plotting code with plt.show() or fig.show()
 10. Use descriptive variable names
+11. RANDOM DATA: Generate random data without setting seeds - the system handles reproducibility automatically
 
 AVAILABLE LIBRARIES:
 - pandas as pd
@@ -324,6 +409,8 @@ plt.show()
                 user_prompt += "3. DO NOT create new DataFrames from the same source with different names\n"
                 user_prompt += "4. DO NOT use pd.DataFrame(data) if a DataFrame already exists\n"
                 user_prompt += "5. DO NOT use pd.read_csv() if the data is already loaded in memory\n"
+                user_prompt += "6. When asked to 'display', 'show', or 'print' variables, ALWAYS use print() function\n"
+                user_prompt += "7. For random data generation, do not set seeds - the system manages reproducibility\n"
                 user_prompt += "\n"
                 user_prompt += "BAD Example (DO NOT DO THIS):\n"
                 user_prompt += "  df = pd.DataFrame(data)  # ❌ WRONG if 'sdtm_dataset' already exists\n"
@@ -332,6 +419,16 @@ plt.show()
                 user_prompt += "  # Use existing 'sdtm_dataset' directly\n"
                 user_prompt += "  fig, axes = plt.subplots(2, 3)\n"
                 user_prompt += "  sns.countplot(data=sdtm_dataset, x='ARM', ax=axes[0,0])\n"
+                user_prompt += "\n"
+                user_prompt += "DISPLAY VARIABLES Example:\n"
+                user_prompt += "  # If asked to 'display them' and x_values, y_values exist:\n"
+                user_prompt += "  print('x_values:', x_values)\n"
+                user_prompt += "  print('y_values:', y_values)\n"
+                user_prompt += "\n"
+                user_prompt += "RANDOM DATA Example:\n"
+                user_prompt += "  # Generate random data (system handles reproducibility):\n"
+                user_prompt += "  x = np.random.randn(20)  # ✅ GOOD - clean code\n"
+                user_prompt += "  # NOT: np.random.seed(42); x = np.random.randn(20)  # ❌ BAD - system handles seeds\n"
                 user_prompt += "=" * 60 + "\n\n"
 
         user_prompt += f"CURRENT REQUEST:\n{prompt}\n\n"
@@ -537,7 +634,7 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
             # Fallback to original error message if analysis fails
             return f"{error_type}: {error_message}\n\nTraceback:\n{traceback}"
     
-    def generate_scientific_explanation(self, prompt: str, code: str, execution_result: Dict[str, Any]) -> str:
+    def generate_scientific_explanation(self, prompt: str, code: str, execution_result: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> str:
         """
         Generate a scientific article-style explanation of what was done and why.
         
@@ -610,11 +707,26 @@ Write a scientific explanation of what was done and the results obtained:"""
             print("🔬 LLM SERVICE: About to call self.llm.generate...")
             import time
             start_time = time.time()
+            # Get notebook-specific seed for LLM generation reproducibility
+            notebook_seed = None
+            if context and 'notebook_id' in context:
+                notebook_seed = self._get_notebook_seed(context['notebook_id'])
+            
+            # Prepare generation parameters
+            generation_params = {
+                "max_tokens": 300,  # Shorter for concise explanations
+                "temperature": 0.2  # Slightly higher for more natural writing
+            }
+            
+            # Add seed parameter if provider supports it (all except Anthropic in AbstractCore 2.4.6)
+            if notebook_seed is not None and self.provider != 'anthropic':
+                generation_params["seed"] = notebook_seed
+                logger.info(f"🎲 Using LLM generation seed {notebook_seed} for scientific explanation with {self.provider}")
+            
             response = self.llm.generate(
                 user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=300,  # Shorter for concise explanations
-                temperature=0.2  # Slightly higher for more natural writing
+                **generation_params
             )
             elapsed_time = time.time() - start_time
             print(f"🔬 LLM SERVICE: LLM call took {elapsed_time:.1f} seconds")
