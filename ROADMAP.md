@@ -699,3 +699,5 @@ Others
 - 6 - templates for common analysis is a good idea, but for later
 
 - invite a colleague to review (especially non technical -> technical)
+
+- be careful, a non VL model can't directly use the plot. but they can use the underlying data.
