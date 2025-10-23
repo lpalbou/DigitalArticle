@@ -391,18 +391,65 @@ const NotebookContainer: React.FC = () => {
   }, [notebook])
 
 
-  const executeCell = useCallback(async (cellId: string, forceRegenerate: boolean = false) => {
+  // Invalidate cells when code is manually changed
+  const invalidateCells = useCallback(async (cellId: string) => {
+    if (!notebook) return
+
+    try {
+      // Find the cell index
+      const cellIndex = notebook.cells.findIndex(cell => cell.id === cellId)
+      if (cellIndex === -1) return
+
+      // Mark the current cell and all cells below as stale
+      // We need to mark from cellIndex-1 so that the current cell is included
+      const fromIndex = Math.max(0, cellIndex - 1)
+      const response = await fetch(`/api/notebooks/${notebookId}/cells/mark-stale?from_cell_index=${fromIndex}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to mark cells as stale')
+      }
+
+      // Reload notebook to get updated cell states
+      if (notebookId) {
+        await loadNotebook(notebookId)
+      }
+
+      const affectedCount = notebook.cells.length - cellIndex
+      
+      setToast({ 
+        message: `Marked ${affectedCount} cell${affectedCount !== 1 ? 's' : ''} as outdated (current + downstream)`, 
+        type: 'info' 
+      })
+
+    } catch (error) {
+      console.error('Failed to invalidate cells:', error)
+      setToast({ message: 'Failed to update cell states', type: 'error' })
+    }
+  }, [notebook, notebookId, loadNotebook])
+
+  const executeCell = useCallback(async (cellId: string, action: 'execute' | 'regenerate' = 'execute') => {
+    const forceRegenerate = action === 'regenerate'
     if (!notebook) return
 
     // Mark cell as executing
     setExecutingCells(prev => new Set(prev).add(cellId))
     
-    // Update cell state to show it's executing
+    // Update cell state to show it's executing and clear previous results/errors
     setNotebook(prev => {
       if (!prev) return prev
       
       const newCells = prev.cells.map(cell => 
-        cell.id === cellId ? { ...cell, is_executing: true, cell_state: CellState.EXECUTING } : cell
+        cell.id === cellId ? { 
+          ...cell, 
+          is_executing: true, 
+          cell_state: CellState.EXECUTING,
+          last_result: null // Clear previous execution results and errors
+        } : cell
       )
       
       return { ...prev, cells: newCells }
@@ -517,12 +564,12 @@ const NotebookContainer: React.FC = () => {
         setShowDependencyModal(true)
       } else {
         // No dependencies, execute directly
-        await executeCell(cellId, action === 'regenerate')
+        await executeCell(cellId, action)
       }
     } catch (error) {
       console.error('Error checking dependencies:', error)
       // If dependency check fails, execute directly
-      await executeCell(cellId, action === 'regenerate')
+      await executeCell(cellId, action)
     }
   }, [notebook, executeCell])
 
@@ -534,7 +581,7 @@ const NotebookContainer: React.FC = () => {
 
     try {
       // First execute the current cell
-      await executeCell(cellId, executeAction === 'regenerate')
+      await executeCell(cellId, executeAction)
 
       // Handle downstream cells based on user choice
       const cellIndex = notebook.cells.findIndex(cell => cell.id === cellId)
@@ -544,7 +591,7 @@ const NotebookContainer: React.FC = () => {
         const cellsBelow = notebook.cells.slice(cellIndex + 1)
         for (const cell of cellsBelow) {
           if (cell.code && cell.code.trim()) {
-            await executeCell(cell.id, false) // Execute existing code
+            await executeCell(cell.id, 'execute') // Execute existing code
           }
         }
         setToast({ message: 'Re-ran all affected cells', type: 'success' })
@@ -903,7 +950,9 @@ const NotebookContainer: React.FC = () => {
               onUpdateCell={updateCell}
               onDeleteCell={deleteCell}
               onExecuteCell={checkDependenciesAndExecute}
+              onDirectExecuteCell={executeCell}
               onAddCellBelow={addCellBelow}
+              onInvalidateCells={invalidateCells}
               isExecuting={executingCells.has(cell.id)}
             />
           ))

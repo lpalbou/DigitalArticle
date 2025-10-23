@@ -33,7 +33,7 @@ requires-python = ">=3.8"
 dependencies = [
     "fastapi>=0.104.1",
     "uvicorn[standard]>=0.24.0",
-    "abstractcore[all]>=2.4.5",
+    "abstractcore[all]>=2.5.0",
     "pandas>=2.1.4",
     "numpy>=1.26.0",
     "matplotlib>=3.8.2",
@@ -41,6 +41,9 @@ dependencies = [
     "seaborn>=0.13.0",
     "scikit-learn>=1.3.2",
     "scipy>=1.11.4",
+    "umap-learn>=0.5.9",
+    "scanpy>=1.11.0",
+    "openpyxl>=3.1.0",
     "jupyter>=1.0.0",
     "pillow>=10.1.0",
     "pydantic>=2.5.2",
@@ -48,6 +51,7 @@ dependencies = [
     "reportlab>=4.0.7",
     "weasyprint>=60.0",
     "markdown>=3.5.1",
+    "requests>=2.31.0",
 ]
 
 [project.optional-dependencies]
@@ -60,7 +64,7 @@ dev = [
 all = [
     "fastapi>=0.104.1",
     "uvicorn[standard]>=0.24.0",
-    "abstractcore[all]>=2.4.5",
+    "abstractcore[all]>=2.5.0",
     "pandas>=2.1.4",
     "numpy>=1.26.0",
     "matplotlib>=3.8.2",
@@ -68,6 +72,9 @@ all = [
     "seaborn>=0.13.0",
     "scikit-learn>=1.3.2",
     "scipy>=1.11.4",
+    "umap-learn>=0.5.9",
+    "scanpy>=1.11.0",
+    "openpyxl>=3.1.0",
     "jupyter>=1.0.0",
     "pillow>=10.1.0",
     "pydantic>=2.5.2",
@@ -75,6 +82,7 @@ all = [
     "reportlab>=4.0.7",
     "weasyprint>=60.0",
     "markdown>=3.5.1",
+    "requests>=2.31.0",
 ]
 
 [project.urls]

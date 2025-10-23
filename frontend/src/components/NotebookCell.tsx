@@ -9,7 +9,9 @@ interface NotebookCellProps {
   onUpdateCell: (cellId: string, updates: Partial<Cell>) => void
   onDeleteCell: (cellId: string) => void
   onExecuteCell: (cellId: string, action: 'execute' | 'regenerate') => void
+  onDirectExecuteCell?: (cellId: string, action: 'execute' | 'regenerate') => void // Direct execution without dependency check
   onAddCellBelow: (cellId: string, cellType: CellType) => void
+  onInvalidateCells?: (cellId: string) => void // New callback for cell invalidation
   isExecuting?: boolean
 }
 
@@ -18,7 +20,9 @@ const NotebookCell: React.FC<NotebookCellProps> = ({
   onUpdateCell,
   onDeleteCell: _onDeleteCell,
   onExecuteCell,
+  onDirectExecuteCell,
   onAddCellBelow: _onAddCellBelow,
+  onInvalidateCells,
   isExecuting = false
 }) => {
   const handleUpdateCell = useCallback((updates: Partial<Cell>) => {
@@ -109,6 +113,8 @@ const NotebookCell: React.FC<NotebookCellProps> = ({
           cell={cell}
           onUpdateCell={handleUpdateCell}
           onExecuteCell={handleExecuteCell}
+          onDirectExecuteCell={onDirectExecuteCell}
+          onInvalidateCells={onInvalidateCells}
           isExecuting={isRunning}
         />
 

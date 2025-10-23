@@ -410,8 +410,12 @@ class ExecutionService:
             elif 'import scanpy as sc' in line:
                 processed_lines.append("sc = _lazy_import('scanpy', 'sc')")
             elif 'from umap import UMAP' in line:
-                processed_lines.append("umap = _lazy_import('umap', 'umap')")
-                processed_lines.append("UMAP = umap.UMAP")
+                processed_lines.append("try:")
+                processed_lines.append("    import umap")
+                processed_lines.append("    UMAP = umap.UMAP")
+                processed_lines.append("except ImportError:")
+                processed_lines.append("    print('UMAP not available. Install with: pip install umap-learn')")
+                processed_lines.append("    UMAP = None")
             elif 'import umap' in line and 'as' not in line:
                 processed_lines.append("umap = _lazy_import('umap', 'umap')")
             elif 'import requests' in line:

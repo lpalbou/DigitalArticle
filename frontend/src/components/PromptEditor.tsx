@@ -2,12 +2,15 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { Play, Copy, Check } from 'lucide-react'
 import { Cell, CellType, CellState } from '../types'
 import CodeDisplay from './CodeDisplay'
+import EnhancedCodeEditor from './EnhancedCodeEditor'
 import ReRunDropdown from './ReRunDropdown'
 
 interface PromptEditorProps {
   cell: Cell
   onUpdateCell: (updates: Partial<Cell>) => void
   onExecuteCell: (cellId: string, action: 'execute' | 'regenerate') => void
+  onDirectExecuteCell?: (cellId: string, action: 'execute' | 'regenerate') => void // Direct execution without dependency check
+  onInvalidateCells?: (cellId: string) => void // New callback for cell invalidation
   isExecuting?: boolean
 }
 
@@ -15,6 +18,8 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   cell,
   onUpdateCell,
   onExecuteCell,
+  onDirectExecuteCell,
+  onInvalidateCells,
   isExecuting = false
 }) => {
   const [isEditing, setIsEditing] = useState(false)
@@ -257,7 +262,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               ) : (
                 /* Show Re-run dropdown for cells with content */
                 <ReRunDropdown
-                  onExecuteCode={() => onExecuteCell(cell.id, 'execute')}
+                  onExecuteCode={() => onDirectExecuteCell ? onDirectExecuteCell(cell.id, 'execute') : onExecuteCell(cell.id, 'execute')}
                   onRegenerateAndExecute={() => onExecuteCell(cell.id, 'regenerate')}
                   isExecuting={isExecuting}
                 />
@@ -313,12 +318,11 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
             `}
           >
             {cell.cell_type === CellType.CODE ? (
-              <CodeDisplay 
+              <EnhancedCodeEditor 
                 key={`code-${cell.id}-${cell.cell_type}`}
-                code={currentContent || '# No code generated yet'} 
-                language="python"
-                height="auto"
-                theme="vs-light"
+                cell={cell}
+                onUpdateCell={onUpdateCell}
+                onInvalidateCells={onInvalidateCells}
               />
             ) : (
               <div className="whitespace-pre-wrap">

@@ -13,7 +13,7 @@ import logging
 import os
 from pathlib import Path
 
-from .api import cells, notebooks, llm, files, system
+from .api import cells, notebooks, llm, files, system, ai_code_fix
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,7 @@ app.include_router(notebooks.router, prefix="/api/notebooks", tags=["notebooks"]
 app.include_router(llm.router, prefix="/api/llm", tags=["llm"])
 app.include_router(files.router, prefix="/api/files", tags=["files"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
+app.include_router(ai_code_fix.router, prefix="/api/cells", tags=["ai-code-fix"])
 
 @app.get("/")
 async def root():

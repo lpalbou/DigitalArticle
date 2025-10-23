@@ -479,13 +479,13 @@ print("LLM service is currently unavailable, using fallback code.")
         
         return notebook.cells[cell_index + 1:]
     
-    def get_cell_index(self, notebook_id: str, cell_id: UUID) -> int:
+    def get_cell_index(self, notebook_id: str, cell_id: str) -> int:
         """
         Get the index of a cell in the notebook.
         
         Args:
             notebook_id: Notebook UUID
-            cell_id: Cell UUID
+            cell_id: Cell UUID (as string)
             
         Returns:
             Index of the cell (0-based), or -1 if not found
@@ -494,12 +494,72 @@ print("LLM service is currently unavailable, using fallback code.")
         if not notebook:
             return -1
         
+        # Convert string cell_id to UUID for comparison
+        try:
+            cell_uuid = UUID(cell_id)
+        except ValueError:
+            return -1
+        
         for i, cell in enumerate(notebook.cells):
-            if cell.id == cell_id:
+            if cell.id == cell_uuid:
                 return i
         
         return -1
     
+    def _apply_basic_error_fixes(self, code: str, error_message: str, error_type: str) -> Optional[str]:
+        """
+        Apply basic error-specific fixes when LLM service fails.
+        
+        This is a fallback mechanism for common errors that can be fixed programmatically.
+        """
+        if not error_message or not code:
+            return None
+            
+        logger.info(f"🔧 Applying basic error fixes for {error_type}: {error_message[:100]}...")
+        
+        # Handle pandas length mismatch errors
+        if "Length of values" in error_message and "does not match length of index" in error_message:
+            # Try to fix pandas DataFrame assignment length mismatches
+            if "pd.DataFrame" in code or "DataFrame" in code:
+                logger.info("🔧 Attempting to fix pandas DataFrame length mismatch")
+                # Add .reset_index(drop=True) to fix index alignment issues
+                fixed_code = code.replace("pd.DataFrame(", "pd.DataFrame(").replace(
+                    "= pd.DataFrame", "= pd.DataFrame"
+                )
+                # Add a comment explaining the fix
+                fixed_code = f"# Auto-fix: Added index reset to handle length mismatch\n{fixed_code}"
+                if ".reset_index(drop=True)" not in fixed_code:
+                    # Try to add reset_index where appropriate
+                    lines = fixed_code.split('\n')
+                    for i, line in enumerate(lines):
+                        if "pd.DataFrame" in line and "=" in line and not line.strip().startswith('#'):
+                            lines[i] = line.rstrip() + ".reset_index(drop=True)"
+                            break
+                    fixed_code = '\n'.join(lines)
+                return fixed_code
+        
+        # Handle file not found errors
+        if error_type == "FileNotFoundError":
+            logger.info("🔧 Attempting to fix file path issues")
+            # Try common file path fixes
+            if "data/" in code:
+                fixed_code = code.replace("data/", "./data/").replace("./data/./data/", "./data/")
+                return fixed_code
+        
+        # Handle import errors
+        if error_type == "ImportError" or error_type == "ModuleNotFoundError":
+            logger.info("🔧 Attempting to fix import issues")
+            # Add common import alternatives
+            if "seaborn" in error_message:
+                fixed_code = f"# Auto-fix: Added seaborn import\nimport seaborn as sns\n{code}"
+                return fixed_code
+            elif "matplotlib" in error_message:
+                fixed_code = f"# Auto-fix: Added matplotlib import\nimport matplotlib.pyplot as plt\n{code}"
+                return fixed_code
+        
+        logger.info("🔧 No basic fixes available for this error type")
+        return None
+
     def update_notebook(self, notebook_id: str, request: NotebookUpdateRequest) -> Optional[Notebook]:
         """
         Update notebook metadata.
@@ -702,20 +762,20 @@ print("LLM service is currently unavailable, using fallback code.")
                 cell.prompt = request.prompt
                 cell.updated_at = datetime.now()
             
+            # Always build context for LLM (needed for both code generation and methodology)
+            try:
+                context = self._build_execution_context(notebook, cell)
+                logger.info(f"Built context with {len(context)} items")
+            except Exception as context_error:
+                logger.warning(f"Context building failed: {context_error}, using empty context")
+                context = {}
+
             # Generate code if needed
             if not cell.code or request.force_regenerate:
                 if cell.cell_type == CellType.PROMPT and cell.prompt:
                     logger.info(f"Generating code for prompt: {cell.prompt[:100]}...")
                     
                     try:
-                        # Build context for LLM
-                        try:
-                            context = self._build_execution_context(notebook, cell)
-                            logger.info(f"Built context with {len(context)} items")
-                        except Exception as context_error:
-                            logger.warning(f"Context building failed: {context_error}, using empty context")
-                            context = {}
-                        
                         # Update LLM service configuration
                         if notebook.llm_provider != self.llm_service.provider or notebook.llm_model != self.llm_service.model:
                             logger.info(f"Updating LLM service: {notebook.llm_provider}/{notebook.llm_model}")
@@ -796,13 +856,19 @@ print("LLM service is currently unavailable, using fallback code.")
 
                         # Use suggest_improvements with enhanced error context
                         # This will automatically use ErrorAnalyzer to provide domain-specific guidance
-                        fixed_code = self.llm_service.suggest_improvements(
-                            prompt=cell.prompt,
-                            code=cell.code,
-                            error_message=result.error_message,
-                            error_type=result.error_type,
-                            traceback=result.traceback
-                        )
+                        try:
+                            fixed_code = self.llm_service.suggest_improvements(
+                                prompt=cell.prompt,
+                                code=cell.code,
+                                error_message=result.error_message,
+                                error_type=result.error_type,
+                                traceback=result.traceback
+                            )
+                        except Exception as llm_error:
+                            logger.error(f"🔄 LLM service failed during retry #{cell.retry_count}: {llm_error}")
+                            print(f"🔄 LLM ERROR: LLM service failed on retry #{cell.retry_count}: {llm_error}")
+                            # Try basic error-specific fixes when LLM fails
+                            fixed_code = self._apply_basic_error_fixes(cell.code, result.error_message, result.error_type)
                         
                         if fixed_code and fixed_code != cell.code:
                             logger.info(f"🔄 LLM provided fixed code ({len(fixed_code)} chars)")
@@ -829,6 +895,8 @@ print("LLM service is currently unavailable, using fallback code.")
                         else:
                             logger.warning(f"🔄 LLM did not provide different code for retry #{cell.retry_count}")
                             print(f"🔄 NO CHANGE: LLM provided same code on retry #{cell.retry_count}")
+                            # When LLM provides same code, we should still continue retrying
+                            # The error persists, so we keep the current result
                         
                         # Check if we should continue retrying
                         if cell.retry_count >= max_retries:
@@ -865,18 +933,20 @@ print("LLM service is currently unavailable, using fallback code.")
             # Generate scientific explanation for successful prompt cells
             print(f"🔬 ALWAYS CHECKING scientific explanation conditions:")
             print(f"   - Result status: {result.status} (SUCCESS={ExecutionStatus.SUCCESS})")
-            print(f"   - Cell type: {cell.cell_type} (PROMPT={CellType.PROMPT})")
+            print(f"   - Cell type: {cell.cell_type} (PROMPT={CellType.PROMPT}, CODE={CellType.CODE})")
             print(f"   - Has prompt: {bool(cell.prompt)} ('{cell.prompt[:50] if cell.prompt else 'None'}...')")
             print(f"   - Has code: {bool(cell.code)} ('{cell.code[:50] if cell.code else 'None'}...')")
             logger.info(f"🔬 ALWAYS CHECKING scientific explanation conditions:")
             logger.info(f"   - Result status: {result.status} (SUCCESS={ExecutionStatus.SUCCESS})")
-            logger.info(f"   - Cell type: {cell.cell_type} (PROMPT={CellType.PROMPT})")
+            logger.info(f"   - Cell type: {cell.cell_type} (PROMPT={CellType.PROMPT}, CODE={CellType.CODE})")
             logger.info(f"   - Has prompt: {bool(cell.prompt)} ('{cell.prompt[:50] if cell.prompt else 'None'}...')")
             logger.info(f"   - Has code: {bool(cell.code)} ('{cell.code[:50] if cell.code else 'None'}...')")
             
+            # Generate scientific explanation for any successful execution with code and prompt
+            # This includes both PROMPT cells and CODE cells that have been manually edited
             if (result.status == ExecutionStatus.SUCCESS and 
-                cell.cell_type == CellType.PROMPT and 
-                cell.prompt and cell.code):
+                cell.prompt and cell.code and
+                cell.cell_type in (CellType.PROMPT, CellType.CODE)):
                 
                 print("🔬 GENERATING SCIENTIFIC EXPLANATION SYNCHRONOUSLY...")
                 logger.info("🔬 GENERATING SCIENTIFIC EXPLANATION SYNCHRONOUSLY...")

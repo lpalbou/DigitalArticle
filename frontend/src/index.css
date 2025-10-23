@@ -300,4 +300,41 @@
     font-size: 13px;
     line-height: 1.6;
   }
+
+  /* Monaco Editor Inline Diff Styles */
+  .diff-line-added {
+    background-color: rgba(40, 167, 69, 0.15) !important;
+    border-left: 3px solid #28a745 !important;
+  }
+  
+  .diff-line-modified {
+    background-color: rgba(0, 122, 204, 0.15) !important;
+    border-left: 3px solid #007acc !important;
+  }
+  
+  .diff-line-removed {
+    background-color: rgba(220, 53, 69, 0.15) !important;
+    border-left: 3px solid #dc3545 !important;
+  }
+  
+  .diff-glyph-added::before {
+    content: '+';
+    color: #28a745;
+    font-weight: bold;
+    font-size: 14px;
+  }
+  
+  .diff-glyph-modified::before {
+    content: '~';
+    color: #007acc;
+    font-weight: bold;
+    font-size: 14px;
+  }
+  
+  .diff-glyph-removed::before {
+    content: '-';
+    color: #dc3545;
+    font-weight: bold;
+    font-size: 14px;
+  }
 }
