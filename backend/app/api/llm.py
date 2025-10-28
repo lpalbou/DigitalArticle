@@ -297,7 +297,7 @@ async def get_llm_status(notebook_id: Optional[str] = None):
             "active_context_tokens": None
         }
 
-        # Check provider health using AbstractCore 2.4.6's provider.health() method
+        # Check provider health using AbstractCore 2.5.2's provider.health() method
         try:
             health_result = llm_service.check_provider_health()
             status_info["status"] = health_result["status"]

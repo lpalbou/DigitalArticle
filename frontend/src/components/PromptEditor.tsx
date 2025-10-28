@@ -262,8 +262,22 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               ) : (
                 /* Show Re-run dropdown for cells with content */
                 <ReRunDropdown
-                  onExecuteCode={() => onDirectExecuteCell ? onDirectExecuteCell(cell.id, 'execute') : onExecuteCell(cell.id, 'execute')}
-                  onRegenerateAndExecute={() => onExecuteCell(cell.id, 'regenerate')}
+                  onExecuteCode={() => {
+                    console.log('🔄 ReRunDropdown onExecuteCode called for cell:', cell.id)
+                    console.log('🔄 onDirectExecuteCell available:', !!onDirectExecuteCell)
+                    console.log('🔄 Cell type:', cell.cell_type)
+                    if (onDirectExecuteCell) {
+                      console.log('🔄 Using onDirectExecuteCell')
+                      onDirectExecuteCell(cell.id, 'execute')
+                    } else {
+                      console.log('🔄 Falling back to onExecuteCell')
+                      onExecuteCell(cell.id, 'execute')
+                    }
+                  }}
+                  onRegenerateAndExecute={() => {
+                    console.log('🔄 ReRunDropdown onRegenerateAndExecute called for cell:', cell.id)
+                    onExecuteCell(cell.id, 'regenerate')
+                  }}
                   isExecuting={isExecuting}
                 />
               )}

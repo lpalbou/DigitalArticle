@@ -32,10 +32,24 @@ class ErrorContext:
 
 class ErrorAnalyzer:
     """
-    Analyzes Python execution errors and provides enhanced context for LLM auto-retry.
+    AUTHORITATIVE ERROR HANDLING SYSTEM - Single source of truth for all error analysis.
 
     This service implements a plugin-style architecture where each error analyzer
     is a specialized method that detects and enhances specific error patterns.
+    
+    🚨 CRITICAL: ALL error handling in Digital Article MUST go through this system.
+    
+    Architecture:
+    - Primary path: ErrorAnalyzer -> LLMService.suggest_improvements() -> LLM
+    - Fallback only: Basic fixes when LLM service completely fails
+    - Forbidden: Direct LLM calls for error fixing (bypasses domain expertise)
+    
+    To add new error types:
+    1. Add analyzer method: _analyze_new_error_type()
+    2. Add to self.analyzers list in __init__()
+    3. Test integration through suggest_improvements()
+    
+    See docs/ERROR_HANDLING_ARCHITECTURE.md for complete guidelines.
     """
 
     def __init__(self):
@@ -48,6 +62,7 @@ class ErrorAnalyzer:
             self._analyze_numpy_timedelta_error,
             self._analyze_numpy_type_conversion_error,
             self._analyze_file_not_found_error,
+            self._analyze_pandas_length_mismatch_error,  # NEW: Handle pandas length mismatch
             self._analyze_pandas_key_error,
             self._analyze_pandas_merge_error,
             self._analyze_numpy_shape_error,
@@ -380,6 +395,167 @@ Prefix all file paths with 'data/', for example:
     # ============================================================================
     # PANDAS ERROR ANALYZERS
     # ============================================================================
+
+    def _analyze_pandas_length_mismatch_error(
+        self,
+        error_message: str,
+        error_type: str,
+        traceback: str,
+        code: str
+    ) -> Optional[ErrorContext]:
+        """
+        Analyze pandas length mismatch errors.
+        
+        Detects: ValueError: Length of values (X) does not match length of index (Y)
+        """
+        if error_type != "ValueError":
+            return None
+        
+        # Check for the specific pandas length mismatch pattern
+        length_pattern = r"Length of values \((\d+)\) does not match length of index \((\d+)\)"
+        match = re.search(length_pattern, error_message)
+        
+        if not match:
+            return None
+        
+        values_length = int(match.group(1))
+        index_length = int(match.group(2))
+        
+        # Check if this is pandas-related
+        is_pandas_related = (
+            "pandas" in traceback.lower() or
+            "DataFrame" in traceback or
+            "pd." in code or
+            "df[" in code or
+            "_sanitize_column" in traceback or
+            "_set_item" in traceback
+        )
+        
+        if not is_pandas_related:
+            return None
+        
+        # Analyze the mismatch
+        ratio = values_length / index_length if index_length > 0 else 0
+        
+        suggestions = [
+            f"PANDAS LENGTH MISMATCH - Values ({values_length}) ≠ Index ({index_length})",
+            "",
+            "🔍 PROBLEM ANALYSIS:",
+            f"   • You're trying to assign {values_length} values to a DataFrame with {index_length} rows",
+            f"   • Mismatch ratio: {ratio:.2f}x ({'too many' if ratio > 1 else 'too few'} values)",
+            "",
+            "🚨 COMMON CAUSES:",
+        ]
+        
+        # Add specific guidance based on the ratio
+        if ratio == 0.2:  # 1/5 ratio - common sampling issue
+            suggestions.extend([
+                "   • SAMPLING MISMATCH: Using sample() then assigning to full DataFrame",
+                "   • You likely sampled data but forgot to update the assignment target",
+            ])
+        elif ratio == 0.1:  # 1/10 ratio
+            suggestions.extend([
+                "   • SUBSET OPERATION: Working with 10% sample but assigning to full data",
+                "   • Check if you used .head(), .sample(), or filtering before assignment",
+            ])
+        elif values_length < index_length:
+            suggestions.extend([
+                "   • FILTERED DATA: You filtered/sampled values but kept original DataFrame",
+                "   • AGGREGATION: You grouped/summarized data (fewer results than input)",
+                "   • MISSING DATA: Some values were dropped during processing",
+            ])
+        else:  # values_length > index_length
+            suggestions.extend([
+                "   • EXPANSION: You created more values than original rows (e.g., explode, repeat)",
+                "   • WRONG TARGET: Assigning to wrong DataFrame or subset",
+                "   • CONCATENATION: You combined data but target wasn't updated",
+            ])
+        
+        suggestions.extend([
+            "",
+            "🔧 ROBUST SOLUTIONS:",
+            "",
+            "1. ALIGN THE ASSIGNMENT TARGET:",
+            "   # Instead of assigning to original DataFrame:",
+            "   # df['new_col'] = processed_values  # ❌ Length mismatch",
+            "   ",
+            "   # Create new DataFrame or update the right subset:",
+            "   df_subset = df[some_condition]  # This has the right length",
+            "   df_subset['new_col'] = processed_values  # ✅ Lengths match",
+            "",
+            "2. USE .loc[] FOR CONDITIONAL ASSIGNMENT:",
+            "   # If values are for a subset, assign to that subset:",
+            "   mask = df['condition'] == True",
+            "   df.loc[mask, 'new_col'] = processed_values  # ✅ Safe assignment",
+            "",
+            "3. RESET INDEX AFTER FILTERING:",
+            "   # If you filtered data, reset the index:",
+            "   df_filtered = df[df['col'] > threshold].reset_index(drop=True)",
+            "   df_filtered['new_col'] = processed_values  # ✅ Clean index",
+            "",
+            "4. CREATE NEW DATAFRAME WHEN LENGTHS DIFFER:",
+            "   # Don't force assignment - create new structure:",
+            "   new_df = pd.DataFrame({",
+            "       'original_col': source_data,",
+            "       'new_col': processed_values",
+            "   })  # ✅ Lengths naturally match",
+            "",
+            "5. USE PANDAS MERGE/JOIN FOR DIFFERENT LENGTHS:",
+            "   # If data should be combined but has different lengths:",
+            "   result_df = pd.merge(df, processed_df, on='key_column', how='left')",
+            "",
+            "🔍 DEBUGGING STEPS:",
+            f"1. Check your data shapes:",
+            f"   print('DataFrame shape:', df.shape)  # Should be (?, {index_length})",
+            f"   print('Values shape:', len(processed_values))  # Currently {values_length}",
+            "",
+            "2. Trace the data flow:",
+            "   print('Before processing:', original_data.shape)",
+            "   print('After processing:', processed_values.shape)",
+            "   print('Assignment target:', target_df.shape)",
+            "",
+            "3. Identify where the mismatch occurred:",
+            "   # Add prints before the failing line to see data transformations",
+            "",
+            "💡 PREVENTION TIPS:",
+            "• Always check shapes before assignment: assert len(values) == len(df)",
+            "• Use .loc[] for conditional assignments instead of direct column assignment",
+            "• When filtering data, work with the filtered DataFrame, not the original",
+            "• Consider using merge/join operations for combining different-length data",
+        ])
+        
+        enhanced_message = f"""
+PANDAS LENGTH MISMATCH ERROR
+
+Original Error: {error_message}
+
+EXPLANATION:
+You're trying to assign {values_length} values to a DataFrame column that has {index_length} rows.
+This is a fundamental constraint in pandas - every column must have the same number of rows.
+
+ROOT CAUSE:
+The data you're assigning ({values_length} items) doesn't match the DataFrame structure ({index_length} rows).
+This typically happens when you:
+1. Filter/sample data but assign to the original DataFrame
+2. Aggregate data (reducing rows) but assign to the full DataFrame  
+3. Expand data (increasing rows) but assign to a smaller DataFrame
+
+SOLUTION PATTERN:
+Instead of forcing the assignment, align your data structures:
+- If you filtered data: assign to the filtered DataFrame
+- If you aggregated data: create a new DataFrame or use merge/join
+- If you expanded data: ensure the target DataFrame has the right size
+
+The key is to match the assignment target to your actual data, not force mismatched data together.
+""".strip()
+        
+        return ErrorContext(
+            original_error=error_message,
+            error_type=error_type,
+            enhanced_message=enhanced_message,
+            suggestions=suggestions,
+            relevant_docs="https://pandas.pydata.org/docs/user_guide/indexing.html#indexing-view-versus-copy"
+        )
 
     def _analyze_pandas_key_error(
         self,

@@ -433,8 +433,12 @@ const NotebookContainer: React.FC = () => {
   }, [notebook, notebookId, loadNotebook])
 
   const executeCell = useCallback(async (cellId: string, action: 'execute' | 'regenerate' = 'execute') => {
+    console.log('🚀 NotebookContainer executeCell called:', { cellId, action })
     const forceRegenerate = action === 'regenerate'
-    if (!notebook) return
+    if (!notebook) {
+      console.log('❌ No notebook available for execution')
+      return
+    }
 
     // Mark cell as executing
     setExecutingCells(prev => new Set(prev).add(cellId))

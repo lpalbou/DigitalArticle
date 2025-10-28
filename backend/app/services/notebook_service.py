@@ -508,56 +508,60 @@ print("LLM service is currently unavailable, using fallback code.")
     
     def _apply_basic_error_fixes(self, code: str, error_message: str, error_type: str) -> Optional[str]:
         """
-        Apply basic error-specific fixes when LLM service fails.
+        EMERGENCY FALLBACK ONLY - when LLM service completely fails.
         
-        This is a fallback mechanism for common errors that can be fixed programmatically.
+        This should contain ONLY simple, safe transformations.
+        All sophisticated error analysis belongs in ErrorAnalyzer.
+        
+        WARNING: This is a last resort. The primary error handling system is:
+        LLMService.suggest_improvements() -> ErrorAnalyzer -> enhanced context
         """
         if not error_message or not code:
             return None
             
-        logger.info(f"🔧 Applying basic error fixes for {error_type}: {error_message[:100]}...")
+        logger.warning(f"🚨 FALLBACK: LLM service failed, applying basic fixes for {error_type}")
+        logger.warning("🚨 This indicates ErrorAnalyzer system needs improvement for this error type")
         
-        # Handle pandas length mismatch errors
+        # ONLY simple, safe fixes here - DO NOT duplicate ErrorAnalyzer logic
+        
+        # Simple file path fix
+        if error_type == "FileNotFoundError" and "data/" not in code:
+            import re
+            # Simple regex to add data/ prefix to common file extensions
+            pattern = r"(['\"])([^'\"]*\.(csv|xlsx|json|txt))(['\"])"
+            def add_prefix(match):
+                quote, filepath, ext, end_quote = match.groups()
+                if not filepath.startswith('data/'):
+                    return f"{quote}data/{filepath}{end_quote}"
+                return match.group(0)
+            
+            fixed_code = re.sub(pattern, add_prefix, code)
+            if fixed_code != code:
+                return f"# Emergency fix: Added data/ prefix to file paths\n{fixed_code}"
+        
+        # Simple import additions
+        if error_type in ("ImportError", "ModuleNotFoundError"):
+            if "seaborn" in error_message and "import seaborn" not in code:
+                return f"# Emergency fix: Added missing import\nimport seaborn as sns\n{code}"
+            elif "matplotlib" in error_message and "import matplotlib" not in code:
+                return f"# Emergency fix: Added missing import\nimport matplotlib.pyplot as plt\n{code}"
+        
+        # Simple debugging addition for pandas errors
+        if error_type == "KeyError" and "df[" in code:
+            return f"""# Emergency fix: Added debugging info
+print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(df, 'columns') else 'No DataFrame found')
+
+{code}"""
+        
+        # For pandas length mismatch, just add a helpful comment
         if "Length of values" in error_message and "does not match length of index" in error_message:
-            # Try to fix pandas DataFrame assignment length mismatches
-            if "pd.DataFrame" in code or "DataFrame" in code:
-                logger.info("🔧 Attempting to fix pandas DataFrame length mismatch")
-                # Add .reset_index(drop=True) to fix index alignment issues
-                fixed_code = code.replace("pd.DataFrame(", "pd.DataFrame(").replace(
-                    "= pd.DataFrame", "= pd.DataFrame"
-                )
-                # Add a comment explaining the fix
-                fixed_code = f"# Auto-fix: Added index reset to handle length mismatch\n{fixed_code}"
-                if ".reset_index(drop=True)" not in fixed_code:
-                    # Try to add reset_index where appropriate
-                    lines = fixed_code.split('\n')
-                    for i, line in enumerate(lines):
-                        if "pd.DataFrame" in line and "=" in line and not line.strip().startswith('#'):
-                            lines[i] = line.rstrip() + ".reset_index(drop=True)"
-                            break
-                    fixed_code = '\n'.join(lines)
-                return fixed_code
+            return f"""# Emergency fix: Length mismatch detected
+# Consider using safe_assign(df, 'column_name', values) for robust assignment
+# This error means you're trying to assign mismatched data lengths
+
+{code}"""
         
-        # Handle file not found errors
-        if error_type == "FileNotFoundError":
-            logger.info("🔧 Attempting to fix file path issues")
-            # Try common file path fixes
-            if "data/" in code:
-                fixed_code = code.replace("data/", "./data/").replace("./data/./data/", "./data/")
-                return fixed_code
-        
-        # Handle import errors
-        if error_type == "ImportError" or error_type == "ModuleNotFoundError":
-            logger.info("🔧 Attempting to fix import issues")
-            # Add common import alternatives
-            if "seaborn" in error_message:
-                fixed_code = f"# Auto-fix: Added seaborn import\nimport seaborn as sns\n{code}"
-                return fixed_code
-            elif "matplotlib" in error_message:
-                fixed_code = f"# Auto-fix: Added matplotlib import\nimport matplotlib.pyplot as plt\n{code}"
-                return fixed_code
-        
-        logger.info("🔧 No basic fixes available for this error type")
+        logger.warning("🚨 No basic fixes available - ErrorAnalyzer system needs enhancement")
         return None
 
     def update_notebook(self, notebook_id: str, request: NotebookUpdateRequest) -> Optional[Notebook]:

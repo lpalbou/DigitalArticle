@@ -64,7 +64,7 @@ class LLMService:
     
     def check_provider_health(self) -> Dict[str, Any]:
         """
-        Check provider health using AbstractCore 2.4.6's provider.health() method.
+        Check provider health using AbstractCore 2.5.2's provider.health() method.
         
         Returns:
             Dict with health status information
@@ -77,7 +77,7 @@ class LLMService:
             }
         
         try:
-            # Use AbstractCore 2.4.6's provider.health() method
+            # Use AbstractCore 2.5.2's provider.health() method
             if hasattr(self.llm, 'provider') and hasattr(self.llm.provider, 'health'):
                 health_result = self.llm.provider.health()
                 logger.info(f"🏥 Provider health check: {health_result}")
@@ -169,7 +169,7 @@ class LLMService:
                 "temperature": 0.1  # Low temperature for consistent code generation
             }
             
-            # Add seed parameter if provider supports it (all except Anthropic in AbstractCore 2.4.6)
+            # Add seed parameter if provider supports it (all except Anthropic in AbstractCore 2.5.2)
             if notebook_seed is not None and self.provider != 'anthropic':
                 generation_params["seed"] = notebook_seed
                 logger.info(f"🎲 Using LLM generation seed {notebook_seed} for {self.provider}")
@@ -192,7 +192,7 @@ class LLMService:
                 logger.info(f"📝 Context has notebook_id={context['notebook_id']}, cell_id={context['cell_id']}")
 
                 usage_data = getattr(response, 'usage', None)
-                generation_time = getattr(response, 'gen_time', None)  # AbstractCore 2.4.8+ provides gen_time in ms
+                generation_time = getattr(response, 'gen_time', None)  # AbstractCore 2.5.2+ provides gen_time in ms
                 
                 logger.info(f"📊 About to track generation with usage_data: {usage_data}")
                 logger.info(f"⏱️ Generation time: {generation_time}ms" if generation_time else "⏱️ No generation time available")
@@ -847,7 +847,7 @@ Write a scientific explanation of what was done and the results obtained:"""
                 "temperature": 0.2  # Slightly higher for more natural writing
             }
             
-            # Add seed parameter if provider supports it (all except Anthropic in AbstractCore 2.4.6)
+            # Add seed parameter if provider supports it (all except Anthropic in AbstractCore 2.5.2)
             if notebook_seed is not None and self.provider != 'anthropic':
                 generation_params["seed"] = notebook_seed
                 logger.info(f"🎲 Using LLM generation seed {notebook_seed} for scientific explanation with {self.provider}")

@@ -6,6 +6,8 @@ The Error Enhancement System provides domain-specific, actionable guidance to th
 
 Enhanced error messages provide mathematical explanations, fix strategies, and code examples, containing approximately 19.5x more detail than raw error messages.
 
+**🚨 IMPORTANT**: This system is the **SINGLE SOURCE OF TRUTH** for all error handling in Digital Article. See `docs/ERROR_HANDLING_ARCHITECTURE.md` for consolidation guidelines.
+
 ## The Problem
 
 When the LLM generates code that fails during execution, the auto-retry mechanism would receive only the raw Python error:

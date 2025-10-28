@@ -21,7 +21,7 @@ class TokenTracker:
     - input_tokens/prompt_tokens: Input tokens (context + user prompt)
     - output_tokens/completion_tokens: Output tokens (generated code)
     - total_tokens: Sum of both
-    - gen_time: Generation time in milliseconds (AbstractCore 2.4.8+)
+    - gen_time: Generation time in milliseconds (AbstractCore 2.5.2+)
 
     NO custom estimation logic - only real counts from LLM.
     """
@@ -65,7 +65,7 @@ class TokenTracker:
             logger.warning(f"⚠️ No usage data provided for cell {cell_id} - LLM provider may not support token counting")
             return
 
-        # Support both new and legacy field names from AbstractCore 2.4.8+
+        # Support both new and legacy field names from AbstractCore 2.5.2+
         # New format: input_tokens, output_tokens, total_tokens
         # Legacy format: prompt_tokens, completion_tokens, total_tokens
         input_tokens = usage_data.get('input_tokens') or usage_data.get('prompt_tokens')

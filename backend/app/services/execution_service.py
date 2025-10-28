@@ -172,6 +172,10 @@ class ExecutionService:
             'to_python_type': to_python_type,
             'safe_int': safe_int,
             'safe_float': safe_float,
+            # Add pandas safety helpers
+            'safe_assign': self._safe_assign,
+            'check_lengths': self._check_lengths,
+            'align_data': self._align_data,
         }
 
         # Lazy import function for heavy libraries
@@ -197,6 +201,7 @@ class ExecutionService:
 
         logger.info("✅ Initialized execution globals with type safety helpers")
         logger.info("   Available helpers: safe_timedelta, to_python_type, safe_int, safe_float")
+        logger.info("   Available pandas helpers: safe_assign, check_lengths, align_data")
 
         return globals_dict
     
@@ -234,6 +239,199 @@ class ExecutionService:
         
         logger.info(f"🎲 Set execution environment seed: {seed} for notebook {notebook_id}")
     
+    def _safe_assign(self, df, column_name: str, values, strategy: str = 'auto'):
+        """
+        Safely assign values to a DataFrame column, handling length mismatches.
+        
+        Args:
+            df: Target DataFrame
+            column_name: Column name to assign to
+            values: Values to assign
+            strategy: How to handle length mismatch ('auto', 'truncate', 'pad', 'error')
+        
+        Returns:
+            Modified DataFrame or new DataFrame if lengths don't match
+        """
+        import pandas as pd
+        import numpy as np
+        
+        if not hasattr(df, 'shape'):
+            raise ValueError("First argument must be a DataFrame")
+        
+        # Convert values to list/array for length checking
+        if hasattr(values, '__len__'):
+            values_len = len(values)
+        else:
+            values = [values]  # Single value
+            values_len = 1
+        
+        df_len = len(df)
+        
+        print(f"🔍 safe_assign: DataFrame has {df_len} rows, values has {values_len} items")
+        
+        if values_len == df_len:
+            # Perfect match - direct assignment
+            df[column_name] = values
+            return df
+        
+        elif strategy == 'auto':
+            if values_len == 1:
+                # Single value - broadcast to all rows
+                df[column_name] = values[0]
+                print(f"✅ Broadcasted single value to {df_len} rows")
+                return df
+            elif values_len < df_len:
+                # Fewer values than rows - create new DataFrame with matching length
+                print(f"⚠️  Creating new DataFrame: {values_len} values < {df_len} rows")
+                new_df = pd.DataFrame({
+                    column_name: values
+                })
+                # Try to preserve some original columns if they fit
+                for col in df.columns:
+                    if len(df[col].iloc[:values_len]) == values_len:
+                        new_df[f'original_{col}'] = df[col].iloc[:values_len].values
+                return new_df
+            else:
+                # More values than rows - expand DataFrame
+                print(f"⚠️  Expanding DataFrame: {values_len} values > {df_len} rows")
+                # Create new DataFrame with all values
+                new_df = pd.DataFrame({
+                    column_name: values
+                })
+                # Repeat original data to match new length
+                if df_len > 0:
+                    repeat_factor = (values_len // df_len) + 1
+                    for col in df.columns:
+                        expanded_col = np.tile(df[col].values, repeat_factor)[:values_len]
+                        new_df[f'original_{col}'] = expanded_col
+                return new_df
+        
+        elif strategy == 'truncate':
+            # Truncate values to match DataFrame length
+            truncated_values = values[:df_len] if values_len > df_len else values
+            df[column_name] = truncated_values
+            if values_len != df_len:
+                print(f"⚠️  Truncated {values_len} values to {len(truncated_values)} to match DataFrame")
+            return df
+        
+        elif strategy == 'pad':
+            # Pad values to match DataFrame length
+            if values_len < df_len:
+                # Pad with last value or NaN
+                pad_value = values[-1] if values_len > 0 else np.nan
+                padded_values = list(values) + [pad_value] * (df_len - values_len)
+                df[column_name] = padded_values
+                print(f"⚠️  Padded {values_len} values to {df_len} with {pad_value}")
+            else:
+                df[column_name] = values[:df_len]
+                print(f"⚠️  Truncated {values_len} values to {df_len}")
+            return df
+        
+        elif strategy == 'error':
+            raise ValueError(f"Length mismatch: {values_len} values vs {df_len} rows")
+        
+        else:
+            raise ValueError(f"Unknown strategy: {strategy}")
+    
+    def _check_lengths(self, *args, names=None):
+        """
+        Check if multiple arrays/series have the same length.
+        
+        Args:
+            *args: Arrays/Series to check
+            names: Optional names for the arrays
+        
+        Returns:
+            dict with length information
+        """
+        if names is None:
+            names = [f"arg_{i}" for i in range(len(args))]
+        
+        lengths = {}
+        for i, arg in enumerate(args):
+            if hasattr(arg, '__len__'):
+                lengths[names[i]] = len(arg)
+            else:
+                lengths[names[i]] = 1  # Single value
+        
+        unique_lengths = set(lengths.values())
+        
+        result = {
+            'lengths': lengths,
+            'all_same': len(unique_lengths) == 1,
+            'unique_lengths': sorted(unique_lengths),
+            'max_length': max(lengths.values()),
+            'min_length': min(lengths.values())
+        }
+        
+        print(f"🔍 Length check: {result}")
+        return result
+    
+    def _align_data(self, *args, method='truncate', names=None):
+        """
+        Align multiple arrays/series to the same length.
+        
+        Args:
+            *args: Arrays/Series to align
+            method: 'truncate', 'pad', or 'expand'
+            names: Optional names for debugging
+        
+        Returns:
+            tuple of aligned arrays
+        """
+        import pandas as pd
+        import numpy as np
+        
+        if names is None:
+            names = [f"array_{i}" for i in range(len(args))]
+        
+        # Get length info
+        length_info = self._check_lengths(*args, names=names)
+        
+        if length_info['all_same']:
+            print("✅ All arrays already have same length")
+            return args
+        
+        target_length = length_info['max_length'] if method == 'expand' else length_info['min_length']
+        
+        aligned = []
+        for i, arg in enumerate(args):
+            if hasattr(arg, '__len__'):
+                current_len = len(arg)
+                if current_len == target_length:
+                    aligned.append(arg)
+                elif method == 'truncate':
+                    aligned.append(arg[:target_length])
+                    print(f"🔧 Truncated {names[i]} from {current_len} to {target_length}")
+                elif method == 'pad':
+                    if isinstance(arg, pd.Series):
+                        pad_value = arg.iloc[-1] if current_len > 0 else np.nan
+                        padded = pd.concat([arg, pd.Series([pad_value] * (target_length - current_len))])
+                    else:
+                        pad_value = arg[-1] if current_len > 0 else np.nan
+                        padded = list(arg) + [pad_value] * (target_length - current_len)
+                    aligned.append(padded)
+                    print(f"🔧 Padded {names[i]} from {current_len} to {target_length}")
+                elif method == 'expand':
+                    if current_len < target_length:
+                        # Repeat the array to reach target length
+                        repeat_factor = (target_length // current_len) + 1
+                        if isinstance(arg, pd.Series):
+                            expanded = pd.concat([arg] * repeat_factor)[:target_length]
+                        else:
+                            expanded = (list(arg) * repeat_factor)[:target_length]
+                        aligned.append(expanded)
+                        print(f"🔧 Expanded {names[i]} from {current_len} to {target_length}")
+                    else:
+                        aligned.append(arg)
+            else:
+                # Single value - expand to target length
+                expanded = [arg] * target_length
+                aligned.append(expanded)
+                print(f"🔧 Expanded single value {names[i]} to length {target_length}")
+        
+        return tuple(aligned)
+
     def execute_code(self, code: str, cell_id: str, notebook_id: Optional[str] = None) -> ExecutionResult:
         """
         Execute Python code and capture all outputs.
@@ -374,13 +572,19 @@ class ExecutionService:
     
     def _preprocess_code(self, code: str) -> str:
         """
-        Preprocess code to handle lazy imports and add necessary setup.
+        Preprocess code to handle lazy imports and add safety checks.
+        
+        This method:
+        1. Handles lazy imports for heavy libraries
+        2. Adds automatic safety checks for pandas operations
+        3. Configures plotly for inline display
+        4. Wraps risky operations with try/catch blocks
         
         Args:
             code: Original Python code
             
         Returns:
-            Processed code with lazy imports resolved
+            Processed code with safety enhancements and lazy imports
         """
         lines = code.split('\n')
         processed_lines = []
@@ -396,6 +600,25 @@ class ExecutionService:
             ])
         
         for line in lines:
+            # Handle pandas column assignment safety
+            if ('[' in line and ']' in line and '=' in line and 
+                not line.strip().startswith('#') and 
+                ('df[' in line or 'DataFrame[' in line)):
+                
+                # Inject safety check for pandas assignments
+                processed_lines.append("# Auto-safety: Check for length mismatch before assignment")
+                processed_lines.append("try:")
+                processed_lines.append(f"    {line}")
+                processed_lines.append("except ValueError as e:")
+                processed_lines.append("    if 'Length of values' in str(e) and 'does not match length of index' in str(e):")
+                processed_lines.append("        print(f'⚠️  Length mismatch detected: {e}')")
+                processed_lines.append("        print('💡 Consider using safe_assign() for robust assignment')")
+                processed_lines.append("        print('   Example: df = safe_assign(df, \"column_name\", values)')")
+                processed_lines.append("        raise e")
+                processed_lines.append("    else:")
+                processed_lines.append("        raise e")
+                continue
+            
             # Handle common import patterns with lazy loading
             if 'import plotly.express as px' in line:
                 processed_lines.append("px = _lazy_import('plotly.express', 'px')")

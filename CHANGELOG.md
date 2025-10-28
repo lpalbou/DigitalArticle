@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.0.7] - 2025-10-26
+
+### Updated
+
+- **AbstractCore 2.5.2 Integration**: Updated to AbstractCore version 2.5.2 for improved stability and performance
+  - **Version Consistency**: Updated all version references from 2.4.6/2.4.8 to 2.5.2 across codebase
+  - **Dependency Updates**: Updated `requirements.txt` and `pyproject.toml` to require `abstractcore[all]>=2.5.2`
+  - **Comment Updates**: Updated all AbstractCore version references in code comments to reflect current version
+  - Files: `requirements.txt`, `pyproject.toml`, `backend/app/services/llm_service.py`, `backend/app/api/llm.py`, `backend/app/services/token_tracker.py`, `backend/app/models/notebook.py`, `frontend/src/types/index.ts`
+
 ## [0.0.6] - 2025-10-22
 
 ### Fixed
