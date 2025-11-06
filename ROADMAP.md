@@ -701,3 +701,7 @@ Others
 - invite a colleague to review (especially non technical -> technical)
 
 - be careful, a non VL model can't directly use the plot. but they can use the underlying data.
+
+- include a "plan" tab ? (that's an expert mode, i don't want to clutter the UI)
+
+- have better "claude skills" like for different scenarios; eg single cell, spatial transcriptomics analysis

@@ -2,18 +2,14 @@ import React, { useState, useEffect } from 'react'
 import { X, Download, FileText, Image as ImageIcon, Table, Code, Eye } from 'lucide-react'
 import { marked } from 'marked'
 import { filesAPI } from '../services/api'
+import { FileInfo } from '../types'
+import H5FileViewer from './H5FileViewer'
 
 interface FileViewerModalProps {
   isOpen: boolean
   onClose: () => void
   notebookId: string
-  file: {
-    name: string
-    path: string
-    size: number
-    type: 'csv' | 'json' | 'xlsx' | 'txt' | 'other'
-    lastModified: string
-  } | null
+  file: FileInfo | null
 }
 
 interface FileContent {
@@ -41,6 +37,7 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
       case 'txt': return 'txt'
       case 'md': return 'markdown'
       case 'json': return 'json'
+      case 'h5': case 'hdf5': case 'h5ad': return 'h5'
       case 'jpg': case 'jpeg': case 'png': case 'gif': case 'webp': case 'tif': case 'tiff': return 'image'
       default: return 'text'
     }
@@ -201,6 +198,28 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
 
     const fileType = getFileTypeFromName(file?.name || '')
     const content = fileContent.content
+
+    // H5 files - use specialized viewer
+    if (file && (file.is_h5_file || ['h5', 'hdf5', 'h5ad'].includes(fileType))) {
+      // For H5 files, the content is the processed metadata as JSON
+      let h5Data = file.preview
+      if (content && fileContent.contentType === 'application/json') {
+        try {
+          h5Data = JSON.parse(content)
+        } catch (e) {
+          console.warn('Failed to parse H5 metadata from content:', e)
+        }
+      }
+      
+      return (
+        <div className="h-96">
+          <H5FileViewer fileInfo={{
+            ...file,
+            preview: h5Data
+          }} />
+        </div>
+      )
+    }
 
     // Image files
     if (fileType === 'image') {
@@ -399,6 +418,8 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
         return <FileText className="h-5 w-5 text-blue-600" />
       case 'json':
         return <Code className="h-5 w-5 text-orange-600" />
+      case 'h5':
+        return <Code className="h-5 w-5 text-indigo-600" />
       default:
         return <FileText className="h-5 w-5 text-gray-600" />
     }

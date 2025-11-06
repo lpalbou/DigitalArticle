@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any
 import pandas as pd
 from datetime import datetime
 import logging
+from .h5_service import h5_processor
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +80,19 @@ class DataManager:
             
         for file_path in self.data_dir.iterdir():
             if file_path.is_file():
+                # Determine file type
+                file_extension = file_path.suffix[1:].lower() if file_path.suffix else 'other'
+                if h5_processor.is_h5_file(file_path):
+                    file_type = file_extension  # Keep original extension (h5, hdf5, h5ad)
+                else:
+                    file_type = file_extension
+                
                 file_info = {
                     'name': file_path.name,  # ORIGINAL FILENAME!
                     'path': f"data/{file_path.name}",  # Simple path for LLM
                     'absolute_path': str(file_path),
                     'size': file_path.stat().st_size,
-                    'type': file_path.suffix[1:] if file_path.suffix else 'other',
+                    'type': file_type,
                     'lastModified': datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
                 }
                 
@@ -142,6 +150,11 @@ class DataManager:
                             'first_lines': lines,
                             'encoding': 'utf-8'
                         }
+                    elif h5_processor.is_h5_file(file_path):
+                        # H5/HDF5/H5AD file processing
+                        h5_metadata = h5_processor.process_file(file_path)
+                        file_info['preview'] = h5_metadata
+                        file_info['is_h5_file'] = True
                 except Exception as e:
                     logger.warning(f"Could not read preview for {file_path.name}: {e}")
                     file_info['preview'] = {'error': str(e)}

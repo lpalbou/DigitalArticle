@@ -420,9 +420,32 @@ Cell 2: print(df.shape)  # Works! df is available
 
 1. Click "Files in Context" panel at the top
 2. Click "Upload" button
-3. Select your file (CSV, Excel, JSON, etc.)
+3. Select your file - supported formats include:
+   - **CSV/TSV**: Tabular data with automatic preview
+   - **Excel (.xlsx/.xls)**: Spreadsheet files with sheet detection
+   - **JSON**: Structured data with schema analysis
+   - **H5/HDF5**: Scientific data containers with hierarchical structure
+   - **H5AD**: Single-cell genomics data (AnnData format) with metadata
+   - **Text files**: Plain text, markdown, etc.
 4. File is copied to the notebook's workspace
 5. Reference it in prompts: `"Load my_data.csv and analyze it"`
+
+#### H5 File Support (NEW!)
+
+Digital Article now provides state-of-the-art support for HDF5 files:
+
+- **Standard H5/HDF5**: Hierarchical data with groups, datasets, and attributes
+- **H5AD (AnnData)**: Single-cell genomics data with observations, variables, and embeddings
+- **Interactive Preview**: Browse file structure, view metadata, and sample data
+- **Scanpy Integration**: Automatic detection and processing of single-cell data
+- **Memory Efficient**: Large files are processed with smart sampling for previews
+
+Example prompts for H5 files:
+```
+Load the single-cell data from experiment.h5ad and show me the cell types
+Analyze the gene expression matrix in data.h5 and find highly variable genes
+Show me the structure of the HDF5 file and preview the main datasets
+```
 
 ### Data File Paths
 

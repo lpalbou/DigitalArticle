@@ -1,10 +1,29 @@
-# Error Handling Architecture
+# Error Handling System
 
 ## Overview
 
-This document defines the **single source of truth** for error handling in Digital Article to prevent parallel implementations and ensure consistency.
+This document describes Digital Article's intelligent error handling and auto-retry system. The system provides automatic error analysis, enhanced LLM context, and code fixes to minimize user interruption during data analysis.
 
-## Core Principle
+**Related Documentation:**
+- [Architecture Overview](architecture.md) - Overall system design
+- [Error Enhancement System](devnotes/error-enhancement-system.md) - Implementation details
+- [Getting Started](getting-started.md) - User-facing error recovery features
+
+This document defines the **single source of truth** for error handling architecture to prevent parallel implementations and ensure consistency.
+
+## User Experience
+
+From a user perspective, Digital Article's error handling provides:
+
+- **Automatic Error Recovery**: When code fails, the system automatically attempts to fix errors up to 5 times
+- **Intelligent Analysis**: Specialized analyzers provide domain-specific guidance for pandas, matplotlib, numpy, and other libraries
+- **Transparent Process**: Users see "correcting code x/5" progress indicators during auto-retry
+- **Minimal Interruption**: Most common errors are resolved without user intervention
+- **Educational Value**: When manual intervention is needed, users receive enhanced error messages with specific suggestions
+
+## Developer Architecture
+
+### Core Principle
 
 **ALL ERROR HANDLING MUST GO THROUGH THE ErrorAnalyzer SYSTEM**
 
@@ -235,5 +254,11 @@ result = llm_service.suggest_improvements(
 ---
 
 **Remember**: The goal is to have ONE authoritative system for error analysis that provides consistent, high-quality guidance to the LLM, making our auto-retry system more effective and maintainable.
+
+
+
+
+
+
 
 

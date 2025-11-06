@@ -1,20 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Upload, File, X, Database, BarChart3, FileText } from 'lucide-react'
 import { filesAPI, handleAPIError } from '../services/api'
+import { FileInfo } from '../types'
 import FileViewerModal from './FileViewerModal'
-
-interface FileInfo {
-  name: string
-  path: string
-  size: number
-  type: 'csv' | 'json' | 'xlsx' | 'txt' | 'other'
-  lastModified: string
-  preview?: {
-    rows: number
-    columns: string[]
-    shape: [number, number]
-  }
-}
 
 interface FileContextPanelProps {
   notebookId?: string
@@ -50,6 +38,7 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
         size: file.size,
         type: file.type as FileInfo['type'],
         lastModified: file.lastModified,
+        is_h5_file: file.is_h5_file,
         preview: file.preview
       }))
       
@@ -164,6 +153,9 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
       case 'json': return 'json'
       case 'xlsx': case 'xls': return 'xlsx'
       case 'txt': return 'txt'
+      case 'h5': return 'h5'
+      case 'hdf5': return 'hdf5'
+      case 'h5ad': return 'h5ad'
       default: return 'other'
     }
   }
@@ -173,6 +165,7 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
       case 'csv': return <BarChart3 className="h-4 w-4 text-green-600" />
       case 'json': return <Database className="h-4 w-4 text-blue-600" />
       case 'xlsx': return <FileText className="h-4 w-4 text-orange-600" />
+      case 'h5': case 'hdf5': case 'h5ad': return <Database className="h-4 w-4 text-indigo-600" />
       default: return <File className="h-4 w-4 text-gray-600" />
     }
   }
@@ -212,7 +205,7 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
               multiple
               className="hidden"
               onChange={handleFileUpload}
-              accept=".csv,.json,.xlsx,.xls,.txt"
+              accept=".csv,.json,.xlsx,.xls,.txt,.h5,.hdf5,.h5ad"
             />
           </label>
           
@@ -253,10 +246,22 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
                         </h4>
                         <div className="flex items-center space-x-1 text-xs text-gray-500">
                           <span>{formatFileSize(file.size)}</span>
-                          {file.preview && (
+                          {file.preview && file.preview.shape && Array.isArray(file.preview.shape) && file.preview.shape.length >= 2 && (
                             <>
                               <span>•</span>
                               <span>{file.preview.shape[0]}×{file.preview.shape[1]}</span>
+                            </>
+                          )}
+                          {file.is_h5_file && file.preview && (
+                            <>
+                              <span>•</span>
+                              <span>H5 file</span>
+                              {file.preview.file_type === 'anndata' && file.preview.n_obs && file.preview.n_vars && (
+                                <span> ({file.preview.n_obs.toLocaleString()} cells × {file.preview.n_vars.toLocaleString()} genes)</span>
+                              )}
+                              {file.preview.file_type === 'hdf5' && file.preview.datasets && (
+                                <span> ({file.preview.datasets.length} datasets)</span>
+                              )}
                             </>
                           )}
                         </div>

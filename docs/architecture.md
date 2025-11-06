@@ -295,6 +295,8 @@ if execution_failed and has_prompt and retry_count < 3:
         break  # Exit retry loop
 ```
 
+> **📖 Detailed Error Handling**: For comprehensive documentation on the error handling system, specialized analyzers, and development guidelines, see [Error Handling System](error-handling.md).
+
 **Persistence**: JSON files in `notebooks/` directory
 - One file per notebook: `{notebook_id}.json`
 - In-memory cache for performance

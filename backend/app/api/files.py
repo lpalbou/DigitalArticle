@@ -13,6 +13,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from ..services.data_manager_clean import get_data_manager
+from ..services.h5_service import h5_processor, H5JSONEncoder
 
 router = APIRouter()
 
@@ -68,16 +69,33 @@ async def get_file_content(notebook_id: str, file_path: str):
         content_type, _ = mimetypes.guess_type(full_file_path)
         
         # For very large files, limit the content we read
-        max_size = 10 * 1024 * 1024  # 10MB limit
+        max_size = 100 * 1024 * 1024  # 100MB limit
         if file_size > max_size:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=f"File too large: {file_size} bytes (max: {max_size} bytes)"
             )
         
+        # Special handling for H5 files - return metadata instead of raw content
+        if h5_processor.is_h5_file(full_file_path):
+            try:
+                # Get the processed H5 metadata (this is what we want to show)
+                h5_metadata = h5_processor.process_file(full_file_path)
+                # Return the metadata as JSON content using custom encoder
+                import json
+                content = json.dumps(h5_metadata, indent=2, cls=H5JSONEncoder)
+                content_type = 'application/json'
+            except Exception as e:
+                # If H5 processing fails, return error info
+                error_info = {
+                    "error": f"Failed to process H5 file: {str(e)}",
+                    "file_type": "h5",
+                    "file_size": file_size
+                }
+                content = json.dumps(error_info, indent=2, cls=H5JSONEncoder)
+                content_type = 'application/json'
         # Determine encoding based on content type
-        encoding = 'utf-8'
-        if content_type and content_type.startswith('image/'):
+        elif content_type and content_type.startswith('image/'):
             # For images, we'll return base64 encoded content
             import base64
             with open(full_file_path, 'rb') as f:

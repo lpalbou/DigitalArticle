@@ -60,6 +60,21 @@ export interface TableData {
   }
 }
 
+export interface FileInfo {
+  name: string
+  path: string
+  size: number
+  type: 'csv' | 'json' | 'xlsx' | 'txt' | 'h5' | 'hdf5' | 'h5ad' | 'other'
+  lastModified: string
+  is_h5_file?: boolean
+  preview?: {
+    rows?: number
+    columns?: string[]
+    shape?: [number, number]
+    [key: string]: any // Allow additional H5 metadata
+  }
+}
+
 export interface Cell {
   id: string
   prompt: string
@@ -166,17 +181,4 @@ export interface CodeImprovementRequest {
   prompt: string
   code: string
   error_message?: string
-}
-
-export interface FileInfo {
-  name: string
-  path: string
-  size: number
-  type: 'csv' | 'json' | 'xlsx' | 'txt' | 'other'
-  lastModified: string
-  preview?: {
-    rows: number
-    columns: string[]
-    shape: [number, number]
-  }
 }

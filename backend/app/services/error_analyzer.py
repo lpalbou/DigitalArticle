@@ -49,7 +49,7 @@ class ErrorAnalyzer:
     2. Add to self.analyzers list in __init__()
     3. Test integration through suggest_improvements()
     
-    See docs/ERROR_HANDLING_ARCHITECTURE.md for complete guidelines.
+    See docs/error-handling.md for complete guidelines.
     """
 
     def __init__(self):

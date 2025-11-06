@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.0.8] - 2025-10-28
+
+### Added
+
+- **🧬 State-of-the-Art H5 File Support**: Comprehensive support for HDF5 files with interactive visualization
+  - **H5/HDF5 Files**: Full support for standard HDF5 files with hierarchical structure analysis
+  - **H5AD (AnnData) Files**: Specialized support for single-cell genomics data with scanpy integration
+  - **Interactive Preview**: Tree-based file structure browser with metadata and sample data display
+  - **Memory Efficient Processing**: Smart sampling for large datasets to provide previews without memory issues
+  - **Robust Error Handling**: Graceful fallbacks and comprehensive error reporting
+  - **Dependencies**: Added h5py>=3.10.0, anndata>=0.10.0, and tables>=3.9.0 to requirements
+  - Files: `backend/app/services/h5_service.py`, `frontend/src/components/H5FileViewer.tsx`, `backend/app/services/data_manager_clean.py`, `frontend/src/components/FileViewerModal.tsx`, `frontend/src/components/FileContextPanel.tsx`, `requirements.txt`, `docs/getting-started.md`
+
 ## [0.0.7] - 2025-10-26
 
 ### Updated

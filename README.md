@@ -211,6 +211,7 @@ Digital Article is built on the belief that **analytical tools should adapt to h
 
 - [Getting Started Guide](docs/getting-started.md) - Installation and first analysis
 - [Architecture Documentation](docs/architecture.md) - System design and component breakdown
+- [Error Handling System](docs/error-handling.md) - Intelligent error recovery and auto-retry system
 - [Philosophy](docs/philosophy.md) - Design principles and motivation
 - [Roadmap](ROADMAP.md) - Planned features and development timeline
 
