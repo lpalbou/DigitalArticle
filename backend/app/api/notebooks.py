@@ -178,10 +178,10 @@ async def delete_notebook(notebook_id: str):
 @router.get("/{notebook_id}/export")
 async def export_notebook(notebook_id: str, format: str = "json", include_code: bool = False):
     """Export a notebook in various formats."""
-    if format not in ["json", "html", "markdown", "pdf"]:
+    if format not in ["json", "jsonld", "semantic", "html", "markdown", "pdf"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Format must be one of: json, html, markdown, pdf"
+            detail="Format must be one of: json, jsonld, semantic, html, markdown, pdf"
         )
     
     try:
@@ -214,6 +214,8 @@ async def export_notebook(notebook_id: str, format: str = "json", include_code: 
             
             media_type = {
                 "json": "application/json",
+                "jsonld": "application/ld+json",
+                "semantic": "application/ld+json",
                 "html": "text/html",
                 "markdown": "text/markdown"
             }[format]

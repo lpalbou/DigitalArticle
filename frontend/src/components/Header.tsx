@@ -9,6 +9,8 @@ interface HeaderProps {
   onNewNotebook?: () => void
   onSaveNotebook?: () => void
   onExportNotebook?: () => void
+  onExportSemantic?: () => void
+  onViewKnowledgeGraph?: () => void
   onExportPDF?: (includeCode: boolean) => void
   onSelectNotebook?: (notebookId: string) => void
   onDeleteNotebook?: (notebookId: string) => void
@@ -21,6 +23,8 @@ const Header: React.FC<HeaderProps> = ({
   onNewNotebook,
   onSaveNotebook,
   onExportNotebook,
+  onExportSemantic,
+  onViewKnowledgeGraph,
   onExportPDF,
   onSelectNotebook,
   onDeleteNotebook,
@@ -123,7 +127,18 @@ const Header: React.FC<HeaderProps> = ({
                         <Download className="h-4 w-4" />
                         <span>Export as JSON</span>
                       </button>
-                      
+
+                      <button
+                        onClick={() => {
+                          onExportSemantic?.()
+                          setShowExportDropdown(false)
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                      >
+                        <Download className="h-4 w-4" />
+                        <span>Export as JSON-LD</span>
+                      </button>
+
                       <button
                         onClick={() => {
                           onExportPDF?.(false)
@@ -144,6 +159,19 @@ const Header: React.FC<HeaderProps> = ({
                       >
                         <Download className="h-4 w-4" />
                         <span>Export PDF with Code</span>
+                      </button>
+
+                      <div className="border-t border-gray-200 my-1"></div>
+
+                      <button
+                        onClick={() => {
+                          onViewKnowledgeGraph?.()
+                          setShowExportDropdown(false)
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                      >
+                        <Download className="h-4 w-4" />
+                        <span>View Knowledge Graph</span>
                       </button>
                     </div>
                   </div>

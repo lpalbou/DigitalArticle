@@ -22,6 +22,7 @@ from ..models.notebook import (
 from .llm_service import LLMService
 from .execution_service import ExecutionService
 from .pdf_service_scientific import ScientificPDFService
+from .semantic_service import SemanticExtractionService
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,11 @@ class NotebookService:
             logger.info("🔄 Initializing scientific PDF service...")
             self.pdf_service = ScientificPDFService()
             logger.info("✅ Scientific PDF service initialized")
-            
+
+            logger.info("🔄 Initializing semantic extraction service...")
+            self.semantic_service = SemanticExtractionService()
+            logger.info("✅ Semantic extraction service initialized")
+
             # Get data manager for file context
             logger.info("🔄 Getting data manager...")
             from .data_manager_clean import get_data_manager
@@ -1004,7 +1009,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             if result.status == ExecutionStatus.SUCCESS:
                 # Mark this cell as fresh
                 cell.cell_state = CellState.FRESH
-                
+
                 # Mark downstream cells as stale
                 try:
                     cell_index = self.get_cell_index(str(notebook.id), cell.id)
@@ -1013,7 +1018,20 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                         logger.info(f"Marked cells below index {cell_index} as stale")
                 except Exception as e:
                     logger.warning(f"Failed to mark downstream cells as stale: {e}")
-            
+
+            # Extract semantic information from cell (non-blocking)
+            try:
+                logger.info(f"🔍 Extracting semantic information from cell {cell.id}...")
+                cell_semantics = self.semantic_service.extract_cell_semantics(cell, notebook)
+                cell.metadata['semantics'] = cell_semantics.to_jsonld()
+                logger.info(f"✅ Extracted {len(cell_semantics.triples)} triples, " +
+                           f"{len(cell_semantics.libraries_used)} libraries, " +
+                           f"{len(cell_semantics.methods_used)} methods")
+            except Exception as e:
+                logger.warning(f"⚠️ Semantic extraction failed (non-critical): {e}")
+                # Don't let semantic extraction errors break execution
+                pass
+
             # Save notebook
             self._save_notebook(notebook)
             
@@ -1070,20 +1088,22 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
     def export_notebook(self, notebook_id: str, format: str = "json") -> Optional[str]:
         """
         Export a notebook in various formats.
-        
+
         Args:
             notebook_id: Notebook UUID
-            format: Export format (json, html, markdown)
-            
+            format: Export format (json, html, markdown, jsonld, semantic)
+
         Returns:
             Exported content or None if notebook not found
         """
         notebook = self._notebooks.get(notebook_id)
         if not notebook:
             return None
-        
+
         if format == "json":
             return json.dumps(self._create_clean_export_structure(notebook), indent=2, default=str)
+        elif format == "jsonld" or format == "semantic":
+            return self._export_to_jsonld(notebook)
         elif format == "markdown":
             return self._export_to_markdown(notebook)
         elif format == "html":
@@ -1248,7 +1268,99 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                     ])
         
         return "\n".join(md_lines)
-    
+
+    def _export_to_jsonld(self, notebook: Notebook) -> str:
+        """
+        Export notebook to JSON-LD semantic graph format.
+
+        This creates a JSON-LD representation of the notebook with:
+        - Standard ontology context (Dublin Core, Schema.org, SKOS, CiTO, PROV)
+        - Semantic entities (notebooks, cells, datasets, methods, etc.)
+        - Relationships as RDF triples
+        - Knowledge graph for cross-notebook interoperability
+
+        Returns:
+            JSON string with JSON-LD representation
+        """
+        try:
+            # Extract complete notebook semantics
+            notebook_semantics = self.semantic_service.extract_notebook_semantics(notebook)
+
+            # Get the JSON-LD graph representation
+            jsonld_data = notebook_semantics.to_jsonld_graph()
+
+            # Enhance with notebook content for hybrid export
+            # This combines semantic data with readable content
+            enhanced_export = {
+                "@context": jsonld_data["@context"],
+                "metadata": {
+                    "digital_article": {
+                        "version": "0.0.3",
+                        "export_timestamp": datetime.now().isoformat(),
+                        "export_format": "jsonld"
+                    },
+                    "notebook": {
+                        "id": str(notebook.id),
+                        "title": notebook.title,
+                        "description": notebook.description,
+                        "author": notebook.author,
+                        "created_at": notebook.created_at.isoformat(),
+                        "updated_at": notebook.updated_at.isoformat()
+                    },
+                    "semantic_summary": {
+                        "total_cells": len(notebook.cells),
+                        "total_entities": jsonld_data["metadata"]["total_entities"],
+                        "total_triples": jsonld_data["metadata"]["total_triples"],
+                        "datasets_used": notebook_semantics.get_all_datasets(),
+                        "methods_used": notebook_semantics.get_all_methods(),
+                        "libraries_used": notebook_semantics.get_all_libraries(),
+                        "concepts_mentioned": notebook_semantics.get_all_concepts()
+                    }
+                },
+                "@graph": jsonld_data["@graph"],
+                "triples": jsonld_data["triples"],
+                "cells": []
+            }
+
+            # Add cell-level semantic annotations
+            for cell, cell_semantics in zip(notebook.cells, notebook_semantics.cell_semantics):
+                cell_export = {
+                    "id": str(cell.id),
+                    "type": cell.cell_type.value,
+                    "semantic_id": cell_semantics.cell_id,
+                    "content": {
+                        "prompt": cell.prompt if cell.prompt else None,
+                        "code": cell.code if cell.code else None,
+                        "methodology": cell.scientific_explanation if cell.scientific_explanation else None
+                    },
+                    "semantics": {
+                        "intent_tags": cell_semantics.intent_tags,
+                        "libraries_used": cell_semantics.libraries_used,
+                        "methods_used": cell_semantics.methods_used,
+                        "datasets_used": cell_semantics.datasets_used,
+                        "variables_defined": cell_semantics.variables_defined,
+                        "concepts_mentioned": cell_semantics.concepts_mentioned,
+                        "statistical_findings": cell_semantics.statistical_findings,
+                        "entity_count": len(cell_semantics.entities),
+                        "triple_count": len(cell_semantics.triples)
+                    }
+                }
+                enhanced_export["cells"].append(cell_export)
+
+            return json.dumps(enhanced_export, indent=2, default=str, ensure_ascii=False)
+
+        except Exception as e:
+            logger.error(f"Error exporting notebook to JSON-LD: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Fallback to basic JSON export with error note
+            basic_export = self._create_clean_export_structure(notebook)
+            basic_export["export_error"] = {
+                "message": "Semantic extraction failed, falling back to standard JSON export",
+                "error": str(e)
+            }
+            return json.dumps(basic_export, indent=2, default=str)
+
     def _export_to_html(self, notebook: Notebook) -> str:
         """Export notebook to HTML format."""
         # This would be implemented with a proper HTML template

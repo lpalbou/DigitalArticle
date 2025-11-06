@@ -109,16 +109,16 @@ export const notebookAPI = {
   },
 
   // Export a notebook
-  export: async (notebookId: string, format: 'json' | 'html' | 'markdown' = 'json'): Promise<string> => {
+  export: async (notebookId: string, format: 'json' | 'jsonld' | 'html' | 'markdown' = 'json'): Promise<string> => {
     const response: AxiosResponse<any> = await api.get(`/notebooks/${notebookId}/export`, {
       params: { format }
     })
-    
-    // Handle the case where JSON is automatically parsed by axios
-    if (format === 'json' && typeof response.data === 'object') {
+
+    // Handle the case where JSON/JSON-LD is automatically parsed by axios
+    if ((format === 'json' || format === 'jsonld') && typeof response.data === 'object') {
       return JSON.stringify(response.data, null, 2)
     }
-    
+
     return response.data
   },
 

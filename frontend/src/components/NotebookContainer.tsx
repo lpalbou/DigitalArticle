@@ -227,6 +227,47 @@ const NotebookContainer: React.FC = () => {
     }
   }, [notebook])
 
+  const exportSemantic = useCallback(async () => {
+    if (!notebook) return
+
+    try {
+      const jsonldContent = await notebookAPI.export(notebook.id, 'jsonld')
+      downloadFile(jsonldContent, `${notebook.title}-semantic.jsonld`, 'application/ld+json')
+
+      setError(null)
+      setToast({
+        message: `Digital Article "${notebook.title}" exported as JSON-LD successfully`,
+        type: 'success'
+      })
+    } catch (err) {
+      const apiError = handleAPIError(err)
+      setError(`Semantic export failed: ${apiError.message}`)
+    }
+  }, [notebook])
+
+  const viewKnowledgeGraph = useCallback(async () => {
+    if (!notebook) return
+
+    try {
+      // Get JSON-LD data
+      const jsonldContent = await notebookAPI.export(notebook.id, 'jsonld')
+      const jsonldData = JSON.parse(jsonldContent)
+
+      // Store in localStorage with a unique key
+      const storageKey = `kg-data-${notebook.id}-${Date.now()}`
+      localStorage.setItem(storageKey, JSON.stringify(jsonldData))
+
+      // Open knowledge graph viewer in new tab with storage key
+      const kgUrl = `/knowledge-graph-explorer.html?key=${storageKey}`
+      window.open(kgUrl, '_blank')
+
+      setError(null)
+    } catch (err) {
+      const apiError = handleAPIError(err)
+      setError(`Failed to open knowledge graph: ${apiError.message}`)
+    }
+  }, [notebook])
+
   const exportNotebookPDF = useCallback(async (includeCode: boolean) => {
     if (!notebook) return
 
@@ -746,6 +787,8 @@ const NotebookContainer: React.FC = () => {
         onNewNotebook={createNewNotebook}
         onSaveNotebook={saveNotebook}
         onExportNotebook={exportNotebook}
+        onExportSemantic={exportSemantic}
+        onViewKnowledgeGraph={viewKnowledgeGraph}
         onExportPDF={exportNotebookPDF}
         onSelectNotebook={selectNotebook}
         onDeleteNotebook={deleteNotebook}
