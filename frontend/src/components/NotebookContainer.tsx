@@ -245,17 +245,17 @@ const NotebookContainer: React.FC = () => {
     }
   }, [notebook])
 
-  const viewKnowledgeGraph = useCallback(async () => {
+  const viewKnowledgeGraph = useCallback(async (graphType: 'analysis' | 'profile') => {
     if (!notebook) return
 
     try {
-      // Get JSON-LD data
-      const jsonldContent = await notebookAPI.export(notebook.id, 'jsonld')
-      const jsonldData = JSON.parse(jsonldContent)
+      // Get graph data based on type
+      const graphData = await notebookAPI.export(notebook.id, graphType)
+      const parsedData = JSON.parse(graphData)
 
       // Store in localStorage with a unique key
-      const storageKey = `kg-data-${notebook.id}-${Date.now()}`
-      localStorage.setItem(storageKey, JSON.stringify(jsonldData))
+      const storageKey = `kg-data-${graphType}-${notebook.id}-${Date.now()}`
+      localStorage.setItem(storageKey, JSON.stringify(parsedData))
 
       // Open knowledge graph viewer in new tab with storage key
       const kgUrl = `/knowledge-graph-explorer.html?key=${storageKey}`

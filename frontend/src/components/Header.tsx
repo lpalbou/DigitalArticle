@@ -10,7 +10,7 @@ interface HeaderProps {
   onSaveNotebook?: () => void
   onExportNotebook?: () => void
   onExportSemantic?: () => void
-  onViewKnowledgeGraph?: () => void
+  onViewKnowledgeGraph?: (graphType: 'analysis' | 'profile') => void
   onExportPDF?: (includeCode: boolean) => void
   onSelectNotebook?: (notebookId: string) => void
   onDeleteNotebook?: (notebookId: string) => void
@@ -165,13 +165,24 @@ const Header: React.FC<HeaderProps> = ({
 
                       <button
                         onClick={() => {
-                          onViewKnowledgeGraph?.()
+                          onViewKnowledgeGraph?.('analysis')
                           setShowExportDropdown(false)
                         }}
                         className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
                       >
-                        <Download className="h-4 w-4" />
-                        <span>View Knowledge Graph</span>
+                        <span>🔬</span>
+                        <span>View Analysis Flow</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          onViewKnowledgeGraph?.('profile')
+                          setShowExportDropdown(false)
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                      >
+                        <span>👤</span>
+                        <span>View Data & Skills Profile</span>
                       </button>
                     </div>
                   </div>

@@ -23,6 +23,8 @@ from .llm_service import LLMService
 from .execution_service import ExecutionService
 from .pdf_service_scientific import ScientificPDFService
 from .semantic_service import SemanticExtractionService
+from .semantic_analysis_service import SemanticAnalysisService
+from .semantic_profile_service import SemanticProfileService
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,14 @@ class NotebookService:
             logger.info("🔄 Initializing semantic extraction service...")
             self.semantic_service = SemanticExtractionService()
             logger.info("✅ Semantic extraction service initialized")
+
+            logger.info("🔄 Initializing analysis graph service...")
+            self.analysis_graph_service = SemanticAnalysisService()
+            logger.info("✅ Analysis graph service initialized")
+
+            logger.info("🔄 Initializing profile graph service...")
+            self.profile_graph_service = SemanticProfileService()
+            logger.info("✅ Profile graph service initialized")
 
             # Get data manager for file context
             logger.info("🔄 Getting data manager...")
@@ -1104,6 +1114,10 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             return json.dumps(self._create_clean_export_structure(notebook), indent=2, default=str)
         elif format == "jsonld" or format == "semantic":
             return self._export_to_jsonld(notebook)
+        elif format == "analysis":
+            return self._export_analysis_graph(notebook)
+        elif format == "profile":
+            return self._export_profile_graph(notebook)
         elif format == "markdown":
             return self._export_to_markdown(notebook)
         elif format == "html":
@@ -1360,6 +1374,54 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 "error": str(e)
             }
             return json.dumps(basic_export, indent=2, default=str)
+
+    def _export_analysis_graph(self, notebook: Notebook) -> str:
+        """
+        Export analysis flow knowledge graph.
+
+        Focuses on workflow and process:
+        - Cell execution sequence
+        - Variable definitions and reuse
+        - Data transformations
+        - Method application order
+        """
+        try:
+            analysis_graph = self.analysis_graph_service.extract_analysis_graph(notebook)
+            return json.dumps(analysis_graph, indent=2, default=str, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Error exporting analysis graph: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Fallback
+            return json.dumps({
+                "@context": {},
+                "@graph": [],
+                "error": f"Analysis graph extraction failed: {str(e)}"
+            }, indent=2)
+
+    def _export_profile_graph(self, notebook: Notebook) -> str:
+        """
+        Export profile knowledge graph.
+
+        Focuses on data and user:
+        - Data types and standards
+        - Analysis categories
+        - User skills (technical and domain)
+        - Research interests
+        """
+        try:
+            profile_graph = self.profile_graph_service.extract_profile_graph(notebook)
+            return json.dumps(profile_graph, indent=2, default=str, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Error exporting profile graph: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Fallback
+            return json.dumps({
+                "@context": {},
+                "@graph": [],
+                "error": f"Profile graph extraction failed: {str(e)}"
+            }, indent=2)
 
     def _export_to_html(self, notebook: Notebook) -> str:
         """Export notebook to HTML format."""
