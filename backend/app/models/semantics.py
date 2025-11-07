@@ -20,6 +20,7 @@ ONTOLOGY_CONTEXT = {
     "cito": "http://purl.org/spar/cito/",
     "prov": "http://www.w3.org/ns/prov#",
     "stato": "http://purl.obolibrary.org/obo/STATO_",
+    "dcat": "http://www.w3.org/ns/dcat#",
     "da": "https://digitalarticle.org/ontology#",
     "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
     "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
@@ -38,6 +39,40 @@ class EntityType(str, Enum):
     FINDING = "finding"
     CONCEPT = "concept"
     CLAIM = "claim"
+    TRANSFORMATION = "transformation"
+    USER = "user"
+    REFINED_ASSET = "refined_asset"
+
+
+class ConfidentialityLevel(str, Enum):
+    """Data confidentiality levels."""
+    C1_PUBLIC = "C1"  # Public data
+    C2_INTERNAL = "C2"  # Internal use
+    C3_CONFIDENTIAL = "C3"  # Confidential
+    C4_RESTRICTED = "C4"  # Highly restricted
+
+
+class AssetMetadata(BaseModel):
+    """Rich metadata for data assets."""
+    label: str  # Human-readable label
+    asset_type: str  # Ontology type (e.g., "dcat:Dataset", "da:Variable")
+    confidentiality: ConfidentialityLevel = ConfidentialityLevel.C2_INTERNAL
+    created: datetime = Field(default_factory=datetime.now)
+    owner: Optional[str] = None  # User ID or author
+    description: Optional[str] = None
+    provenance: List[str] = Field(default_factory=list)  # prov:wasDerivedFrom URIs
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON-LD properties."""
+        return {
+            "rdfs:label": self.label,
+            "rdf:type": self.asset_type,
+            "da:confidentiality": self.confidentiality.value,
+            "dcterms:created": self.created.isoformat(),
+            "dcterms:creator": self.owner,
+            "dcterms:description": self.description,
+            "prov:wasDerivedFrom": self.provenance
+        }
 
 
 class Triple(BaseModel):
@@ -70,6 +105,7 @@ class SemanticEntity(BaseModel):
     type: EntityType
     label: str  # Human-readable label
     properties: Dict[str, Any] = Field(default_factory=dict)  # Additional properties
+    metadata: Optional[AssetMetadata] = None  # Rich metadata for assets
 
     def to_jsonld(self) -> Dict[str, Any]:
         """Convert to JSON-LD node representation."""
@@ -78,6 +114,12 @@ class SemanticEntity(BaseModel):
             "@type": f"da:{self.type.value.capitalize()}",
             "rdfs:label": self.label
         }
+
+        # Add rich metadata if available
+        if self.metadata:
+            node.update(self.metadata.to_dict())
+
+        # Add additional properties
         node.update(self.properties)
         return node
 

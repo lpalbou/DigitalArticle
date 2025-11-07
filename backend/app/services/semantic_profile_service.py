@@ -7,10 +7,15 @@ Extracts high-level information about:
 - Analysis categories and methodologies
 - Technical and domain skills inferred
 - Research interests and domains
+
+Implements caching to avoid redundant extraction.
 """
 
 import re
-from typing import Dict, List, Set, Any
+import hashlib
+import json
+import logging
+from typing import Dict, List, Set, Any, Optional
 from collections import defaultdict
 
 from ..models.notebook import Notebook, Cell
@@ -19,29 +24,48 @@ from ..models.semantics import (
     EntityType, ONTOLOGY_CONTEXT
 )
 
+logger = logging.getLogger(__name__)
+
 
 class SemanticProfileService:
     """Extract profile and high-level categorization from notebooks."""
 
     # Technical skills mapping from libraries/methods
     TECHNICAL_SKILLS = {
+        # Data science core
         "pandas": {"skill": "Data Manipulation", "level": "technical", "category": "data_science"},
         "numpy": {"skill": "Numerical Computing", "level": "technical", "category": "data_science"},
+        "scipy": {"skill": "Scientific Computing", "level": "technical", "category": "statistics"},
+        # Visualization
         "matplotlib": {"skill": "Data Visualization", "level": "technical", "category": "visualization"},
         "seaborn": {"skill": "Statistical Visualization", "level": "technical", "category": "visualization"},
         "plotly": {"skill": "Interactive Visualization", "level": "technical", "category": "visualization"},
-        "scipy": {"skill": "Scientific Computing", "level": "technical", "category": "statistics"},
+        # Statistics and ML
         "sklearn": {"skill": "Machine Learning", "level": "technical", "category": "machine_learning"},
         "statsmodels": {"skill": "Statistical Modeling", "level": "technical", "category": "statistics"},
         "tensorflow": {"skill": "Deep Learning", "level": "advanced", "category": "machine_learning"},
         "pytorch": {"skill": "Deep Learning", "level": "advanced", "category": "machine_learning"},
         "keras": {"skill": "Neural Networks", "level": "advanced", "category": "machine_learning"},
+        # Biomedical/clinical libraries
+        "lifelines": {"skill": "Survival Analysis", "level": "advanced", "category": "biostatistics"},
+        "biopython": {"skill": "Bioinformatics", "level": "advanced", "category": "bioinformatics"},
+        "pydicom": {"skill": "Medical Imaging", "level": "advanced", "category": "medical_imaging"},
+        "nibabel": {"skill": "Neuroimaging", "level": "advanced", "category": "medical_imaging"},
     }
 
     # Domain interest inference from keywords and data types
     DOMAIN_INTERESTS = {
-        "bioinformatics": ["gene", "rna", "dna", "protein", "genomic", "sequencing", "fastq", "bam", "vcf"],
-        "clinical_research": ["patient", "clinical", "trial", "diagnosis", "treatment", "medical", "health"],
+        # Biomedical domains
+        "bioinformatics": ["gene", "rna", "dna", "protein", "genomic", "sequencing", "fastq", "bam", "vcf", "omics"],
+        "clinical_research": ["patient", "clinical", "trial", "diagnosis", "treatment", "medical", "health", "adverse event"],
+        "drug_development": ["drug", "compound", "pharmacology", "toxicity", "dose", "efficacy", "safety"],
+        "neuroscience": ["alzheimer", "dementia", "cognitive", "neurological", "brain", "neural", "adas", "mmse", "cdr"],
+        "epidemiology": ["population", "cohort", "incidence", "prevalence", "risk factor", "epidemiologic"],
+        "medical_imaging": ["mri", "ct", "pet", "scan", "dicom", "radiology", "imaging"],
+        "biostatistics": ["survival", "hazard", "odds ratio", "relative risk", "confidence interval", "p-value"],
+        # CDISC and regulatory
+        "regulatory_compliance": ["sdtm", "cdisc", "fda", "regulatory", "submission", "adam"],
+        # Other domains
         "finance": ["stock", "portfolio", "trading", "financial", "price", "market", "investment"],
         "social_science": ["survey", "respondent", "demographic", "social", "behavior", "psychology"],
         "image_analysis": ["image", "pixel", "opencv", "pillow", "segmentation", "detection"],
@@ -74,7 +98,55 @@ class SemanticProfileService:
         "dicom": {"type": "Medical Image", "standard": "DICOM", "domain": "medical"},
     }
 
-    def extract_profile_graph(self, notebook: Notebook) -> Dict[str, Any]:
+    def _generate_cache_key(self, notebook: Notebook) -> str:
+        """Generate a cache key based on notebook content state."""
+        cache_data = {
+            "notebook_id": str(notebook.id),
+            "updated_at": notebook.updated_at.isoformat(),
+            "cells": []
+        }
+
+        for cell in notebook.cells:
+            cell_data = {
+                "id": str(cell.id),
+                "prompt": cell.prompt or "",
+                "code": cell.code or ""
+            }
+            cache_data["cells"].append(cell_data)
+
+        cache_json = json.dumps(cache_data, sort_keys=True)
+        return hashlib.sha256(cache_json.encode()).hexdigest()
+
+    def _get_cached_graph(self, notebook: Notebook) -> Optional[Dict[str, Any]]:
+        """Get cached profile graph if valid."""
+        cache_key = self._generate_cache_key(notebook)
+
+        if hasattr(notebook, 'metadata') and isinstance(notebook.metadata, dict):
+            cached_data = notebook.metadata.get("semantic_cache_profile")
+
+            if cached_data and isinstance(cached_data, dict):
+                if cached_data.get("cache_key") == cache_key and cached_data.get("graph"):
+                    logger.info(f"✅ Using cached profile graph (key: {cache_key[:8]}...)")
+                    return cached_data["graph"]
+
+        return None
+
+    def _cache_graph(self, notebook: Notebook, graph: Dict[str, Any]) -> None:
+        """Cache the generated profile graph."""
+        cache_key = self._generate_cache_key(notebook)
+
+        if not hasattr(notebook, 'metadata') or not isinstance(notebook.metadata, dict):
+            notebook.metadata = {}
+
+        notebook.metadata["semantic_cache_profile"] = {
+            "cache_key": cache_key,
+            "graph": graph,
+            "cached_at": notebook.updated_at.isoformat()
+        }
+
+        logger.info(f"💾 Cached profile graph (key: {cache_key[:8]}...)")
+
+    def extract_profile_graph(self, notebook: Notebook, use_cache: bool = True) -> Dict[str, Any]:
         """
         Extract profile-focused knowledge graph.
 
@@ -84,7 +156,19 @@ class SemanticProfileService:
         - Analysis categories
         - Skills (technical and domain)
         - Research interests
+
+        Args:
+            notebook: The notebook to extract profile from
+            use_cache: If True, use cached graph if available (default: True)
         """
+        # Check cache first
+        if use_cache:
+            cached_graph = self._get_cached_graph(notebook)
+            if cached_graph:
+                return cached_graph
+
+        logger.info("🔄 Extracting profile graph (no valid cache)...")
+
         profile = {
             "@context": ONTOLOGY_CONTEXT,
             "@graph": [],
@@ -196,6 +280,10 @@ class SemanticProfileService:
 
         profile["@graph"] = graph_nodes
         profile["triples"] = triples
+
+        # Cache the generated graph
+        if use_cache:
+            self._cache_graph(notebook, profile)
 
         return profile
 

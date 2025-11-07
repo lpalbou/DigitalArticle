@@ -1,37 +1,157 @@
 """
 Analysis flow semantic extraction for Digital Article.
 
-Extracts workflow and process information:
-- Cell execution sequence and dependencies
-- Variable definitions and reuse across cells
-- Data transformations and lineage
-- Method application order
-- Narrative flow (abstract, methodology)
+Creates a knowledge graph showing the complete data lineage:
+- Data assets (input datasets, files)
+- Transformations (operations with methodology)
+- Refined assets (intermediate outputs, variables)
+- Outcomes (findings, visualizations, conclusions)
+
+All connected with provenance relationships (prov:wasDerivedFrom, prov:wasGeneratedBy, prov:used).
+
+Implements caching to avoid expensive LLM extraction when notebook hasn't changed.
 """
 
-import ast
-import re
-from typing import Dict, List, Set, Any, Tuple
+import logging
+import hashlib
+import json
+from typing import Dict, List, Any, Optional
 from collections import defaultdict
 
 from ..models.notebook import Notebook, Cell
-from ..models.semantics import ONTOLOGY_CONTEXT
+from ..models.semantics import ONTOLOGY_CONTEXT, Triple, SemanticEntity, EntityType
+from .llm_semantic_extractor import LLMSemanticExtractor
+
+logger = logging.getLogger(__name__)
 
 
 class SemanticAnalysisService:
-    """Extract analysis workflow and variable flow from notebooks."""
+    """Extract analysis workflow and data lineage from notebooks."""
 
-    def extract_analysis_graph(self, notebook: Notebook) -> Dict[str, Any]:
+    def __init__(self):
+        """Initialize the analysis service with LLM extractor."""
+        self.llm_extractor = LLMSemanticExtractor()
+
+    def _generate_cache_key(self, notebook: Notebook) -> str:
         """
-        Extract analysis-focused knowledge graph.
+        Generate a cache key based on notebook state.
 
-        Returns structured data with:
+        The cache key changes when:
+        - Cells are added/removed/reordered
+        - Cell content changes (prompt, code, results)
+        - Cell execution state changes
+
+        Returns:
+            Hash string representing current notebook state
+        """
+        cache_data = {
+            "notebook_id": str(notebook.id),
+            "updated_at": notebook.updated_at.isoformat(),
+            "cells": []
+        }
+
+        for cell in notebook.cells:
+            cell_data = {
+                "id": str(cell.id),
+                "prompt": cell.prompt or "",
+                "code": cell.code or "",
+                "execution_count": cell.execution_count,
+                "scientific_explanation": cell.scientific_explanation or "",
+            }
+
+            # Include result state if available
+            if cell.last_result:
+                cell_data["result_status"] = cell.last_result.status.value
+                cell_data["has_stdout"] = bool(cell.last_result.stdout)
+                cell_data["has_plots"] = len(cell.last_result.plots or [])
+                cell_data["has_tables"] = len(cell.last_result.tables or [])
+
+            cache_data["cells"].append(cell_data)
+
+        # Create hash
+        cache_json = json.dumps(cache_data, sort_keys=True)
+        cache_hash = hashlib.sha256(cache_json.encode()).hexdigest()
+
+        return cache_hash
+
+    def _get_cached_graph(self, notebook: Notebook, graph_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Get cached graph if it exists and is still valid.
+
+        Args:
+            notebook: The notebook to get cached graph for
+            graph_type: 'analysis' or 'profile'
+
+        Returns:
+            Cached graph dict or None if cache invalid/missing
+        """
+        cache_key = self._generate_cache_key(notebook)
+        cache_metadata_key = f"semantic_cache_{graph_type}"
+
+        # Check if notebook has cached graph in metadata
+        if hasattr(notebook, 'metadata') and isinstance(notebook.metadata, dict):
+            cached_data = notebook.metadata.get(cache_metadata_key)
+
+            if cached_data and isinstance(cached_data, dict):
+                cached_key = cached_data.get("cache_key")
+                cached_graph = cached_data.get("graph")
+
+                if cached_key == cache_key and cached_graph:
+                    logger.info(f"✅ Using cached {graph_type} graph (key: {cache_key[:8]}...)")
+                    return cached_graph
+
+        return None
+
+    def _cache_graph(self, notebook: Notebook, graph_type: str, graph: Dict[str, Any]) -> None:
+        """
+        Cache the generated graph in notebook metadata.
+
+        Args:
+            notebook: The notebook to cache graph for
+            graph_type: 'analysis' or 'profile'
+            graph: The generated graph to cache
+        """
+        cache_key = self._generate_cache_key(notebook)
+        cache_metadata_key = f"semantic_cache_{graph_type}"
+
+        # Ensure notebook has metadata dict
+        if not hasattr(notebook, 'metadata') or not isinstance(notebook.metadata, dict):
+            notebook.metadata = {}
+
+        # Store cache
+        notebook.metadata[cache_metadata_key] = {
+            "cache_key": cache_key,
+            "graph": graph,
+            "cached_at": notebook.updated_at.isoformat()
+        }
+
+        logger.info(f"💾 Cached {graph_type} graph (key: {cache_key[:8]}...)")
+
+    def extract_analysis_graph(self, notebook: Notebook, use_cache: bool = True) -> Dict[str, Any]:
+        """
+        Extract analysis-focused knowledge graph showing data lineage.
+
+        Creates a graph with:
+        - Data assets → Transformations → Refined assets → Outcomes
+        - Complete provenance chain
+        - Methodology and scientific context
         - Cell execution sequence
-        - Variable definitions and reuse
-        - Data lineage and transformations
-        - Method dependencies
-        - Narrative elements (abstract, methodology)
+
+        Args:
+            notebook: The notebook to extract graph from
+            use_cache: If True, use cached graph if available (default: True)
+
+        Returns:
+            JSON-LD graph with @context, @graph, triples, and metadata
         """
+        # Check cache first
+        if use_cache:
+            cached_graph = self._get_cached_graph(notebook, 'analysis')
+            if cached_graph:
+                return cached_graph
+
+        logger.info("🔄 Extracting analysis graph with LLM (no valid cache)...")
+
         analysis = {
             "@context": ONTOLOGY_CONTEXT,
             "@graph": [],
@@ -39,18 +159,32 @@ class SemanticAnalysisService:
             "metadata": {
                 "graph_type": "analysis_flow",
                 "notebook_id": str(notebook.id),
+                "notebook_title": notebook.title,
                 "extracted_at": notebook.updated_at.isoformat()
             }
         }
 
         graph_nodes = []
         triples = []
-
         notebook_id = f"notebook:{notebook.id}"
+
+        # Add notebook node
+        notebook_node = {
+            "@id": notebook_id,
+            "@type": "dcterms:Text",
+            "dcterms:title": notebook.title,
+            "dcterms:description": notebook.description or "Digital Article notebook",
+            "dcterms:creator": notebook.author or "Anonymous",
+            "dcterms:created": notebook.created_at.isoformat(),
+            "dcterms:modified": notebook.updated_at.isoformat(),
+            "da:llmProvider": notebook.llm_provider,
+            "da:llmModel": notebook.llm_model
+        }
+        graph_nodes.append(notebook_node)
 
         # Add abstract/methodology as narrative node if present
         if notebook.description:
-            abstract_id = f"narrative:abstract"
+            abstract_id = f"narrative:abstract_{notebook.id}"
             abstract_node = {
                 "@id": abstract_id,
                 "@type": "dcterms:Text",
@@ -65,28 +199,30 @@ class SemanticAnalysisService:
                 "object": abstract_id
             })
 
-        # Track variable definitions and usage across cells
-        var_definitions = {}  # var_name -> cell_id where defined
-        var_usage = defaultdict(list)  # var_name -> [cell_ids where used]
+        # Process cells in order using LLM extraction
+        all_assets = {}  # Track all assets by identifier
+        all_transformations = {}
+        all_outcomes = {}
 
-        # Process cells in order
         for idx, cell in enumerate(notebook.cells):
             cell_id = f"cell:{cell.id}"
 
-            # Create cell node with order
+            # Create cell node with step number as label
             cell_node = {
                 "@id": cell_id,
                 "@type": "da:Cell",
-                "dcterms:title": cell.prompt[:100] if cell.prompt else f"Cell {idx+1}",
+                "rdfs:label": f"Step {idx + 1}",
+                "dcterms:title": f"Analysis Step {idx + 1}",
                 "da:executionOrder": idx + 1,
                 "da:cellType": cell.cell_type.value
             }
 
+            # Add prompt as property (not label)
             if cell.prompt:
                 cell_node["da:prompt"] = cell.prompt
 
+            # Add methodology as property
             if cell.scientific_explanation:
-                # Add methodology as property
                 cell_node["da:methodology"] = cell.scientific_explanation
 
             graph_nodes.append(cell_node)
@@ -107,198 +243,114 @@ class SemanticAnalysisService:
                     "object": cell_id
                 })
 
-            # Extract variables from code
-            if cell.code:
-                defined_vars, used_vars = self._extract_variables(cell.code)
+            # Use LLM to extract rich semantics
+            try:
+                logger.info(f"🔍 Extracting semantics for cell {idx+1}/{len(notebook.cells)} using LLM...")
 
-                # Track variable definitions
-                for var in defined_vars:
-                    if var not in var_definitions:
-                        var_definitions[var] = cell_id
+                # Get previous cells for context
+                previous_cells = notebook.cells[:idx] if idx > 0 else None
 
-                        # Create variable node
-                        var_id = f"variable:{var}"
-                        var_node = {
-                            "@id": var_id,
-                            "@type": "da:Variable",
-                            "schema:name": var,
-                            "da:definedIn": cell_id
-                        }
-                        graph_nodes.append(var_node)
+                # Extract using LLM
+                extraction = self.llm_extractor.extract_rich_semantics(
+                    cell=cell,
+                    notebook=notebook,
+                    previous_cells=previous_cells
+                )
 
-                        # Link cell defines variable
-                        triples.append({
-                            "subject": cell_id,
-                            "predicate": "da:definesVariable",
-                            "object": var_id
-                        })
+                # Add data assets
+                for asset_entity in extraction.get("data_assets", []):
+                    node = asset_entity.to_jsonld()
+                    graph_nodes.append(node)
+                    all_assets[asset_entity.id] = asset_entity
 
-                # Track variable usage
-                for var in used_vars:
-                    if var in var_definitions and var_definitions[var] != cell_id:
-                        var_usage[var].append(cell_id)
+                    # Link cell uses asset
+                    triples.append({
+                        "subject": cell_id,
+                        "predicate": "prov:used",
+                        "object": asset_entity.id
+                    })
 
-                        # Link cell uses variable
-                        var_id = f"variable:{var}"
-                        triples.append({
-                            "subject": cell_id,
-                            "predicate": "da:usesVariable",
-                            "object": var_id
-                        })
+                # Add transformations
+                for trans_entity in extraction.get("transformations", []):
+                    node = trans_entity.to_jsonld()
+                    graph_nodes.append(node)
+                    all_transformations[trans_entity.id] = trans_entity
 
-                        # Create dependency on defining cell
-                        defining_cell = var_definitions[var]
-                        triples.append({
-                            "subject": cell_id,
-                            "predicate": "prov:wasDerivedFrom",
-                            "object": defining_cell
-                        })
+                    # Link cell performs transformation
+                    triples.append({
+                        "subject": cell_id,
+                        "predicate": "da:performsTransformation",
+                        "object": trans_entity.id
+                    })
 
-            # Add findings from execution results
-            if cell.last_result and cell.last_result.status.value == "success":
-                # Link outputs
-                if cell.last_result.plots:
-                    for i, _ in enumerate(cell.last_result.plots):
-                        viz_id = f"visualization:{cell.id}_plot_{i}"
-                        viz_node = {
-                            "@id": viz_id,
-                            "@type": "da:Visualization",
-                            "schema:name": f"Plot {i+1}",
-                            "da:format": "image/png"
-                        }
-                        graph_nodes.append(viz_node)
+                # Add refined assets
+                for refined_entity in extraction.get("refined_assets", []):
+                    node = refined_entity.to_jsonld()
+                    graph_nodes.append(node)
+                    all_assets[refined_entity.id] = refined_entity
 
-                        triples.append({
-                            "subject": cell_id,
-                            "predicate": "da:produces",
-                            "object": viz_id
-                        })
+                    # Link cell generates refined asset
+                    triples.append({
+                        "subject": refined_entity.id,
+                        "predicate": "prov:wasGeneratedBy",
+                        "object": cell_id
+                    })
 
-                # Extract and link statistical findings
-                if cell.last_result.stdout:
-                    findings = self._extract_findings(cell.last_result.stdout)
-                    for finding_info in findings:
-                        finding_id = f"finding:{cell.id}_{finding_info['metric']}"
-                        finding_node = {
-                            "@id": finding_id,
-                            "@type": "da:Finding",
-                            "schema:name": finding_info["metric"],
-                            "da:value": finding_info["value"]
-                        }
-                        graph_nodes.append(finding_node)
+                # Add outcomes
+                for outcome_entity in extraction.get("outcomes", []):
+                    node = outcome_entity.to_jsonld()
+                    graph_nodes.append(node)
+                    all_outcomes[outcome_entity.id] = outcome_entity
 
-                        triples.append({
-                            "subject": cell_id,
-                            "predicate": "da:produces",
-                            "object": finding_id
-                        })
+                    # Link cell produces outcome
+                    triples.append({
+                        "subject": cell_id,
+                        "predicate": "da:produces",
+                        "object": outcome_entity.id
+                    })
 
-        # Add variable transformation relationships
-        for var, cell_ids in var_usage.items():
-            var_id = f"variable:{var}"
-            # Track how variable is transformed across cells
-            for cell_id in cell_ids:
-                # Check if this cell redefines the variable (transformation)
-                cell = self._get_cell_by_id(notebook, cell_id)
-                if cell and cell.code:
-                    if self._variable_is_reassigned(cell.code, var):
-                        # This is a transformation
-                        triples.append({
-                            "subject": cell_id,
-                            "predicate": "da:transforms",
-                            "object": var_id
-                        })
+                # Add provenance relationships from extraction
+                for relationship in extraction.get("relationships", []):
+                    triples.append(relationship.to_dict())
+
+                logger.info(
+                    f"✅ Cell {idx+1}: {len(extraction.get('data_assets', []))} assets, "
+                    f"{len(extraction.get('transformations', []))} transformations, "
+                    f"{len(extraction.get('outcomes', []))} outcomes"
+                )
+
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to extract semantics for cell {cell.id}: {e}")
+                # Continue with next cell even if extraction fails
+                continue
+
+        # Create summary statistics
+        analysis["metadata"]["total_cells"] = len(notebook.cells)
+        analysis["metadata"]["total_assets"] = len(all_assets)
+        analysis["metadata"]["total_transformations"] = len(all_transformations)
+        analysis["metadata"]["total_outcomes"] = len(all_outcomes)
+        analysis["metadata"]["total_triples"] = len(triples)
+
+        # Add asset summary
+        asset_types = defaultdict(int)
+        for asset in all_assets.values():
+            asset_type = asset.metadata.asset_type if asset.metadata else "unknown"
+            asset_types[asset_type] += 1
+
+        analysis["metadata"]["asset_types"] = dict(asset_types)
 
         analysis["@graph"] = graph_nodes
         analysis["triples"] = triples
 
+        logger.info(
+            f"📊 Analysis graph complete: {len(all_assets)} assets, "
+            f"{len(all_transformations)} transformations, "
+            f"{len(all_outcomes)} outcomes, "
+            f"{len(triples)} relationships"
+        )
+
+        # Cache the generated graph
+        if use_cache:
+            self._cache_graph(notebook, 'analysis', analysis)
+
         return analysis
-
-    def _extract_variables(self, code: str) -> Tuple[Set[str], Set[str]]:
-        """
-        Extract variables defined and used in code.
-
-        Returns:
-            (defined_vars, used_vars)
-        """
-        defined = set()
-        used = set()
-
-        try:
-            tree = ast.parse(code)
-
-            for node in ast.walk(tree):
-                # Variables assigned (defined)
-                if isinstance(node, ast.Assign):
-                    for target in node.targets:
-                        if isinstance(target, ast.Name):
-                            defined.add(target.id)
-
-                # Variables used
-                elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
-                    used.add(node.id)
-
-        except SyntaxError:
-            pass
-
-        # Remove builtins and private vars
-        defined = {v for v in defined if not v.startswith('_') and v not in dir(__builtins__)}
-        used = {v for v in used if not v.startswith('_') and v not in dir(__builtins__)}
-
-        return defined, used
-
-    def _variable_is_reassigned(self, code: str, var_name: str) -> bool:
-        """Check if a variable is reassigned (transformed) in code."""
-        try:
-            tree = ast.parse(code)
-
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Assign):
-                    for target in node.targets:
-                        if isinstance(target, ast.Name) and target.id == var_name:
-                            # Check if variable appears on right side (transformation)
-                            for n in ast.walk(node.value):
-                                if isinstance(n, ast.Name) and n.id == var_name:
-                                    return True
-        except SyntaxError:
-            pass
-
-        return False
-
-    def _get_cell_by_id(self, notebook: Notebook, cell_id: str) -> Cell:
-        """Get cell by ID string (format: 'cell:uuid')."""
-        uuid_str = cell_id.split(':')[1] if ':' in cell_id else cell_id
-
-        for cell in notebook.cells:
-            if str(cell.id) == uuid_str:
-                return cell
-
-        return None
-
-    def _extract_findings(self, text: str) -> List[Dict[str, Any]]:
-        """Extract statistical findings from text output."""
-        findings = []
-
-        # Common statistical patterns
-        patterns = {
-            "mean": r'mean[:\s=]+(-?\d+\.?\d*)',
-            "median": r'median[:\s=]+(-?\d+\.?\d*)',
-            "std": r'std[:\s=]+(-?\d+\.?\d*)',
-            "count": r'count[:\s=]+(\d+)',
-            "p_value": r'p[-\s]?value[:\s=]+(-?\d+\.?\d*)',
-            "correlation": r'corr(?:elation)?[:\s=]+(-?\d+\.?\d*)',
-        }
-
-        for metric, pattern in patterns.items():
-            matches = re.finditer(pattern, text.lower())
-            for match in matches:
-                try:
-                    value = float(match.group(1))
-                    findings.append({
-                        "metric": metric,
-                        "value": value
-                    })
-                except (ValueError, IndexError):
-                    continue
-
-        return findings

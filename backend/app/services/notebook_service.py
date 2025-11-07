@@ -1112,9 +1112,8 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
 
         if format == "json":
             return json.dumps(self._create_clean_export_structure(notebook), indent=2, default=str)
-        elif format == "jsonld" or format == "semantic":
-            return self._export_to_jsonld(notebook)
-        elif format == "analysis":
+        elif format == "jsonld" or format == "semantic" or format == "analysis":
+            # All semantic formats now use the same LLM-based analysis graph
             return self._export_analysis_graph(notebook)
         elif format == "profile":
             return self._export_profile_graph(notebook)
@@ -1283,98 +1282,6 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         
         return "\n".join(md_lines)
 
-    def _export_to_jsonld(self, notebook: Notebook) -> str:
-        """
-        Export notebook to JSON-LD semantic graph format.
-
-        This creates a JSON-LD representation of the notebook with:
-        - Standard ontology context (Dublin Core, Schema.org, SKOS, CiTO, PROV)
-        - Semantic entities (notebooks, cells, datasets, methods, etc.)
-        - Relationships as RDF triples
-        - Knowledge graph for cross-notebook interoperability
-
-        Returns:
-            JSON string with JSON-LD representation
-        """
-        try:
-            # Extract complete notebook semantics
-            notebook_semantics = self.semantic_service.extract_notebook_semantics(notebook)
-
-            # Get the JSON-LD graph representation
-            jsonld_data = notebook_semantics.to_jsonld_graph()
-
-            # Enhance with notebook content for hybrid export
-            # This combines semantic data with readable content
-            enhanced_export = {
-                "@context": jsonld_data["@context"],
-                "metadata": {
-                    "digital_article": {
-                        "version": "0.0.3",
-                        "export_timestamp": datetime.now().isoformat(),
-                        "export_format": "jsonld"
-                    },
-                    "notebook": {
-                        "id": str(notebook.id),
-                        "title": notebook.title,
-                        "description": notebook.description,
-                        "author": notebook.author,
-                        "created_at": notebook.created_at.isoformat(),
-                        "updated_at": notebook.updated_at.isoformat()
-                    },
-                    "semantic_summary": {
-                        "total_cells": len(notebook.cells),
-                        "total_entities": jsonld_data["metadata"]["total_entities"],
-                        "total_triples": jsonld_data["metadata"]["total_triples"],
-                        "datasets_used": notebook_semantics.get_all_datasets(),
-                        "methods_used": notebook_semantics.get_all_methods(),
-                        "libraries_used": notebook_semantics.get_all_libraries(),
-                        "concepts_mentioned": notebook_semantics.get_all_concepts()
-                    }
-                },
-                "@graph": jsonld_data["@graph"],
-                "triples": jsonld_data["triples"],
-                "cells": []
-            }
-
-            # Add cell-level semantic annotations
-            for cell, cell_semantics in zip(notebook.cells, notebook_semantics.cell_semantics):
-                cell_export = {
-                    "id": str(cell.id),
-                    "type": cell.cell_type.value,
-                    "semantic_id": cell_semantics.cell_id,
-                    "content": {
-                        "prompt": cell.prompt if cell.prompt else None,
-                        "code": cell.code if cell.code else None,
-                        "methodology": cell.scientific_explanation if cell.scientific_explanation else None
-                    },
-                    "semantics": {
-                        "intent_tags": cell_semantics.intent_tags,
-                        "libraries_used": cell_semantics.libraries_used,
-                        "methods_used": cell_semantics.methods_used,
-                        "datasets_used": cell_semantics.datasets_used,
-                        "variables_defined": cell_semantics.variables_defined,
-                        "concepts_mentioned": cell_semantics.concepts_mentioned,
-                        "statistical_findings": cell_semantics.statistical_findings,
-                        "entity_count": len(cell_semantics.entities),
-                        "triple_count": len(cell_semantics.triples)
-                    }
-                }
-                enhanced_export["cells"].append(cell_export)
-
-            return json.dumps(enhanced_export, indent=2, default=str, ensure_ascii=False)
-
-        except Exception as e:
-            logger.error(f"Error exporting notebook to JSON-LD: {e}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            # Fallback to basic JSON export with error note
-            basic_export = self._create_clean_export_structure(notebook)
-            basic_export["export_error"] = {
-                "message": "Semantic extraction failed, falling back to standard JSON export",
-                "error": str(e)
-            }
-            return json.dumps(basic_export, indent=2, default=str)
-
     def _export_analysis_graph(self, notebook: Notebook) -> str:
         """
         Export analysis flow knowledge graph.
@@ -1387,6 +1294,10 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         """
         try:
             analysis_graph = self.analysis_graph_service.extract_analysis_graph(notebook)
+
+            # Save notebook to persist cached graph
+            self._save_notebook(notebook)
+
             return json.dumps(analysis_graph, indent=2, default=str, ensure_ascii=False)
         except Exception as e:
             logger.error(f"Error exporting analysis graph: {e}")
@@ -1411,6 +1322,10 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         """
         try:
             profile_graph = self.profile_graph_service.extract_profile_graph(notebook)
+
+            # Save notebook to persist cached graph
+            self._save_notebook(notebook)
+
             return json.dumps(profile_graph, indent=2, default=str, ensure_ascii=False)
         except Exception as e:
             logger.error(f"Error exporting profile graph: {e}")

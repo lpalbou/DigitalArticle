@@ -5,6 +5,7 @@ import Header from './Header'
 import FileContextPanel from './FileContextPanel'
 import NotebookCell from './NotebookCell'
 import PDFGenerationModal from './PDFGenerationModal'
+import SemanticExtractionModal from './SemanticExtractionModal'
 import LLMStatusFooter from './LLMStatusFooter'
 import LLMSettingsModal from './LLMSettingsModal'
 import DependencyModal from './DependencyModal'
@@ -57,6 +58,11 @@ const NotebookContainer: React.FC = () => {
   // PDF generation state
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
   const [pdfGenerationStage, setPdfGenerationStage] = useState<'analyzing' | 'regenerating_abstract' | 'planning_article' | 'writing_introduction' | 'writing_methodology' | 'writing_results' | 'writing_discussion' | 'writing_conclusions' | 'creating_pdf' | 'complete'>('analyzing')
+
+  // Semantic extraction state
+  const [isExtractingSemantics, setIsExtractingSemantics] = useState(false)
+  const [semanticExtractionStage, setSemanticExtractionStage] = useState<'analyzing' | 'extracting' | 'building_graph' | 'complete'>('analyzing')
+  const [semanticGraphType, setSemanticGraphType] = useState<'analysis' | 'profile'>('analysis')
 
   // LLM settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -231,17 +237,46 @@ const NotebookContainer: React.FC = () => {
     if (!notebook) return
 
     try {
+      setIsExtractingSemantics(true)
+      setSemanticGraphType('analysis') // Default to analysis for export
+      setError(null)
+
+      // Stage 1: Analyzing notebook
+      setSemanticExtractionStage('analyzing')
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      // Stage 2: Extracting semantics with LLM
+      setSemanticExtractionStage('extracting')
+
       const jsonldContent = await notebookAPI.export(notebook.id, 'jsonld')
+
+      // Stage 3: Building graph
+      setSemanticExtractionStage('building_graph')
+      await new Promise(resolve => setTimeout(resolve, 800))
+
       downloadFile(jsonldContent, `${notebook.title}-semantic.jsonld`, 'application/ld+json')
+
+      // Stage 4: Complete
+      setSemanticExtractionStage('complete')
+      await new Promise(resolve => setTimeout(resolve, 500))
 
       setError(null)
       setToast({
         message: `Digital Article "${notebook.title}" exported as JSON-LD successfully`,
         type: 'success'
       })
+
+      // Close modal after brief delay
+      setTimeout(() => {
+        setIsExtractingSemantics(false)
+        setSemanticExtractionStage('analyzing')
+      }, 1000)
+
     } catch (err) {
       const apiError = handleAPIError(err)
       setError(`Semantic export failed: ${apiError.message}`)
+      setIsExtractingSemantics(false)
+      setSemanticExtractionStage('analyzing')
     }
   }, [notebook])
 
@@ -249,22 +284,50 @@ const NotebookContainer: React.FC = () => {
     if (!notebook) return
 
     try {
-      // Get graph data based on type
+      setIsExtractingSemantics(true)
+      setSemanticGraphType(graphType)
+      setError(null)
+
+      // Stage 1: Analyzing notebook
+      setSemanticExtractionStage('analyzing')
+      await new Promise(resolve => setTimeout(resolve, 800))
+
+      // Stage 2: Extracting semantics with LLM (this is the real work)
+      setSemanticExtractionStage('extracting')
+
+      // Get graph data based on type (this calls the backend which does LLM extraction)
       const graphData = await notebookAPI.export(notebook.id, graphType)
       const parsedData = JSON.parse(graphData)
+
+      // Stage 3: Building knowledge graph
+      setSemanticExtractionStage('building_graph')
+      await new Promise(resolve => setTimeout(resolve, 1000))
 
       // Store in localStorage with a unique key
       const storageKey = `kg-data-${graphType}-${notebook.id}-${Date.now()}`
       localStorage.setItem(storageKey, JSON.stringify(parsedData))
+
+      // Stage 4: Complete
+      setSemanticExtractionStage('complete')
+      await new Promise(resolve => setTimeout(resolve, 500))
 
       // Open knowledge graph viewer in new tab with storage key
       const kgUrl = `/knowledge-graph-explorer.html?key=${storageKey}`
       window.open(kgUrl, '_blank')
 
       setError(null)
+
+      // Close modal after a brief delay
+      setTimeout(() => {
+        setIsExtractingSemantics(false)
+        setSemanticExtractionStage('analyzing')
+      }, 1000)
+
     } catch (err) {
       const apiError = handleAPIError(err)
       setError(`Failed to open knowledge graph: ${apiError.message}`)
+      setIsExtractingSemantics(false)
+      setSemanticExtractionStage('analyzing')
     }
   }, [notebook])
 
@@ -801,6 +864,13 @@ const NotebookContainer: React.FC = () => {
       <PDFGenerationModal
         isVisible={isGeneratingPDF}
         stage={pdfGenerationStage}
+      />
+
+      {/* Semantic Extraction Modal */}
+      <SemanticExtractionModal
+        isVisible={isExtractingSemantics}
+        stage={semanticExtractionStage}
+        graphType={semanticGraphType}
       />
 
       {/* Content with top padding for header and bottom padding for footer */}
