@@ -134,6 +134,7 @@ class Notebook(BaseModel):
     # Configuration
     llm_model: str = "qwen/qwen3-next-80b"
     llm_provider: str = "lmstudio"
+    custom_seed: Optional[int] = None  # User-defined seed for reproducibility
 
     # Token tracking
     last_context_tokens: int = 0  # Last known context size from generation
@@ -254,3 +255,4 @@ class NotebookUpdateRequest(BaseModel):
     tags: Optional[List[str]] = None
     llm_model: Optional[str] = None
     llm_provider: Optional[str] = None
+    custom_seed: Optional[int] = None

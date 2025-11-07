@@ -8,10 +8,12 @@ such as code generation, explanation, and provider management.
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from typing import List, Optional
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from ..services.shared import notebook_service
 from ..config import config, CONFIG_FILE
-from abstractcore import create_llm, ModelNotFoundError, ProviderAPIError, AuthenticationError
+from abstractcore.providers import get_all_providers_with_models
 import logging
 
 logger = logging.getLogger(__name__)
@@ -45,7 +47,7 @@ async def generate_code(request: CodeGenerationRequest):
     """Generate Python code from a natural language prompt."""
     try:
         code = llm_service.generate_code_from_prompt(
-            request.prompt, 
+            request.prompt,
             request.context if request.context else None
         )
         return {"code": code}
@@ -86,16 +88,13 @@ async def improve_code(request: CodeImprovementRequest):
         )
 
 
-
-
 class ProviderInfo(BaseModel):
     """Information about an LLM provider."""
     name: str
     display_name: str
     available: bool
-    error: Optional[str] = None
-    default_model: Optional[str] = None
-    models: List[str] = []
+    default_model: str
+    models: List[str]
 
 
 class ProviderSelectionRequest(BaseModel):
@@ -107,97 +106,37 @@ class ProviderSelectionRequest(BaseModel):
 @router.get("/providers", response_model=List[ProviderInfo])
 async def get_available_providers():
     """
-    Get list of available LLM providers with their status and available models.
-
-    Returns:
-        List of providers with availability status
+    Get list of available LLM providers with their models.
+    Uses AbstractCore's provider registry.
     """
-    providers_to_check = [
-        {"name": "lmstudio", "display_name": "LM Studio", "default": "qwen/qwen3-next-80b"},
-        {"name": "ollama", "display_name": "Ollama", "default": "qwen3-coder:30b"},
-        {"name": "anthropic", "display_name": "Anthropic (Claude)", "default": "claude-3-5-haiku-latest"},
-        {"name": "openai", "display_name": "OpenAI (GPT)", "default": "gpt-4o-mini"},
-        {"name": "mlx", "display_name": "MLX (Apple Silicon)", "default": "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit"},
+    logger.info("🔍 Detecting available LLM providers...")
+
+    # Use AbstractCore's provider registry - it handles all provider detection
+    loop = asyncio.get_event_loop()
+
+    def _get_providers():
+        return get_all_providers_with_models()
+
+    # Run in thread pool to avoid blocking
+    providers = await loop.run_in_executor(None, _get_providers)
+
+    # Convert to our ProviderInfo format (only include available providers)
+    results = [
+        ProviderInfo(
+            name=p['name'],
+            display_name=p['display_name'],
+            available=True,
+            default_model=p['models'][0] if p.get('models') else '',
+            models=p.get('models', [])
+        )
+        for p in providers
+        if p.get('status') == 'available' and p.get('models')
     ]
 
-    results = []
-
-    for provider_info in providers_to_check:
-        provider_name = provider_info["name"]
-        default_model = provider_info["default"]
-
-        try:
-            # Try to create an LLM instance with the default model
-            llm = create_llm(provider_name, model=default_model)
-
-            # Try to get available models dynamically
-            models = []
-            try:
-                if hasattr(llm, 'list_available_models'):
-                    models_list = llm.list_available_models()
-                    if isinstance(models_list, list):
-                        models = models_list[:20]  # Limit to first 20 models
-                        logger.info(f"Retrieved {len(models)} models for {provider_name}")
-                    else:
-                        models = [default_model]
-                else:
-                    models = [default_model]
-            except Exception as e:
-                logger.warning(f"Could not list models for {provider_name}: {e}")
-                models = [default_model]
-
-            # If successful, provider is available
-            results.append(ProviderInfo(
-                name=provider_name,
-                display_name=provider_info["display_name"],
-                available=True,
-                default_model=default_model,
-                models=models if models else [default_model]
-            ))
-
-        except AuthenticationError as e:
-            # Provider exists but needs API key
-            results.append(ProviderInfo(
-                name=provider_name,
-                display_name=provider_info["display_name"],
-                available=False,
-                error=f"Authentication required: Set API key in environment",
-                default_model=default_model,
-                models=provider_info.get("models", [])
-            ))
-
-        except ModelNotFoundError as e:
-            # Provider exists but model not found (still mark as potentially available)
-            results.append(ProviderInfo(
-                name=provider_name,
-                display_name=provider_info["display_name"],
-                available=False,
-                error=f"Model not found. Provider may be offline or model not installed",
-                default_model=default_model,
-                models=provider_info.get("models", [])
-            ))
-
-        except ImportError as e:
-            # Provider dependencies not installed
-            results.append(ProviderInfo(
-                name=provider_name,
-                display_name=provider_info["display_name"],
-                available=False,
-                error="Dependencies not installed",
-                default_model=default_model,
-                models=[]
-            ))
-
-        except Exception as e:
-            # Other errors (network, etc.)
-            results.append(ProviderInfo(
-                name=provider_name,
-                display_name=provider_info["display_name"],
-                available=False,
-                error=str(e)[:100],  # Truncate long error messages
-                default_model=default_model,
-                models=provider_info.get("models", [])
-            ))
+    if results:
+        logger.info(f"🏁 Found {len(results)} available providers")
+    else:
+        logger.warning("⚠️ No LLM providers found")
 
     return results
 
@@ -206,27 +145,18 @@ async def get_available_providers():
 async def select_provider(request: ProviderSelectionRequest):
     """
     Select a provider and model for code generation.
-
-    This will update the global LLM service configuration and save to project config.
-
-    Args:
-        request: Provider and model selection
-
-    Returns:
-        Success status and configuration
+    Updates global configuration and reinitializes the LLM.
     """
     try:
-        # Save to project-level configuration FIRST
+        # Save to project configuration
         config.set_llm_config(request.provider, request.model)
 
-        # Update the notebook service's LLM configuration
+        # Update notebook service configuration
         notebook_service.llm_service.provider = request.provider
         notebook_service.llm_service.model = request.model
-
-        # CRITICAL: Reinitialize the LLM with new provider/model
         notebook_service.llm_service._initialize_llm()
 
-        logger.info(f"✅ LLM configuration updated and reinitialized: {request.provider}/{request.model}")
+        logger.info(f"✅ LLM configured: {request.provider}/{request.model}")
 
         return {
             "success": True,
@@ -245,18 +175,11 @@ async def select_provider(request: ProviderSelectionRequest):
 
 @router.get("/config")
 async def get_current_config():
-    """
-    Get the current global LLM configuration.
-
-    Returns the currently configured provider and model from global config.
-    """
+    """Get the current global LLM configuration."""
     try:
-        provider = config.get_llm_provider()
-        model = config.get_llm_model()
-
         return {
-            "provider": provider,
-            "model": model,
+            "provider": config.get_llm_provider(),
+            "model": config.get_llm_model(),
             "config_file": str(CONFIG_FILE)
         }
     except Exception as e:
@@ -270,26 +193,16 @@ async def get_current_config():
 @router.get("/status")
 async def get_llm_status(notebook_id: Optional[str] = None):
     """
-    Get detailed status of the currently active LLM including token configuration.
-
-    Returns provider, model, context size, and connection status.
-    Optionally includes ACTUAL context tokens from last generation (via AbstractCore).
-
-    Args:
-        notebook_id: Optional notebook ID to get actual token usage
-
-    Note:
-        Uses ONLY AbstractCore's response.usage for token counts.
-        NO estimation - only real data from LLM provider.
+    Get detailed status of the currently active LLM.
+    Returns provider, model, token configuration, and connection status.
     """
     try:
         llm_service = notebook_service.llm_service
 
-        # Get token configuration from the LLM instance
         status_info = {
             "provider": llm_service.provider,
             "model": llm_service.model,
-            "status": "unknown",  # Will be updated after health check
+            "status": "unknown",
             "max_tokens": None,
             "max_input_tokens": None,
             "max_output_tokens": None,
@@ -297,39 +210,36 @@ async def get_llm_status(notebook_id: Optional[str] = None):
             "active_context_tokens": None
         }
 
-        # Check provider health using AbstractCore 2.5.2's provider.health() method
+        # Check provider health
         try:
             health_result = llm_service.check_provider_health()
             status_info["status"] = health_result["status"]
             if not health_result["healthy"]:
                 status_info["error_message"] = health_result["message"]
-            
-            # Get token configuration if LLM is available
+
+            # Get token configuration
             if hasattr(llm_service, 'llm') and llm_service.llm is not None:
                 llm = llm_service.llm
                 status_info["max_tokens"] = getattr(llm, 'max_tokens', None)
                 status_info["max_input_tokens"] = getattr(llm, 'max_input_tokens', None)
                 status_info["max_output_tokens"] = getattr(llm, 'max_output_tokens', None)
 
-                # Get formatted token summary if available
                 if hasattr(llm, 'get_token_configuration_summary'):
                     try:
                         status_info["token_summary"] = llm.get_token_configuration_summary()
                     except:
                         pass
-                        
+
         except Exception as health_error:
             status_info["status"] = "error"
             status_info["error_message"] = f"Health check failed: {str(health_error)}"
             logger.error(f"❌ LLM health check failed: {health_error}")
 
-        # Get ACTUAL context tokens from last generation (via AbstractCore response.usage)
+        # Get actual context tokens from last generation
         if notebook_id:
             try:
-                # First, try to get from token tracker (in-memory, current session)
                 actual_context_tokens = llm_service.token_tracker.get_current_context_tokens(notebook_id)
 
-                # If not available, try to get from persisted notebook data
                 if actual_context_tokens == 0:
                     notebook = notebook_service.get_notebook(notebook_id)
                     if notebook and hasattr(notebook, 'last_context_tokens') and notebook.last_context_tokens > 0:

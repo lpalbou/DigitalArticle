@@ -42,39 +42,29 @@ const LLMSettingsModal: React.FC<LLMSettingsModalProps> = ({ isOpen, onClose, cu
       const response = await axios.get<Provider[]>('/api/llm/providers')
       setProviders(response.data)
 
-      // Implement cascading fallback logic
-      const fallbackOrder = ['lmstudio', 'ollama', 'anthropic', 'openai', 'mlx']
+      // Smart cascading fallback logic for provider/model selection
       let selectedProv = null
       let selectedMod = null
 
-      // First, try to find LMStudio with qwen/qwen3-next-80b
       const lmstudio = response.data.find(p => p.name === 'lmstudio')
-      if (lmstudio?.available && lmstudio.default_model === 'qwen/qwen3-next-80b') {
-        selectedProv = lmstudio.name
-        selectedMod = lmstudio.default_model
-      } else {
-        // Fallback: Find first available local provider (lmstudio, ollama, mlx)
-        const localProviders = response.data.filter(p =>
-          ['lmstudio', 'ollama', 'mlx'].includes(p.name) && p.available
-        )
 
-        if (localProviders.length > 0) {
-          selectedProv = localProviders[0].name
-          selectedMod = localProviders[0].default_model || localProviders[0].models[0]
-        } else {
-          // Fallback to Anthropic Claude Haiku
-          const anthropic = response.data.find(p => p.name === 'anthropic')
-          if (anthropic?.available) {
-            selectedProv = anthropic.name
-            selectedMod = 'claude-3-5-haiku-latest'
-          } else {
-            // Final fallback to OpenAI GPT-4o-mini
-            const openai = response.data.find(p => p.name === 'openai')
-            if (openai?.available) {
-              selectedProv = openai.name
-              selectedMod = 'gpt-4o-mini'
-            }
-          }
+      if (lmstudio?.available) {
+        selectedProv = lmstudio.name
+
+        // Try preferred models in order
+        if (lmstudio.models.includes('qwen/qwen3-next-80b')) {
+          selectedMod = 'qwen/qwen3-next-80b'
+        } else if (lmstudio.models.includes('qwen/qwen3-coder-30b')) {
+          selectedMod = 'qwen/qwen3-coder-30b'
+        } else if (lmstudio.models.length > 0) {
+          selectedMod = lmstudio.models[0]
+        }
+      } else {
+        // LMStudio not available - use first available provider with first model
+        const firstAvailable = response.data.find(p => p.available && p.models.length > 0)
+        if (firstAvailable) {
+          selectedProv = firstAvailable.name
+          selectedMod = firstAvailable.models[0]
         }
       }
 

@@ -607,7 +607,9 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             notebook.llm_model = request.llm_model
         if request.llm_provider is not None:
             notebook.llm_provider = request.llm_provider
-        
+        if request.custom_seed is not None:
+            notebook.custom_seed = request.custom_seed
+
         notebook.updated_at = datetime.now()
         self._save_notebook(notebook)
         
