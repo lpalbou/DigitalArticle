@@ -199,9 +199,20 @@ async def get_llm_status(notebook_id: Optional[str] = None):
     try:
         llm_service = notebook_service.llm_service
 
+        # Get provider/model from notebook if available, otherwise use global
+        provider = llm_service.provider
+        model = llm_service.model
+
+        if notebook_id:
+            notebook = notebook_service.get_notebook(notebook_id)
+            if notebook:
+                provider = notebook.llm_provider
+                model = notebook.llm_model
+                logger.info(f"📊 Using notebook-specific config: {provider}/{model}")
+
         status_info = {
-            "provider": llm_service.provider,
-            "model": llm_service.model,
+            "provider": provider,
+            "model": model,
             "status": "unknown",
             "max_tokens": None,
             "max_input_tokens": None,

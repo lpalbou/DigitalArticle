@@ -43,9 +43,20 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ onSettingsClick, note
 
   useEffect(() => {
     fetchStatus()
+
     // Refresh status every 60 seconds (reasonable for health checks)
     const interval = setInterval(fetchStatus, 60000)
-    return () => clearInterval(interval)
+
+    // Listen for settings updates and refresh immediately
+    const handleSettingsUpdate = () => {
+      fetchStatus()
+    }
+    window.addEventListener('llm-settings-updated', handleSettingsUpdate)
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('llm-settings-updated', handleSettingsUpdate)
+    }
   }, [notebookId])  // Re-fetch when notebook changes
 
   const formatTokens = (tokens: number | null): string => {

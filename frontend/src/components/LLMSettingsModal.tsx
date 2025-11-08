@@ -125,21 +125,27 @@ const LLMSettingsModal: React.FC<LLMSettingsModalProps> = ({ isOpen, onClose, cu
 
     try {
       setSaving(true)
-      
-      // Save LLM provider settings
+
+      // Save LLM provider settings globally
       await axios.post('/api/llm/providers/select', {
         provider: selectedProvider,
         model: selectedModel
       })
-      
-      // Save seed settings if notebook is available
-      if (currentNotebookId && useCustomSeed && customSeed) {
-        await axios.post(`/api/notebooks/${currentNotebookId}/seed`, {
-          seed: parseInt(customSeed)
+
+      // Update current notebook's provider/model if available
+      if (currentNotebookId) {
+        await axios.put(`/api/notebooks/${currentNotebookId}`, {
+          llm_provider: selectedProvider,
+          llm_model: selectedModel,
+          custom_seed: useCustomSeed && customSeed ? parseInt(customSeed) : null
         })
       }
-      
+
       setSaveMessage({ type: 'success', text: 'Settings updated successfully!' })
+
+      // Trigger footer refresh by dispatching custom event
+      window.dispatchEvent(new CustomEvent('llm-settings-updated'))
+
       setTimeout(() => {
         onClose()
       }, 1500)
