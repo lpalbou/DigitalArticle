@@ -48,6 +48,45 @@ export interface PlotlyData {
   json: string
 }
 
+// LLM Trace interfaces (matching AbstractCore structure)
+export interface LLMTraceUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens: number
+  input_tokens?: number  // AbstractCore 2.5.2+ format
+  output_tokens?: number  // AbstractCore 2.5.2+ format
+}
+
+export interface LLMTraceResponse {
+  content: string
+  tool_calls?: any[]
+  finish_reason: string
+  usage: LLMTraceUsage
+  generation_time_ms: number
+}
+
+export interface LLMTraceMetadata {
+  session_id?: string
+  step_type: 'code_generation' | 'code_fix' | 'methodology_generation'
+  attempt_number: number
+  notebook_id: string
+  cell_id: string
+  [key: string]: any  // Allow additional custom metadata
+}
+
+export interface LLMTrace {
+  trace_id: string
+  timestamp: string
+  provider: string
+  model: string
+  system_prompt?: string
+  prompt: string
+  messages?: any[]
+  parameters: Record<string, any>
+  response: LLMTraceResponse
+  metadata: LLMTraceMetadata
+}
+
 export interface TableData {
   name: string
   shape: [number, number]
@@ -102,6 +141,9 @@ export interface Cell {
   // Generation metadata (AbstractCore 2.5.2+)
   last_generation_time_ms?: number  // Generation time in milliseconds
   last_execution_timestamp?: string  // When the cell was last executed
+
+  // LLM Execution Traces (persistent storage of all LLM interactions)
+  llm_traces?: LLMTrace[]
 }
 
 export interface Notebook {

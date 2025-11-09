@@ -12,6 +12,7 @@ interface NotebookCellProps {
   onDirectExecuteCell?: (cellId: string, action: 'execute' | 'regenerate') => void // Direct execution without dependency check
   onAddCellBelow: (cellId: string, cellType: CellType) => void
   onInvalidateCells?: (cellId: string) => void // New callback for cell invalidation
+  onViewTraces?: (cellId: string) => void // View LLM execution traces
   isExecuting?: boolean
 }
 
@@ -23,6 +24,7 @@ const NotebookCell: React.FC<NotebookCellProps> = ({
   onDirectExecuteCell,
   onAddCellBelow: _onAddCellBelow,
   onInvalidateCells,
+  onViewTraces,
   isExecuting = false
 }) => {
   const handleUpdateCell = useCallback((updates: Partial<Cell>) => {
@@ -115,6 +117,7 @@ const NotebookCell: React.FC<NotebookCellProps> = ({
           onExecuteCell={handleExecuteCell}
           onDirectExecuteCell={onDirectExecuteCell}
           onInvalidateCells={onInvalidateCells}
+          onViewTraces={onViewTraces}
           isExecuting={isRunning}
         />
 

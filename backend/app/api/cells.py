@@ -23,10 +23,10 @@ router = APIRouter()
 async def get_cell_status(cell_id: str):
     """
     Get the current status of a cell (including methodology writing status).
-    
+
     Args:
         cell_id: Cell UUID
-        
+
     Returns:
         Cell status information
     """
@@ -37,7 +37,7 @@ async def get_cell_status(cell_id: str):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Cell {cell_id} not found"
             )
-        
+
         return {
             "cell_id": cell_id,
             "is_executing": cell.is_executing,
@@ -45,12 +45,79 @@ async def get_cell_status(cell_id: str):
             "has_scientific_explanation": bool(cell.scientific_explanation),
             "scientific_explanation": cell.scientific_explanation
         }
-        
+
     except Exception as e:
         logger.error(f"Error getting cell status: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get cell status: {str(e)}"
+        )
+
+
+@router.get("/{cell_id}/traces")
+async def get_cell_traces(cell_id: str):
+    """
+    Get all LLM interaction traces for a cell (for observability).
+
+    Retrieves traces from persistent storage (cell.llm_traces) first,
+    falling back to AbstractCore's in-memory buffer if needed.
+
+    Args:
+        cell_id: Cell UUID
+
+    Returns:
+        List of trace objects with complete LLM interaction data
+    """
+    try:
+        cell = notebook_service.get_cell(cell_id)
+        if not cell:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Cell {cell_id} not found"
+            )
+
+        # First, try to get traces from persistent storage (NEW: cell.llm_traces)
+        if cell.llm_traces and len(cell.llm_traces) > 0:
+            logger.info(f"Retrieved {len(cell.llm_traces)} persistent traces for cell {cell_id}")
+            return {"cell_id": cell_id, "traces": cell.llm_traces, "source": "persistent"}
+
+        # Fallback: Get traces from AbstractCore's in-memory buffer
+        # (Only used for backward compatibility or if persistence failed)
+        trace_ids = cell.metadata.get('trace_ids', [])
+
+        if not trace_ids:
+            logger.info(f"No traces found for cell {cell_id}")
+            return {"cell_id": cell_id, "traces": [], "source": "none"}
+
+        # Get traces from AbstractCore's LLM provider
+        llm = notebook_service.llm_service.llm
+        if not llm or not hasattr(llm, 'get_traces'):
+            logger.warning("LLM provider does not support tracing")
+            return {"cell_id": cell_id, "traces": [], "source": "unsupported"}
+
+        # Fetch each trace by ID from in-memory buffer
+        traces = []
+        for trace_id in trace_ids:
+            try:
+                trace = llm.get_traces(trace_id=trace_id)
+                if trace:
+                    # Handle both dict and list returns
+                    if isinstance(trace, dict):
+                        traces.append(trace)
+                    elif isinstance(trace, list) and len(trace) > 0:
+                        traces.append(trace[0])
+            except Exception as e:
+                logger.warning(f"Failed to get trace {trace_id} from buffer: {e}")
+                continue
+
+        logger.info(f"Retrieved {len(traces)} traces from in-memory buffer for cell {cell_id}")
+        return {"cell_id": cell_id, "traces": traces, "source": "in_memory"}
+
+    except Exception as e:
+        logger.error(f"Error getting cell traces: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get cell traces: {str(e)}"
         )
 
 

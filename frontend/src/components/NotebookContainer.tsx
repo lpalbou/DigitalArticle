@@ -6,20 +6,22 @@ import FileContextPanel from './FileContextPanel'
 import NotebookCell from './NotebookCell'
 import PDFGenerationModal from './PDFGenerationModal'
 import SemanticExtractionModal from './SemanticExtractionModal'
+import LLMTraceModal from './LLMTraceModal'
 import LLMStatusFooter from './LLMStatusFooter'
 import LLMSettingsModal from './LLMSettingsModal'
 import DependencyModal from './DependencyModal'
 import Toast, { ToastType } from './Toast'
 import { notebookAPI, cellAPI, llmAPI, handleAPIError, downloadFile, getCurrentUser } from '../services/api'
-import { 
-  Notebook, 
-  Cell, 
-  CellType, 
+import {
+  Notebook,
+  Cell,
+  CellType,
   CellState,
-  NotebookCreateRequest, 
+  NotebookCreateRequest,
   CellCreateRequest,
   CellUpdateRequest,
-  ExecutionStatus 
+  ExecutionStatus,
+  LLMTrace
 } from '../types'
 
 interface FileInfo {
@@ -63,6 +65,12 @@ const NotebookContainer: React.FC = () => {
   const [isExtractingSemantics, setIsExtractingSemantics] = useState(false)
   const [semanticExtractionStage, setSemanticExtractionStage] = useState<'analyzing' | 'extracting' | 'building_graph' | 'complete'>('analyzing')
   const [semanticGraphType, setSemanticGraphType] = useState<'analysis' | 'profile'>('analysis')
+
+  // LLM trace modal state
+  const [isViewingTraces, setIsViewingTraces] = useState(false)
+  const [tracesCellId, setTracesCellId] = useState<string>('')
+  const [cellTraces, setCellTraces] = useState<LLMTrace[]>([])
+  const [loadingTraces, setLoadingTraces] = useState(false)
 
   // LLM settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -330,6 +338,34 @@ const NotebookContainer: React.FC = () => {
       setSemanticExtractionStage('analyzing')
     }
   }, [notebook])
+
+  const viewCellTraces = useCallback(async (cellId: string) => {
+    try {
+      setLoadingTraces(true)
+      setTracesCellId(cellId)
+      setIsViewingTraces(true)
+      setCellTraces([]) // Reset traces while loading
+
+      // Fetch traces from API
+      const response = await cellAPI.getTraces(cellId)
+
+      if (response.traces && response.traces.length > 0) {
+        setCellTraces(response.traces)
+        console.log(`✅ Loaded ${response.traces.length} traces for cell ${cellId} (source: ${response.source})`)
+      } else {
+        console.log(`ℹ️  No traces found for cell ${cellId}`)
+        setCellTraces([])
+      }
+
+      setLoadingTraces(false)
+    } catch (err) {
+      console.error('Failed to load cell traces:', err)
+      const apiError = handleAPIError(err)
+      setError(`Failed to load LLM traces: ${apiError.message}`)
+      setLoadingTraces(false)
+      setIsViewingTraces(false)
+    }
+  }, [])
 
   const exportNotebookPDF = useCallback(async (includeCode: boolean) => {
     if (!notebook) return
@@ -873,6 +909,14 @@ const NotebookContainer: React.FC = () => {
         graphType={semanticGraphType}
       />
 
+      {/* LLM Trace Modal */}
+      <LLMTraceModal
+        isVisible={isViewingTraces}
+        cellId={tracesCellId}
+        traces={cellTraces}
+        onClose={() => setIsViewingTraces(false)}
+      />
+
       {/* Content with top padding for header and bottom padding for footer */}
       <div className="pt-16 pb-16">
         {/* Files in Context Panel - constrained to same width as notebook */}
@@ -1070,6 +1114,7 @@ const NotebookContainer: React.FC = () => {
               onDirectExecuteCell={executeCell}
               onAddCellBelow={addCellBelow}
               onInvalidateCells={invalidateCells}
+              onViewTraces={viewCellTraces}
               isExecuting={executingCells.has(cell.id)}
             />
           ))

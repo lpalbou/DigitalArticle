@@ -10,7 +10,8 @@ Token Tracking:
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
+from datetime import datetime
 from abstractcore import create_llm, ProviderAPIError, ModelNotFoundError, AuthenticationError
 from .token_tracker import TokenTracker
 
@@ -50,10 +51,15 @@ class LLMService:
         self._initialize_llm()
     
     def _initialize_llm(self):
-        """Initialize the LLM client."""
+        """Initialize the LLM client with tracing enabled for observability."""
         try:
-            self.llm = create_llm(self.provider, model=self.model)
-            logger.info(f"✅ Initialized LLM: {self.provider}/{self.model}")
+            self.llm = create_llm(
+                self.provider,
+                model=self.model,
+                enable_tracing=True,  # Enable full interaction tracing
+                max_traces=100  # Ring buffer for last 100 interactions
+            )
+            logger.info(f"✅ Initialized LLM with tracing: {self.provider}/{self.model}")
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
             logger.error(f"❌ Failed to initialize LLM: {e}")
             self.llm = None  # Keep service alive but mark LLM as unavailable
@@ -123,16 +129,23 @@ class LLMService:
         seed = int(hashlib.md5(notebook_id.encode()).hexdigest()[:8], 16) % (2**31)
         return seed
     
-    def generate_code_from_prompt(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> tuple[str, Optional[float]]:
+    def _get_timestamp(self) -> str:
+        """Get current timestamp in ISO format."""
+        return datetime.now().isoformat()
+
+    def generate_code_from_prompt(self, prompt: str, context: Optional[Dict[str, Any]] = None,
+                                  step_type: str = 'code_generation', attempt_number: int = 1) -> Tuple[str, Optional[float], Optional[str], Optional[Dict[str, Any]]]:
         """
-        Convert a natural language prompt to Python code.
+        Convert a natural language prompt to Python code with full tracing.
 
         Args:
             prompt: Natural language description of the desired analysis
             context: Additional context information (variables, data info, etc.)
+            step_type: Type of step for tracing (e.g., 'code_generation', 'code_fix')
+            attempt_number: Attempt number for tracing (1-based)
 
         Returns:
-            Tuple of (generated Python code as string, generation time in milliseconds)
+            Tuple of (generated Python code, generation time in ms, trace_id or None, full_trace or None)
 
         Raises:
             LLMError: If code generation fails
@@ -173,10 +186,17 @@ class LLMService:
             if notebook_seed is not None and self.provider != 'anthropic':
                 generation_params["seed"] = notebook_seed
                 logger.info(f"🎲 Using LLM generation seed {notebook_seed} for {self.provider}")
-            
+
+            #  Call LLM with trace metadata for full observability
             response = self.llm.generate(
                 user_prompt,
                 system_prompt=system_prompt,
+                trace_metadata={
+                    'step_type': step_type,
+                    'attempt_number': attempt_number,
+                    'notebook_id': context.get('notebook_id') if context else None,
+                    'cell_id': context.get('cell_id') if context else None
+                },
                 **generation_params
             )
 
@@ -222,9 +242,27 @@ class LLMService:
             code = self._extract_code_from_response(response.content)
             generation_time = getattr(response, 'gen_time', None)
 
+            # Get trace_id and full trace from AbstractCore's tracing system
+            trace_id = None
+            full_trace = None
+            if hasattr(response, 'metadata') and response.metadata:
+                trace_id = response.metadata.get('trace_id')
+                logger.info(f"📝 Trace ID: {trace_id}")
+
+                # Fetch full trace for persistent storage
+                if trace_id and self.llm:
+                    try:
+                        traces = self.llm.get_traces(trace_id=trace_id)
+                        if traces:
+                            full_trace = traces if isinstance(traces, dict) else traces[0] if isinstance(traces, list) else None
+                            logger.info(f"✅ Retrieved full trace for {trace_id}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Could not retrieve full trace: {e}")
+
             logger.info(f"🚨 EXTRACTED CODE: {code}")
             logger.info(f"Generated code for prompt: {prompt[:50]}...")
-            return code, generation_time
+
+            return code, generation_time, trace_id, full_trace
             
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
             logger.error(f"LLM API error during code generation: {e}")
@@ -619,15 +657,24 @@ plt.show()
         
         return '\n'.join(cleaned_lines)
     
-    def explain_code(self, code: str) -> str:
+    def explain_code(
+        self,
+        code: str,
+        step_type: str = 'methodology_generation',
+        attempt_number: int = 1,
+        context: Optional[Dict[str, Any]] = None
+    ) -> Tuple[str, Optional[str]]:
         """
-        Generate a natural language explanation of Python code.
-        
+        Generate a natural language explanation of Python code with full tracing.
+
         Args:
             code: Python code to explain
-            
+            step_type: Type of step for tracing (e.g., 'methodology_generation')
+            attempt_number: Attempt number for tracing
+            context: Additional context for tracing (notebook_id, cell_id)
+
         Returns:
-            Natural language explanation
+            Tuple of (natural language explanation, trace_id or None)
         """
         if not self.llm:
             raise LLMError("LLM not initialized")
@@ -649,11 +696,25 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
         try:
             response = self.llm.generate(
                 prompt,
+                trace_metadata={
+                    'step_type': step_type,
+                    'attempt_number': attempt_number,
+                    'notebook_id': context.get('notebook_id') if context else None,
+                    'cell_id': context.get('cell_id') if context else None
+                },
                 max_tokens=500,
                 temperature=0.3
             )
-            return response.content.strip()
-            
+
+            # Extract trace_id from AbstractCore's tracing system
+            trace_id = None
+            if hasattr(response, 'metadata') and response.metadata:
+                trace_id = response.metadata.get('trace_id')
+                logger.info(f"📝 Methodology trace ID: {trace_id}")
+
+            explanation = response.content.strip()
+            return explanation, trace_id
+
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
             logger.error(f"LLM API error during code explanation: {e}")
             raise LLMError(f"LLM API error: {e}")
@@ -667,10 +728,13 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
         code: str,
         error_message: Optional[str] = None,
         error_type: Optional[str] = None,
-        traceback: Optional[str] = None
-    ) -> str:
+        traceback: Optional[str] = None,
+        step_type: str = 'code_fix',
+        attempt_number: int = 2,
+        context: Optional[Dict[str, Any]] = None
+    ) -> Tuple[str, Optional[str], Optional[Dict[str, Any]]]:
         """
-        Suggest improvements or fixes for generated code.
+        Suggest improvements or fixes for generated code with full tracing.
 
         Args:
             prompt: Original natural language prompt
@@ -678,9 +742,12 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
             error_message: Error message if code failed to execute
             error_type: Exception type (e.g., "ValueError")
             traceback: Full Python traceback
+            step_type: Type of step for tracing (e.g., 'code_fix')
+            attempt_number: Attempt number for tracing (typically 2+)
+            context: Additional context for tracing (notebook_id, cell_id)
 
         Returns:
-            Improved Python code
+            Tuple of (improved Python code, trace_id or None, full_trace or None)
         """
         if not self.llm:
             raise LLMError("LLM not initialized")
@@ -712,11 +779,35 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
             response = self.llm.generate(
                 improvement_prompt,
                 system_prompt=self._build_system_prompt(),
+                trace_metadata={
+                    'step_type': step_type,
+                    'attempt_number': attempt_number,
+                    'notebook_id': context.get('notebook_id') if context else None,
+                    'cell_id': context.get('cell_id') if context else None
+                },
                 max_tokens=2000,
                 temperature=0.1
             )
 
-            return self._extract_code_from_response(response.content)
+            # Extract trace_id and full trace from AbstractCore's tracing system
+            trace_id = None
+            full_trace = None
+            if hasattr(response, 'metadata') and response.metadata:
+                trace_id = response.metadata.get('trace_id')
+                logger.info(f"📝 Code fix trace ID: {trace_id}")
+
+                # Fetch full trace for persistent storage
+                if trace_id and self.llm:
+                    try:
+                        traces = self.llm.get_traces(trace_id=trace_id)
+                        if traces:
+                            full_trace = traces if isinstance(traces, dict) else traces[0] if isinstance(traces, list) else None
+                            logger.info(f"✅ Retrieved full trace for code fix {trace_id}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Could not retrieve full trace: {e}")
+
+            improved_code = self._extract_code_from_response(response.content)
+            return improved_code, trace_id, full_trace
 
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
             logger.error(f"LLM API error during code improvement: {e}")
@@ -763,18 +854,29 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
             # Fallback to original error message if analysis fails
             return f"{error_type}: {error_message}\n\nTraceback:\n{traceback}"
     
-    def generate_scientific_explanation(self, prompt: str, code: str, execution_result: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> tuple[str, Optional[float]]:
+    def generate_scientific_explanation(
+        self,
+        prompt: str,
+        code: str,
+        execution_result: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
+        step_type: str = 'methodology_generation',
+        attempt_number: int = 1
+    ) -> Tuple[str, Optional[float], Optional[str], Optional[Dict[str, Any]]]:
         """
-        Generate a scientific article-style explanation of what was done and why.
-        
+        Generate a scientific article-style explanation of what was done and why with full tracing.
+
         Args:
             prompt: The original natural language prompt
             code: The generated Python code
             execution_result: The result of code execution (stdout, plots, etc.)
-            
+            context: Additional context for tracing (notebook_id, cell_id)
+            step_type: Type of step for tracing (e.g., 'methodology_generation')
+            attempt_number: Attempt number for tracing
+
         Returns:
-            Scientific article-style explanation text
-            
+            Tuple of (scientific explanation text, generation time in ms, trace_id or None, full_trace or None)
+
         Raises:
             LLMError: If explanation generation fails
         """
@@ -855,18 +957,41 @@ Write a scientific explanation of what was done and the results obtained:"""
             response = self.llm.generate(
                 user_prompt,
                 system_prompt=system_prompt,
+                trace_metadata={
+                    'step_type': step_type,
+                    'attempt_number': attempt_number,
+                    'notebook_id': context.get('notebook_id') if context else None,
+                    'cell_id': context.get('cell_id') if context else None
+                },
                 **generation_params
             )
             elapsed_time = time.time() - start_time
             print(f"🔬 LLM SERVICE: LLM call took {elapsed_time:.1f} seconds")
             print(f"🔬 LLM SERVICE: Got response: {type(response)}")
             print(f"🔬 LLM SERVICE: Response content: {response.content[:100]}...")
-            
+
+            # Extract trace_id and full trace from AbstractCore's tracing system
+            trace_id = None
+            full_trace = None
+            if hasattr(response, 'metadata') and response.metadata:
+                trace_id = response.metadata.get('trace_id')
+                logger.info(f"📝 Methodology trace ID: {trace_id}")
+
+                # Fetch full trace for persistent storage
+                if trace_id and self.llm:
+                    try:
+                        traces = self.llm.get_traces(trace_id=trace_id)
+                        if traces:
+                            full_trace = traces if isinstance(traces, dict) else traces[0] if isinstance(traces, list) else None
+                            logger.info(f"✅ Retrieved full trace for methodology {trace_id}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Could not retrieve full trace: {e}")
+
             explanation = response.content.strip()
             generation_time = getattr(response, 'gen_time', None)
             print(f"🔬 LLM SERVICE: Final explanation: {len(explanation)} characters")
             logger.info(f"Generated scientific explanation: {len(explanation)} characters")
-            return explanation, generation_time
+            return explanation, generation_time, trace_id, full_trace
             
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
             print(f"🔬 LLM SERVICE: API error: {e}")

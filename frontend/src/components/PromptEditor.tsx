@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
-import { Play, Copy, Check } from 'lucide-react'
+import { Play, Copy, Check, Activity } from 'lucide-react'
 import { Cell, CellType, CellState } from '../types'
 import CodeDisplay from './CodeDisplay'
 import EnhancedCodeEditor from './EnhancedCodeEditor'
 import ReRunDropdown from './ReRunDropdown'
+import GenerationHistoryModal from './GenerationHistoryModal'
 
 interface PromptEditorProps {
   cell: Cell
@@ -11,6 +12,7 @@ interface PromptEditorProps {
   onExecuteCell: (cellId: string, action: 'execute' | 'regenerate') => void
   onDirectExecuteCell?: (cellId: string, action: 'execute' | 'regenerate') => void // Direct execution without dependency check
   onInvalidateCells?: (cellId: string) => void // New callback for cell invalidation
+  onViewTraces?: (cellId: string) => void // View LLM execution traces
   isExecuting?: boolean
 }
 
@@ -20,16 +22,18 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   onExecuteCell,
   onDirectExecuteCell,
   onInvalidateCells,
+  onViewTraces,
   isExecuting = false
 }) => {
   const [isEditing, setIsEditing] = useState(false)
   const [localContent, setLocalContent] = useState(
-    cell.cell_type === CellType.PROMPT ? cell.prompt : 
+    cell.cell_type === CellType.PROMPT ? cell.prompt :
     cell.cell_type === CellType.METHODOLOGY ? (cell.scientific_explanation || '') :
     cell.cell_type === CellType.CODE ? cell.code :
     cell.markdown
   )
   const [copySuccess, setCopySuccess] = useState(false)
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Auto-resize textarea
@@ -225,11 +229,27 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
             </div>
           )}
           
-          {/* Execution Count Badge */}
+          {/* Execution Count Badge - Clickable */}
           {cell.execution_count > 0 && (
-            <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">
+            <button
+              onClick={() => setShowHistoryModal(true)}
+              className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600 hover:bg-blue-100 hover:text-blue-700 transition-all duration-200 cursor-pointer hover:shadow-sm"
+              title="Click to view generation details and history"
+            >
               Run {cell.execution_count}
-            </span>
+            </button>
+          )}
+
+          {/* View LLM Traces Button */}
+          {onViewTraces && cell.llm_traces && cell.llm_traces.length > 0 && (
+            <button
+              onClick={() => onViewTraces(cell.id)}
+              className="text-xs bg-blue-50 px-2 py-1 rounded text-blue-600 hover:bg-blue-100 hover:text-blue-700 transition-all duration-200 cursor-pointer hover:shadow-sm flex items-center space-x-1"
+              title={`View ${cell.llm_traces.length} LLM trace${cell.llm_traces.length > 1 ? 's' : ''}`}
+            >
+              <Activity className="h-3 w-3" />
+              <span>{cell.llm_traces.length}</span>
+            </button>
           )}
 
           {/* Copy Button */}
@@ -372,6 +392,13 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
           <span>Writing methodology...</span>
         </div>
       )}
+
+      {/* Generation History Modal */}
+      <GenerationHistoryModal
+        isOpen={showHistoryModal}
+        onClose={() => setShowHistoryModal(false)}
+        cell={cell}
+      />
     </div>
   )
 }

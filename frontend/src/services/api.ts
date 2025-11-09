@@ -185,6 +185,12 @@ export const cellAPI = {
     const response: AxiosResponse<{ message: string }> = await api.post(`/cells/${notebookId}/clear`)
     return response.data
   },
+
+  // Get LLM execution traces for a cell
+  getTraces: async (cellId: string): Promise<{ cell_id: string; traces: any[]; source: string }> => {
+    const response: AxiosResponse<{ cell_id: string; traces: any[]; source: string }> = await api.get(`/cells/${cellId}/traces`)
+    return response.data
+  },
 }
 
 // LLM API

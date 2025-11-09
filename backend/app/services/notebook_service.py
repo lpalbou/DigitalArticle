@@ -289,15 +289,27 @@ print("LLM service is currently unavailable, using fallback code.")
     def get_cell(self, cell_id: str) -> Optional[Cell]:
         """
         Get a cell by ID across all notebooks.
-        
+
         Args:
-            cell_id: Cell UUID
-            
+            cell_id: Cell UUID (as string or UUID)
+
         Returns:
             Cell or None if not found
         """
+        from uuid import UUID
+
+        # Convert string to UUID if needed
+        try:
+            if isinstance(cell_id, str):
+                cell_uuid = UUID(cell_id)
+            else:
+                cell_uuid = cell_id
+        except (ValueError, AttributeError) as e:
+            logger.error(f"Invalid cell_id format: {cell_id}, error: {e}")
+            return None
+
         for notebook in self._notebooks.values():
-            cell = notebook.get_cell(cell_id)
+            cell = notebook.get_cell(cell_uuid)
             if cell:
                 return cell
         return None
@@ -802,15 +814,33 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                             logger.info(f"Updating LLM service: {notebook.llm_provider}/{notebook.llm_model}")
                             self.llm_service = LLMService(notebook.llm_provider, notebook.llm_model)
                         
-                        # Generate code
+                        # Generate code with full tracing
                         logger.info("Calling LLM service for code generation...")
-                        generated_code, generation_time = self.llm_service.generate_code_from_prompt(cell.prompt, context)
+                        generated_code, generation_time, trace_id, full_trace = self.llm_service.generate_code_from_prompt(
+                            cell.prompt,
+                            context,
+                            step_type='code_generation',
+                            attempt_number=1
+                        )
                         cell.code = generated_code
                         cell.last_generation_time_ms = generation_time
                         cell.last_execution_timestamp = datetime.now()
                         cell.updated_at = datetime.now()
-                        logger.info(f"Successfully generated {len(generated_code)} characters of code" + 
-                                  (f" in {generation_time}ms" if generation_time else ""))
+
+                        # Store trace IDs for backward compatibility
+                        if 'trace_ids' not in cell.metadata:
+                            cell.metadata['trace_ids'] = []
+                        if trace_id:
+                            cell.metadata['trace_ids'].append(trace_id)
+
+                        # Store full trace for persistent observability
+                        if full_trace:
+                            cell.llm_traces.append(full_trace)
+                            logger.info(f"✅ Stored full trace for code generation {trace_id}")
+
+                        logger.info(f"Successfully generated {len(generated_code)} characters of code" +
+                                  (f" in {generation_time}ms" if generation_time else '') +
+                                  (f", trace_id: {trace_id}" if trace_id else ""))
 
                         # Update notebook's last context tokens from the generation
                         try:
@@ -875,16 +905,32 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                         logger.info(f"🔄 Asking LLM to fix the failed code (attempt #{cell.retry_count})...")
                         print(f"🔄 AUTO-RETRY #{cell.retry_count}: Analyzing error and generating corrected code...")
 
-                        # Use suggest_improvements with enhanced error context
+                        # Use suggest_improvements with enhanced error context and tracing
                         # This will automatically use ErrorAnalyzer to provide domain-specific guidance
                         try:
-                            fixed_code = self.llm_service.suggest_improvements(
+                            fixed_code, trace_id, full_trace = self.llm_service.suggest_improvements(
                                 prompt=cell.prompt,
                                 code=cell.code,
                                 error_message=result.error_message,
                                 error_type=result.error_type,
-                                traceback=result.traceback
+                                traceback=result.traceback,
+                                step_type='code_fix',
+                                attempt_number=cell.retry_count + 1,
+                                context={'notebook_id': str(notebook.id), 'cell_id': str(cell.id)}
                             )
+
+                            # Store trace_id for backward compatibility
+                            if trace_id:
+                                if 'trace_ids' not in cell.metadata:
+                                    cell.metadata['trace_ids'] = []
+                                cell.metadata['trace_ids'].append(trace_id)
+                                logger.info(f"📝 Stored retry trace_id: {trace_id}")
+
+                            # Store full trace for persistent observability
+                            if full_trace:
+                                cell.llm_traces.append(full_trace)
+                                logger.info(f"✅ Stored full trace for code fix attempt #{cell.retry_count + 1}")
+
                         except Exception as llm_error:
                             logger.error(f"🔄 LLM service failed during retry #{cell.retry_count}: {llm_error}")
                             print(f"🔄 LLM ERROR: LLM service failed on retry #{cell.retry_count}: {llm_error}")
@@ -983,20 +1029,34 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                     }
                     
                     print("🔬 About to call LLM service for methodology...")
-                    explanation, explanation_gen_time = self.llm_service.generate_scientific_explanation(
-                        cell.prompt, 
-                        cell.code, 
+                    explanation, explanation_gen_time, trace_id, full_trace = self.llm_service.generate_scientific_explanation(
+                        cell.prompt,
+                        cell.code,
                         execution_data,
-                        context  # Pass context for seed consistency
+                        context,  # Pass context for seed consistency and tracing
+                        step_type='methodology_generation',
+                        attempt_number=1
                     )
-                    print(f"🔬 LLM returned explanation: {len(explanation)} chars" + 
+                    print(f"🔬 LLM returned explanation: {len(explanation)} chars" +
                           (f" in {explanation_gen_time}ms" if explanation_gen_time else ""))
                     print(f"🔬 Explanation content: {explanation[:200]}...")
-                    
+
                     # Update cell with explanation
                     cell.scientific_explanation = explanation
                     # Note: We don't update last_generation_time_ms here as it's for code generation
                     print(f"🔬 Cell updated with explanation: {len(cell.scientific_explanation)} chars")
+
+                    # Store trace_id for backward compatibility
+                    if trace_id:
+                        if 'trace_ids' not in cell.metadata:
+                            cell.metadata['trace_ids'] = []
+                        cell.metadata['trace_ids'].append(trace_id)
+                        logger.info(f"📝 Stored methodology trace_id: {trace_id}")
+
+                    # Store full trace for persistent observability
+                    if full_trace:
+                        cell.llm_traces.append(full_trace)
+                        logger.info(f"✅ Stored full trace for methodology generation")
                     
                     # Update notebook's last context tokens from methodology generation
                     try:
