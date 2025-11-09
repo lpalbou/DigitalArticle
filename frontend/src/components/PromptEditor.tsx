@@ -4,7 +4,6 @@ import { Cell, CellType, CellState } from '../types'
 import CodeDisplay from './CodeDisplay'
 import EnhancedCodeEditor from './EnhancedCodeEditor'
 import ReRunDropdown from './ReRunDropdown'
-import GenerationHistoryModal from './GenerationHistoryModal'
 
 interface PromptEditorProps {
   cell: Cell
@@ -33,7 +32,6 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     cell.markdown
   )
   const [copySuccess, setCopySuccess] = useState(false)
-  const [showHistoryModal, setShowHistoryModal] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Auto-resize textarea
@@ -228,17 +226,6 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               )}
             </div>
           )}
-          
-          {/* Execution Count Badge - Clickable */}
-          {cell.execution_count > 0 && (
-            <button
-              onClick={() => setShowHistoryModal(true)}
-              className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600 hover:bg-blue-100 hover:text-blue-700 transition-all duration-200 cursor-pointer hover:shadow-sm"
-              title="Click to view generation details and history"
-            >
-              Run {cell.execution_count}
-            </button>
-          )}
 
           {/* View LLM Traces Button */}
           {onViewTraces && cell.llm_traces && cell.llm_traces.length > 0 && (
@@ -392,13 +379,6 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
           <span>Writing methodology...</span>
         </div>
       )}
-
-      {/* Generation History Modal */}
-      <GenerationHistoryModal
-        isOpen={showHistoryModal}
-        onClose={() => setShowHistoryModal(false)}
-        cell={cell}
-      />
     </div>
   )
 }
