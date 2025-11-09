@@ -7,6 +7,8 @@ import NotebookCell from './NotebookCell'
 import PDFGenerationModal from './PDFGenerationModal'
 import SemanticExtractionModal from './SemanticExtractionModal'
 import LLMTraceModal from './LLMTraceModal'
+import ChatFloatingButton from './ChatFloatingButton'
+import ArticleChatPanel from './ArticleChatPanel'
 import LLMStatusFooter from './LLMStatusFooter'
 import LLMSettingsModal from './LLMSettingsModal'
 import DependencyModal from './DependencyModal'
@@ -72,6 +74,9 @@ const NotebookContainer: React.FC = () => {
   const [cellTraces, setCellTraces] = useState<LLMTrace[]>([])
   const [loadingTraces, setLoadingTraces] = useState(false)
 
+  // Chat state
+  const [isChatOpen, setIsChatOpen] = useState(false)
+
   // LLM settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false)
 
@@ -106,6 +111,19 @@ const NotebookContainer: React.FC = () => {
       return () => clearTimeout(timeoutId)
     }
   }, [notebook, hasUnsavedChanges])
+
+  // Keyboard shortcut for chat (Cmd/Ctrl+K)
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+        event.preventDefault()
+        setIsChatOpen(prev => !prev)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   const loadNotebook = useCallback(async (id: string) => {
     setLoading(true)
@@ -1174,6 +1192,15 @@ const NotebookContainer: React.FC = () => {
           }}
         />
       )}
+
+      {/* Chat Components */}
+      <ChatFloatingButton onClick={() => setIsChatOpen(true)} />
+      <ArticleChatPanel
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        notebookId={notebook?.id || ''}
+        notebook={notebook}
+      />
     </>
   )
 }

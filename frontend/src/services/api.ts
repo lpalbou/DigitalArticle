@@ -16,7 +16,9 @@ import {
   CellExecuteResponse,
   CodeGenerationRequest,
   CodeExplanationRequest,
-  CodeImprovementRequest
+  CodeImprovementRequest,
+  ChatRequest,
+  ChatResponse
 } from '../types'
 
 // Create axios instance with base configuration
@@ -287,6 +289,15 @@ export class APIError extends Error {
     super(message)
     this.name = 'APIError'
   }
+}
+
+// Chat API
+export const chatAPI = {
+  // Send a chat message about the article
+  sendMessage: async (request: ChatRequest): Promise<ChatResponse> => {
+    const response: AxiosResponse<ChatResponse> = await api.post('/chat/ask', request)
+    return response.data
+  },
 }
 
 // Utility functions

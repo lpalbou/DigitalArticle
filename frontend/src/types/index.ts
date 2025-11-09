@@ -224,3 +224,24 @@ export interface CodeImprovementRequest {
   code: string
   error_message?: string
 }
+
+// Chat types
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: string
+  loading?: boolean
+}
+
+export interface ChatRequest {
+  notebook_id: string
+  message: string
+  conversation_history?: ChatMessage[]
+}
+
+export interface ChatResponse {
+  message: string
+  context_used: string[]  // Cell IDs or data sources referenced
+  timestamp: string
+}
