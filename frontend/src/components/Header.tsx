@@ -92,31 +92,41 @@ const Header: React.FC<HeaderProps> = ({
                 <span>New</span>
               </button>
 
-              <button
-                onClick={onSaveNotebook}
-                className="btn btn-primary flex items-center space-x-2"
-                title="Save Digital Article"
-              >
-                <Save className="h-4 w-4" />
-                <span>Save</span>
-              </button>
-
-              {/* Export Dropdown */}
+              {/* Save Dropdown (consolidates Save + Export) */}
               <div className="relative">
                 <button
                   onClick={() => setShowExportDropdown(!showExportDropdown)}
-                  className="btn btn-secondary flex items-center space-x-2"
-                  title="Export Digital Article"
+                  className="btn btn-primary flex items-center space-x-2"
+                  title="Save Digital Article"
                   disabled={isGeneratingPDF}
                 >
-                  <Download className="h-4 w-4" />
-                  <span>{isGeneratingPDF ? 'Generating...' : 'Export'}</span>
+                  <Save className="h-4 w-4" />
+                  <span>{isGeneratingPDF ? 'Generating...' : 'Save'}</span>
                   <ChevronDown className="h-4 w-4" />
                 </button>
 
                 {showExportDropdown && (
-                  <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                  <>
+                    {/* Invisible overlay to close dropdown when clicking outside */}
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setShowExportDropdown(false)}
+                    ></div>
+                    <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-md shadow-lg z-50">
                     <div className="py-1">
+                      <button
+                        onClick={() => {
+                          onSaveNotebook?.()
+                          setShowExportDropdown(false)
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                      >
+                        <Save className="h-4 w-4" />
+                        <span>Save Digital Article</span>
+                      </button>
+
+                      <div className="border-t border-gray-200 my-1"></div>
+
                       <button
                         onClick={() => {
                           onExportNotebook?.()
@@ -186,6 +196,7 @@ const Header: React.FC<HeaderProps> = ({
                       </button>
                     </div>
                   </div>
+                  </>
                 )}
               </div>
             </div>
