@@ -786,7 +786,11 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         try:
             # Mark cell as executing
             cell.is_executing = True
-            
+
+            # Clear previous execution traces - only keep traces from current execution
+            cell.llm_traces = []
+            logger.info(f"🗑️ Cleared previous LLM traces for cell {cell.id}")
+
             # Handle direct code execution
             if request.code:
                 cell.code = request.code
@@ -1018,61 +1022,82 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 print("🔬 GENERATING SCIENTIFIC EXPLANATION SYNCHRONOUSLY...")
                 logger.info("🔬 GENERATING SCIENTIFIC EXPLANATION SYNCHRONOUSLY...")
                 
-                try:
-                    # Prepare execution result data for LLM
-                    execution_data = {
-                        'status': 'success',
-                        'stdout': result.stdout,
-                        'plots': result.plots,
-                        'tables': result.tables,
-                        'interactive_plots': result.interactive_plots
-                    }
-                    
-                    print("🔬 About to call LLM service for methodology...")
-                    explanation, explanation_gen_time, trace_id, full_trace = self.llm_service.generate_scientific_explanation(
-                        cell.prompt,
-                        cell.code,
-                        execution_data,
-                        context,  # Pass context for seed consistency and tracing
-                        step_type='methodology_generation',
-                        attempt_number=1
-                    )
-                    print(f"🔬 LLM returned explanation: {len(explanation)} chars" +
-                          (f" in {explanation_gen_time}ms" if explanation_gen_time else ""))
-                    print(f"🔬 Explanation content: {explanation[:200]}...")
+                # Retry loop for methodology generation (up to 3 attempts)
+                max_methodology_retries = 3
+                methodology_attempt = 0
+                explanation = ""
 
-                    # Update cell with explanation
-                    cell.scientific_explanation = explanation
-                    # Note: We don't update last_generation_time_ms here as it's for code generation
-                    print(f"🔬 Cell updated with explanation: {len(cell.scientific_explanation)} chars")
+                while methodology_attempt < max_methodology_retries and not explanation:
+                    methodology_attempt += 1
 
-                    # Store trace_id for backward compatibility
-                    if trace_id:
-                        if 'trace_ids' not in cell.metadata:
-                            cell.metadata['trace_ids'] = []
-                        cell.metadata['trace_ids'].append(trace_id)
-                        logger.info(f"📝 Stored methodology trace_id: {trace_id}")
-
-                    # Store full trace for persistent observability
-                    if full_trace:
-                        cell.llm_traces.append(full_trace)
-                        logger.info(f"✅ Stored full trace for methodology generation")
-                    
-                    # Update notebook's last context tokens from methodology generation
                     try:
-                        # Get the most recent cell usage which should have the input tokens from methodology generation
-                        cell_usage = self.llm_service.token_tracker.get_cell_usage(str(cell.id))
-                        if cell_usage and cell_usage.get('input_tokens', 0) > 0:
-                            notebook.last_context_tokens = cell_usage['input_tokens']
-                            logger.info(f"📊 Updated notebook last_context_tokens from methodology: {cell_usage['input_tokens']}")
-                    except Exception as token_err:
-                        logger.warning(f"Could not update last_context_tokens from methodology: {token_err}")
-                    
-                except Exception as e:
-                    print(f"🔬 ERROR generating scientific explanation: {e}")
-                    import traceback
-                    print(f"🔬 Traceback: {traceback.format_exc()}")
-                    logger.error(f"Error generating scientific explanation: {e}")
+                        # Prepare execution result data for LLM
+                        execution_data = {
+                            'status': 'success',
+                            'stdout': result.stdout,
+                            'plots': result.plots,
+                            'tables': result.tables,
+                            'interactive_plots': result.interactive_plots
+                        }
+
+                        print(f"🔬 Methodology generation attempt #{methodology_attempt}...")
+                        logger.info(f"🔬 Methodology generation attempt #{methodology_attempt}...")
+
+                        explanation, explanation_gen_time, trace_id, full_trace = self.llm_service.generate_scientific_explanation(
+                            cell.prompt,
+                            cell.code,
+                            execution_data,
+                            context,  # Pass context for seed consistency and tracing
+                            step_type='methodology_generation',
+                            attempt_number=methodology_attempt
+                        )
+
+                        print(f"🔬 LLM returned explanation: {len(explanation)} chars" +
+                              (f" in {explanation_gen_time}ms" if explanation_gen_time else ""))
+                        print(f"🔬 Explanation content: {explanation[:200]}...")
+
+                        # Store trace_id for backward compatibility
+                        if trace_id:
+                            if 'trace_ids' not in cell.metadata:
+                                cell.metadata['trace_ids'] = []
+                            cell.metadata['trace_ids'].append(trace_id)
+                            logger.info(f"📝 Stored methodology trace_id: {trace_id}")
+
+                        # Store full trace for persistent observability (even if failed)
+                        if full_trace:
+                            cell.llm_traces.append(full_trace)
+                            logger.info(f"✅ Stored full trace for methodology attempt #{methodology_attempt}")
+
+                        # Check if we got a valid explanation
+                        if explanation and len(explanation.strip()) > 10:
+                            # Valid explanation - update cell
+                            cell.scientific_explanation = explanation
+                            print(f"🔬 ✅ Cell updated with explanation: {len(cell.scientific_explanation)} chars")
+
+                            # Update notebook's last context tokens from methodology generation
+                            try:
+                                cell_usage = self.llm_service.token_tracker.get_cell_usage(str(cell.id))
+                                if cell_usage and cell_usage.get('input_tokens', 0) > 0:
+                                    notebook.last_context_tokens = cell_usage['input_tokens']
+                                    logger.info(f"📊 Updated notebook last_context_tokens from methodology: {cell_usage['input_tokens']}")
+                            except Exception as token_err:
+                                logger.warning(f"Could not update last_context_tokens from methodology: {token_err}")
+                            break  # Success - exit retry loop
+                        else:
+                            # Empty or invalid explanation
+                            logger.warning(f"🔬 ⚠️ Methodology attempt #{methodology_attempt} returned empty/invalid explanation")
+                            explanation = ""  # Reset for retry
+
+                    except Exception as e:
+                        print(f"🔬 ❌ ERROR on methodology attempt #{methodology_attempt}: {e}")
+                        import traceback
+                        print(f"🔬 Traceback: {traceback.format_exc()}")
+                        logger.error(f"Error on methodology attempt #{methodology_attempt}: {e}")
+                        explanation = ""  # Reset for retry
+
+                # If all retries failed, set empty string
+                if not explanation:
+                    logger.error(f"🔬 ❌ All {max_methodology_retries} methodology attempts failed")
                     cell.scientific_explanation = ""
             else:
                 logger.info("🔬 Skipping scientific explanation generation (conditions not met)")

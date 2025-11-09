@@ -67,16 +67,14 @@ const LLMTraceModal: React.FC<LLMTraceModalProps> = ({
 
   const getSuccessIndicator = (trace: LLMTrace): { color: string, label: string } => {
     const finishReason = trace.response?.finish_reason
-    const hasContent = trace.response?.content && trace.response.content.length > 0
+    const content = trace.response?.content || ''
+    const hasValidContent = content.trim().length > 10  // Minimum 10 chars for valid content
 
-    // Code fix attempts are retries
-    if (trace.metadata?.step_type === 'code_fix') {
-      return { color: 'text-yellow-600', label: '⚠ Retry' }
-    }
-
-    // Successful completions (stop, length, tool_calls all indicate success)
-    if (hasContent && (finishReason === 'stop' || finishReason === 'length' || finishReason === 'tool_calls')) {
-      return { color: 'text-green-600', label: '✓ Success' }
+    // For methodology generation, check if content is meaningful
+    const isMethodology = trace.metadata?.step_type === 'methodology_generation'
+    if (isMethodology && !hasValidContent) {
+      // Methodology with empty/invalid content is a failure (will trigger retry)
+      return { color: 'text-red-600', label: '✗ Failed' }
     }
 
     // Error or filtered content
@@ -84,8 +82,18 @@ const LLMTraceModal: React.FC<LLMTraceModalProps> = ({
       return { color: 'text-red-600', label: '✗ Failed' }
     }
 
+    // Successful completions (stop, length, tool_calls all indicate success)
+    if (hasValidContent && (finishReason === 'stop' || finishReason === 'length' || finishReason === 'tool_calls')) {
+      return { color: 'text-green-600', label: '✓ Success' }
+    }
+
+    // Empty content even with stop reason = failure
+    if (!hasValidContent) {
+      return { color: 'text-red-600', label: '✗ Failed' }
+    }
+
     // Fallback for unknown finish reasons (treat as complete if has content)
-    if (hasContent) {
+    if (hasValidContent) {
       return { color: 'text-green-600', label: '✓ Success' }
     }
 
