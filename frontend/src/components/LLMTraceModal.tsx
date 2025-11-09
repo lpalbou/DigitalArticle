@@ -17,6 +17,7 @@ const LLMTraceModal: React.FC<LLMTraceModalProps> = ({
 }) => {
   const [expandedTraces, setExpandedTraces] = useState<Set<string>>(new Set())
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<Record<string, 'prompt' | 'system' | 'response' | 'parameters' | 'json'>>({})
 
   if (!isVisible) return null
 
@@ -26,8 +27,16 @@ const LLMTraceModal: React.FC<LLMTraceModalProps> = ({
       newExpanded.delete(traceId)
     } else {
       newExpanded.add(traceId)
+      // Initialize tab to 'prompt' when expanding
+      if (!activeTab[traceId]) {
+        setActiveTab({ ...activeTab, [traceId]: 'prompt' })
+      }
     }
     setExpandedTraces(newExpanded)
+  }
+
+  const setTraceTab = (traceId: string, tab: 'prompt' | 'system' | 'response' | 'parameters' | 'json') => {
+    setActiveTab({ ...activeTab, [traceId]: tab })
   }
 
   const getStepTypeLabel = (stepType: string): string => {
@@ -158,7 +167,7 @@ const LLMTraceModal: React.FC<LLMTraceModalProps> = ({
           <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
             <div className="grid grid-cols-4 gap-4 text-center">
               <div>
-                <p className="text-sm font-medium text-gray-500">Total Attempts</p>
+                <p className="text-sm font-medium text-gray-500">Total Calls</p>
                 <p className="mt-1 text-2xl font-semibold text-gray-900">{traces.length}</p>
               </div>
               <div>
@@ -232,114 +241,222 @@ const LLMTraceModal: React.FC<LLMTraceModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Trace Details - Expandable */}
+                      {/* Trace Details - Expandable with Tabs */}
                       {isExpanded && (
-                        <div className="p-4 space-y-4 bg-white border-t border-gray-200">
-                          {/* System Prompt */}
-                          {trace.system_prompt && (
-                            <div>
-                              <div className="flex items-center justify-between mb-2">
-                                <h4 className="text-sm font-medium text-gray-700">System Prompt</h4>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    copyToClipboard(trace.system_prompt || '', `${trace.trace_id}-system`)
-                                  }}
-                                  className="text-gray-400 hover:text-gray-600"
-                                >
-                                  {copiedId === `${trace.trace_id}-system` ? (
-                                    <Check className="h-4 w-4 text-green-500" />
-                                  ) : (
-                                    <Copy className="h-4 w-4" />
-                                  )}
-                                </button>
-                              </div>
-                              <pre className="text-xs bg-gray-50 p-3 rounded border border-gray-200 overflow-x-auto max-h-32">
-                                {trace.system_prompt}
-                              </pre>
-                            </div>
-                          )}
-
-                          {/* User Prompt */}
-                          <div>
-                            <div className="flex items-center justify-between mb-2">
-                              <h4 className="text-sm font-medium text-gray-700">User Prompt</h4>
+                        <div className="bg-white border-t border-gray-200">
+                          {/* Tab Header */}
+                          <div className="flex border-b border-gray-200">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setTraceTab(trace.trace_id, 'prompt')
+                              }}
+                              className={`px-4 py-3 text-sm font-medium transition-colors ${
+                                (activeTab[trace.trace_id] || 'prompt') === 'prompt'
+                                  ? 'border-b-2 border-blue-500 text-blue-600'
+                                  : 'text-gray-500 hover:text-gray-700'
+                              }`}
+                            >
+                              User Prompt
+                            </button>
+                            {trace.system_prompt && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  copyToClipboard(trace.prompt, `${trace.trace_id}-prompt`)
+                                  setTraceTab(trace.trace_id, 'system')
                                 }}
-                                className="text-gray-400 hover:text-gray-600"
+                                className={`px-4 py-3 text-sm font-medium transition-colors ${
+                                  activeTab[trace.trace_id] === 'system'
+                                    ? 'border-b-2 border-blue-500 text-blue-600'
+                                    : 'text-gray-500 hover:text-gray-700'
+                                }`}
                               >
-                                {copiedId === `${trace.trace_id}-prompt` ? (
-                                  <Check className="h-4 w-4 text-green-500" />
-                                ) : (
-                                  <Copy className="h-4 w-4" />
-                                )}
+                                System Prompt
                               </button>
-                            </div>
-                            <pre className="text-xs bg-gray-50 p-3 rounded border border-gray-200 overflow-x-auto max-h-32">
-                              {trace.prompt}
-                            </pre>
+                            )}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setTraceTab(trace.trace_id, 'response')
+                              }}
+                              className={`px-4 py-3 text-sm font-medium transition-colors ${
+                                activeTab[trace.trace_id] === 'response'
+                                  ? 'border-b-2 border-blue-500 text-blue-600'
+                                  : 'text-gray-500 hover:text-gray-700'
+                              }`}
+                            >
+                              Response
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setTraceTab(trace.trace_id, 'parameters')
+                              }}
+                              className={`px-4 py-3 text-sm font-medium transition-colors ${
+                                activeTab[trace.trace_id] === 'parameters'
+                                  ? 'border-b-2 border-blue-500 text-blue-600'
+                                  : 'text-gray-500 hover:text-gray-700'
+                              }`}
+                            >
+                              Parameters
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setTraceTab(trace.trace_id, 'json')
+                              }}
+                              className={`px-4 py-3 text-sm font-medium transition-colors ${
+                                activeTab[trace.trace_id] === 'json'
+                                  ? 'border-b-2 border-blue-500 text-blue-600'
+                                  : 'text-gray-500 hover:text-gray-700'
+                              }`}
+                            >
+                              Raw JSON
+                            </button>
                           </div>
 
-                          {/* Response */}
-                          <div>
-                            <div className="flex items-center justify-between mb-2">
-                              <h4 className="text-sm font-medium text-gray-700">Response</h4>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  copyToClipboard(trace.response?.content || '', `${trace.trace_id}-response`)
-                                }}
-                                className="text-gray-400 hover:text-gray-600"
-                              >
-                                {copiedId === `${trace.trace_id}-response` ? (
-                                  <Check className="h-4 w-4 text-green-500" />
-                                ) : (
-                                  <Copy className="h-4 w-4" />
-                                )}
-                              </button>
-                            </div>
-                            <pre className="text-xs bg-gray-50 p-3 rounded border border-gray-200 overflow-x-auto max-h-32">
-                              {trace.response?.content}
-                            </pre>
-                          </div>
-
-                          {/* Parameters */}
-                          <div>
-                            <h4 className="text-sm font-medium text-gray-700 mb-2">Parameters</h4>
-                            <div className="text-xs text-gray-600 space-y-1">
-                              {Object.entries(trace.parameters || {}).map(([key, value]) => (
-                                <div key={key} className="flex">
-                                  <span className="font-mono text-gray-500 w-32">{key}:</span>
-                                  <span className="font-mono">{JSON.stringify(value)}</span>
+                          {/* Tab Content */}
+                          <div className="p-4">
+                            {/* User Prompt Tab */}
+                            {(activeTab[trace.trace_id] || 'prompt') === 'prompt' && (
+                              <div>
+                                <div className="flex items-center justify-between mb-3">
+                                  <h4 className="text-sm font-medium text-gray-700">User Prompt</h4>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      copyToClipboard(trace.prompt, `${trace.trace_id}-prompt`)
+                                    }}
+                                    className="text-gray-400 hover:text-gray-600 flex items-center space-x-1"
+                                  >
+                                    {copiedId === `${trace.trace_id}-prompt` ? (
+                                      <>
+                                        <Check className="h-4 w-4 text-green-500" />
+                                        <span className="text-xs text-green-500">Copied!</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy className="h-4 w-4" />
+                                        <span className="text-xs">Copy</span>
+                                      </>
+                                    )}
+                                  </button>
                                 </div>
-                              ))}
-                            </div>
-                          </div>
+                                <pre className="text-xs bg-gray-50 p-4 rounded border border-gray-200 overflow-x-auto max-h-96 whitespace-pre-wrap">
+                                  {trace.prompt}
+                                </pre>
+                              </div>
+                            )}
 
-                          {/* Raw JSON */}
-                          <div>
-                            <div className="flex items-center justify-between mb-2">
-                              <h4 className="text-sm font-medium text-gray-700">Raw JSON</h4>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  copyToClipboard(JSON.stringify(trace, null, 2), `${trace.trace_id}-json`)
-                                }}
-                                className="text-gray-400 hover:text-gray-600"
-                              >
-                                {copiedId === `${trace.trace_id}-json` ? (
-                                  <Check className="h-4 w-4 text-green-500" />
-                                ) : (
-                                  <Copy className="h-4 w-4" />
-                                )}
-                              </button>
-                            </div>
-                            <pre className="text-xs bg-gray-50 p-3 rounded border border-gray-200 overflow-x-auto max-h-32">
-                              {JSON.stringify(trace, null, 2)}
-                            </pre>
+                            {/* System Prompt Tab */}
+                            {activeTab[trace.trace_id] === 'system' && trace.system_prompt && (
+                              <div>
+                                <div className="flex items-center justify-between mb-3">
+                                  <h4 className="text-sm font-medium text-gray-700">System Prompt</h4>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      copyToClipboard(trace.system_prompt || '', `${trace.trace_id}-system`)
+                                    }}
+                                    className="text-gray-400 hover:text-gray-600 flex items-center space-x-1"
+                                  >
+                                    {copiedId === `${trace.trace_id}-system` ? (
+                                      <>
+                                        <Check className="h-4 w-4 text-green-500" />
+                                        <span className="text-xs text-green-500">Copied!</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy className="h-4 w-4" />
+                                        <span className="text-xs">Copy</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                                <pre className="text-xs bg-gray-50 p-4 rounded border border-gray-200 overflow-x-auto max-h-96 whitespace-pre-wrap">
+                                  {trace.system_prompt}
+                                </pre>
+                              </div>
+                            )}
+
+                            {/* Response Tab */}
+                            {activeTab[trace.trace_id] === 'response' && (
+                              <div>
+                                <div className="flex items-center justify-between mb-3">
+                                  <h4 className="text-sm font-medium text-gray-700">Response</h4>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      copyToClipboard(trace.response?.content || '', `${trace.trace_id}-response`)
+                                    }}
+                                    className="text-gray-400 hover:text-gray-600 flex items-center space-x-1"
+                                  >
+                                    {copiedId === `${trace.trace_id}-response` ? (
+                                      <>
+                                        <Check className="h-4 w-4 text-green-500" />
+                                        <span className="text-xs text-green-500">Copied!</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy className="h-4 w-4" />
+                                        <span className="text-xs">Copy</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                                <pre className="text-xs bg-gray-50 p-4 rounded border border-gray-200 overflow-x-auto max-h-96 whitespace-pre-wrap">
+                                  {trace.response?.content}
+                                </pre>
+                              </div>
+                            )}
+
+                            {/* Parameters Tab */}
+                            {activeTab[trace.trace_id] === 'parameters' && (
+                              <div>
+                                <h4 className="text-sm font-medium text-gray-700 mb-3">LLM Parameters</h4>
+                                <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                                  <div className="text-xs text-gray-600 space-y-2">
+                                    {Object.entries(trace.parameters || {}).map(([key, value]) => (
+                                      <div key={key} className="flex items-start">
+                                        <span className="font-mono text-gray-500 w-40 flex-shrink-0">{key}:</span>
+                                        <span className="font-mono text-gray-900">{JSON.stringify(value)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Raw JSON Tab */}
+                            {activeTab[trace.trace_id] === 'json' && (
+                              <div>
+                                <div className="flex items-center justify-between mb-3">
+                                  <h4 className="text-sm font-medium text-gray-700">Complete Trace (JSON)</h4>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      copyToClipboard(JSON.stringify(trace, null, 2), `${trace.trace_id}-json`)
+                                    }}
+                                    className="text-gray-400 hover:text-gray-600 flex items-center space-x-1"
+                                  >
+                                    {copiedId === `${trace.trace_id}-json` ? (
+                                      <>
+                                        <Check className="h-4 w-4 text-green-500" />
+                                        <span className="text-xs text-green-500">Copied!</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy className="h-4 w-4" />
+                                        <span className="text-xs">Copy</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                                <pre className="text-xs bg-gray-50 p-4 rounded border border-gray-200 overflow-x-auto max-h-96">
+                                  {JSON.stringify(trace, null, 2)}
+                                </pre>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
