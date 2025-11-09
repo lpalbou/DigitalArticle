@@ -67,13 +67,29 @@ const LLMTraceModal: React.FC<LLMTraceModalProps> = ({
 
   const getSuccessIndicator = (trace: LLMTrace): { color: string, label: string } => {
     const finishReason = trace.response?.finish_reason
-    if (finishReason === 'stop') {
-      return { color: 'text-green-600', label: '✓ Success' }
-    } else if (trace.metadata?.step_type === 'code_fix') {
+    const hasContent = trace.response?.content && trace.response.content.length > 0
+
+    // Code fix attempts are retries
+    if (trace.metadata?.step_type === 'code_fix') {
       return { color: 'text-yellow-600', label: '⚠ Retry' }
-    } else {
-      return { color: 'text-gray-600', label: '○ Complete' }
     }
+
+    // Successful completions (stop, length, tool_calls all indicate success)
+    if (hasContent && (finishReason === 'stop' || finishReason === 'length' || finishReason === 'tool_calls')) {
+      return { color: 'text-green-600', label: '✓ Success' }
+    }
+
+    // Error or filtered content
+    if (finishReason === 'content_filter' || finishReason === 'error') {
+      return { color: 'text-red-600', label: '✗ Failed' }
+    }
+
+    // Fallback for unknown finish reasons (treat as complete if has content)
+    if (hasContent) {
+      return { color: 'text-green-600', label: '✓ Success' }
+    }
+
+    return { color: 'text-gray-600', label: '○ Unknown' }
   }
 
   const formatTimestamp = (timestamp: string): string => {

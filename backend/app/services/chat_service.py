@@ -102,8 +102,9 @@ EXAMPLES:
             response = self.llm_service.llm.generate(
                 user_prompt,  # First positional argument
                 system_prompt=self.SYSTEM_PROMPT,
-                temperature=0.3,  # Lower temperature for more factual responses
-                max_tokens=1000
+                max_tokens=32000,  # Full active context (article + question + history)
+                max_output_tokens=8192,  # 8k output limit
+                temperature=0.3  # Lower temperature for more factual responses
             )
 
             answer = response.content.strip()

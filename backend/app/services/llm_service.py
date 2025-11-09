@@ -177,8 +177,11 @@ class LLMService:
                 notebook_seed = self._get_notebook_seed(context['notebook_id'])
             
             # Prepare generation parameters
+            # max_tokens = FULL ACTIVE CONTEXT (input + output)
+            # max_output_tokens = OUTPUT LIMIT (includes thinking tokens for models like o1/o3)
             generation_params = {
-                "max_tokens": 2000,
+                "max_tokens": 32000,  # Full active context size
+                "max_output_tokens": 8192,  # 8k output limit (includes thinking tokens)
                 "temperature": 0.1  # Low temperature for consistent code generation
             }
             
@@ -702,7 +705,8 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
                     'notebook_id': context.get('notebook_id') if context else None,
                     'cell_id': context.get('cell_id') if context else None
                 },
-                max_tokens=500,
+                max_tokens=32000,  # Full active context
+                max_output_tokens=8192,  # 8k output limit
                 temperature=0.3
             )
 
@@ -785,7 +789,8 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
                     'notebook_id': context.get('notebook_id') if context else None,
                     'cell_id': context.get('cell_id') if context else None
                 },
-                max_tokens=2000,
+                max_tokens=32000,  # Full active context
+                max_output_tokens=8192,  # 8k output limit
                 temperature=0.1
             )
 
@@ -944,8 +949,11 @@ Write a scientific explanation of what was done and the results obtained:"""
                 notebook_seed = self._get_notebook_seed(context['notebook_id'])
             
             # Prepare generation parameters
+            # max_tokens = FULL ACTIVE CONTEXT (input + output)
+            # max_output_tokens = OUTPUT LIMIT (includes thinking tokens for models like o1/o3)
             generation_params = {
-                "max_tokens": 300,  # Shorter for concise explanations
+                "max_tokens": 32000,  # Full active context size
+                "max_output_tokens": 8192,  # 8k output limit
                 "temperature": 0.2  # Slightly higher for more natural writing
             }
             
@@ -1095,6 +1103,8 @@ Generate a professional scientific abstract now:"""
             response = self.llm.generate(
                 user_prompt,
                 system_prompt=system_prompt,
+                max_tokens=32000,  # Full active context
+                max_output_tokens=8192,  # 8k output limit
                 seed=seed  # Use AbstractCore's native SEED parameter
             )
             
@@ -1236,10 +1246,12 @@ Create the article plan now:"""
 
             print(f"🎯 ARTICLE PLANNING: Generating article plan for notebook {notebook_id}")
             logger.info(f"Generating article plan for notebook {notebook_id}")
-            
+
             response = self.llm.generate(
                 user_prompt,
                 system_prompt=system_prompt,
+                max_tokens=32000,  # Full active context
+                max_output_tokens=8192,  # 8k output limit
                 seed=seed
             )
             
@@ -1423,10 +1435,12 @@ Write the {section_name} section now:"""
 
             print(f"🎯 SECTION WRITING: Generating {section_name} section for notebook {notebook_id}")
             logger.info(f"Generating {section_name} section for notebook {notebook_id}")
-            
+
             response = self.llm.generate(
                 user_prompt,
                 system_prompt=system_prompt,
+                max_tokens=32000,  # Full active context
+                max_output_tokens=8192,  # 8k output limit
                 seed=seed
             )
             
