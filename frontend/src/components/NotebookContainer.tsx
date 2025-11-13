@@ -6,7 +6,7 @@ import FileContextPanel from './FileContextPanel'
 import NotebookCell from './NotebookCell'
 import PDFGenerationModal from './PDFGenerationModal'
 import SemanticExtractionModal from './SemanticExtractionModal'
-import LLMTraceModal from './LLMTraceModal'
+import ExecutionDetailsModal from './ExecutionDetailsModal'
 import ChatFloatingButton from './ChatFloatingButton'
 import ArticleChatPanel from './ArticleChatPanel'
 import LLMStatusFooter from './LLMStatusFooter'
@@ -72,6 +72,7 @@ const NotebookContainer: React.FC = () => {
   const [isViewingTraces, setIsViewingTraces] = useState(false)
   const [tracesCellId, setTracesCellId] = useState<string>('')
   const [cellTraces, setCellTraces] = useState<LLMTrace[]>([])
+  const [cellExecutionResult, setCellExecutionResult] = useState<ExecutionResult | null>(null)
   const [loadingTraces, setLoadingTraces] = useState(false)
 
   // Chat state
@@ -363,6 +364,7 @@ const NotebookContainer: React.FC = () => {
       setTracesCellId(cellId)
       setIsViewingTraces(true)
       setCellTraces([]) // Reset traces while loading
+      setCellExecutionResult(null) // Reset execution result
 
       // Fetch traces from API
       const response = await cellAPI.getTraces(cellId)
@@ -375,15 +377,21 @@ const NotebookContainer: React.FC = () => {
         setCellTraces([])
       }
 
+      // Find cell's execution result from notebook
+      const cell = notebook?.cells.find(c => c.id === cellId)
+      if (cell && cell.last_result) {
+        setCellExecutionResult(cell.last_result)
+      }
+
       setLoadingTraces(false)
     } catch (err) {
       console.error('Failed to load cell traces:', err)
       const apiError = handleAPIError(err)
-      setError(`Failed to load LLM traces: ${apiError.message}`)
+      setError(`Failed to load execution details: ${apiError.message}`)
       setLoadingTraces(false)
       setIsViewingTraces(false)
     }
-  }, [])
+  }, [notebook])
 
   const exportNotebookPDF = useCallback(async (includeCode: boolean) => {
     if (!notebook) return
@@ -927,11 +935,12 @@ const NotebookContainer: React.FC = () => {
         graphType={semanticGraphType}
       />
 
-      {/* LLM Trace Modal */}
-      <LLMTraceModal
+      {/* Execution Details Modal */}
+      <ExecutionDetailsModal
         isVisible={isViewingTraces}
         cellId={tracesCellId}
         traces={cellTraces}
+        executionResult={cellExecutionResult}
         onClose={() => setIsViewingTraces(false)}
       />
 

@@ -299,6 +299,92 @@ RULES:
 10. Use descriptive variable names
 11. RANDOM DATA: Generate random data without setting seeds - the system handles reproducibility automatically
 
+⚠️ CRITICAL - COMMON PYTHON MISTAKES TO AVOID ⚠️
+
+These are REAL errors that have occurred. YOU MUST NOT make these mistakes:
+
+MISTAKE #1: Using = instead of () for function calls
+❌ WRONG:
+   outcome = random.choice=['RECOVERED', 'RECOVERING', 'NOT RECOVERED']
+   severity = random.choice['MILD', 'MODERATE', 'SEVERE']
+   value = np.random.normal=loc, scale
+
+✅ CORRECT:
+   outcome = random.choice(['RECOVERED', 'RECOVERING', 'NOT RECOVERED'])
+   severity = random.choice(['MILD', 'MODERATE', 'SEVERE'])
+   value = np.random.normal(loc, scale)
+
+EXPLANATION: Functions MUST be called with parentheses (). Never use = or [] for function calls!
+
+MISTAKE #2: Using [] instead of () for function calls
+❌ WRONG:
+   result = random.randint[1, 10]
+   item = random.choice[items_list]
+
+✅ CORRECT:
+   result = random.randint(1, 10)
+   item = random.choice(items_list)
+
+EXPLANATION: Square brackets [] are for indexing lists/arrays, NOT for calling functions!
+
+MISTAKE #3: Forgetting parentheses entirely
+❌ WRONG:
+   today = datetime.now  # Missing ()
+   value = df.mean  # Missing ()
+
+✅ CORRECT:
+   today = datetime.now()
+   value = df.mean()
+
+EXPLANATION: Functions need () to execute. Without them, you get the function object, not the result!
+
+BEFORE YOU WRITE CODE, VERIFY:
+• Every function call has parentheses: function()
+• random.choice(), np.random.randint(), etc. ALL need ()
+• Square brackets [] are ONLY for indexing: array[0], dict['key']
+• You cannot assign to a function: function = value  (this overwrites the function!)
+
+⚠️ PROACTIVE ERROR PREVENTION - LEARN FROM PAST MISTAKES ⚠️
+
+These issues cause frequent errors. PREVENT them by following these patterns:
+
+1. FILE PATHS - ALWAYS use 'data/' prefix:
+   ✅ CORRECT: pd.read_csv('data/patients.csv')
+   ❌ WRONG: pd.read_csv('patients.csv')  # Will fail with FileNotFoundError!
+
+2. NUMPY TYPE CONVERSIONS - Convert before using with Python built-ins:
+   ✅ CORRECT: timedelta(days=int(np_value))  # Convert to Python int
+   ✅ CORRECT: pd.to_timedelta(df['days'], unit='D')  # Use pandas method
+   ❌ WRONG: timedelta(days=np.random.randint(1, 30))  # numpy.int64 incompatible!
+
+3. DATAFRAME COLUMNS - Check columns exist before accessing:
+   ✅ CORRECT: print(df.columns.tolist())  # Then use exact column names
+   ✅ CORRECT: if 'column' in df.columns: df['column']
+   ❌ WRONG: df['colum']  # Typo causes KeyError!
+
+4. PANDAS LENGTH MISMATCHES - Match assignment target to data size:
+   ✅ CORRECT: df_filtered = df[condition]; df_filtered['new'] = values
+   ✅ CORRECT: df.loc[condition, 'new'] = values  # Use .loc for subsets
+   ❌ WRONG: df['new'] = filtered_values  # Length mismatch if filtered!
+
+5. MATPLOTLIB COLORS - Convert categorical data before plotting:
+   ✅ CORRECT: colors = df['category'].map({'A': 'red', 'B': 'blue'})
+   ✅ CORRECT: sns.scatterplot(data=df, hue='category')  # seaborn handles it
+   ❌ WRONG: plt.scatter(x, y, c=df['category'])  # Can't use text as colors!
+
+6. IMPORTS - Only use available libraries:
+   ✅ AVAILABLE: pandas, numpy, matplotlib, plotly, seaborn, scipy, sklearn
+   ✅ AVAILABLE: PIL, requests, openpyxl, scanpy, umap
+   ❌ NOT AVAILABLE: tensorflow, torch, opencv (cv2)
+
+QUICK CHECKLIST BEFORE GENERATING CODE:
+□ Are you calling functions with () not = or [] ?
+□ Do all file paths start with 'data/' ?
+□ Are you converting numpy types when needed?
+□ Have you checked DataFrame columns exist?
+□ Are array/DataFrame sizes compatible for operations?
+□ Are you using only available libraries?
+
 AVAILABLE LIBRARIES:
 - pandas as pd (data manipulation)
 - numpy as np (numerical computing)
@@ -422,9 +508,11 @@ plt.show()
         if context and 'available_variables' in context:
             variables = context['available_variables']
             if variables:
-                user_prompt += "=" * 70 + "\n"
-                user_prompt += "AVAILABLE VARIABLES IN CURRENT EXECUTION CONTEXT\n"
-                user_prompt += "=" * 70 + "\n\n"
+                user_prompt += "\n" + "=" * 80 + "\n"
+                user_prompt += "⚠️  CRITICAL: EXISTING VARIABLES YOU MUST REUSE  ⚠️\n"
+                user_prompt += "=" * 80 + "\n\n"
+                user_prompt += "These variables already exist in memory. DO NOT recreate them!\n"
+                user_prompt += "REUSE them by their exact variable names shown below.\n\n"
 
                 # Separate DataFrames from other variables for emphasis
                 dataframes = {}
@@ -439,38 +527,40 @@ plt.show()
 
                 # Show DataFrames FIRST (most important for reuse)
                 if dataframes:
-                    user_prompt += "DATAFRAMES (REUSE THESE - DO NOT RECREATE):\n"
-                    user_prompt += "-" * 70 + "\n"
+                    user_prompt += "🔹 DATAFRAMES AVAILABLE (REUSE THESE - NEVER RECREATE!):\n"
+                    user_prompt += "-" * 80 + "\n"
                     for name, info in dataframes.items():
                         if isinstance(info, dict):
                             shape = info.get('shape', 'unknown')
                             columns = info.get('columns', [])
-                            user_prompt += f"  Variable: '{name}'\n"
-                            user_prompt += f"  Type: DataFrame\n"
-                            user_prompt += f"  Shape: {shape}\n"
+                            user_prompt += f"  ▶ Variable name: '{name}'\n"
+                            user_prompt += f"    Type: DataFrame\n"
+                            user_prompt += f"    Shape: {shape}\n"
                             if columns:
                                 cols_preview = ', '.join(str(c) for c in columns[:8])
                                 if len(columns) > 8:
                                     cols_preview += f", ... ({len(columns)} total columns)"
-                                user_prompt += f"  Columns: {cols_preview}\n"
+                                user_prompt += f"    Columns: {cols_preview}\n"
+                            user_prompt += f"    ⚠️  USE THIS: {name}[column_name] or {name}.method()\n"
                             user_prompt += "\n"
                         else:
-                            user_prompt += f"  '{name}': {info}\n\n"
+                            user_prompt += f"  ▶ '{name}': {info}\n\n"
 
                 # Show other variables
                 if other_vars:
-                    user_prompt += "OTHER VARIABLES:\n"
-                    user_prompt += "-" * 70 + "\n"
+                    user_prompt += "🔹 OTHER VARIABLES AVAILABLE:\n"
+                    user_prompt += "-" * 80 + "\n"
                     for name, info in other_vars.items():
                         if isinstance(info, dict):
                             var_type = info.get('type', 'unknown')
                             extra = info.get('shape') or info.get('length') or ''
-                            user_prompt += f"  '{name}': {var_type} {extra}\n"
+                            user_prompt += f"  ▶ '{name}': {var_type} {extra}\n"
                         else:
-                            user_prompt += f"  '{name}': {info}\n"
+                            user_prompt += f"  ▶ '{name}': {info}\n"
                     user_prompt += "\n"
 
-                user_prompt += "=" * 70 + "\n\n"
+                user_prompt += "\n⚠️  REMINDER: Use existing variable names EXACTLY as shown above!\n"
+                user_prompt += "=" * 80 + "\n\n"
 
         # SECOND: Add previous cells context for awareness
         if context and 'previous_cells' in context:

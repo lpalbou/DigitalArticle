@@ -67,45 +67,18 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result }) => {
         </div>
       )}
 
-      {/* Tables - Intermediary/Source Data (shown first) */}
-      {result.tables.length > 0 && (
-        <DataTablesSection tables={result.tables} />
-      )}
-
-      {/* Standard Output - Analysis Results */}
-      {result.stdout && (
-        <div className="mb-4">
-          <div className="flex items-center space-x-2 mb-2">
-            <span className="text-sm font-medium text-gray-700">Analysis Results</span>
-          </div>
-          <ConsoleOutput output={result.stdout} />
+      {/* Analysis Results Tables - Clean article-first display */}
+      {result.tables.filter((t: any) => t.source === 'stdout').length > 0 && (
+        <div className="mb-4 space-y-4">
+          {result.tables.filter((t: any) => t.source === 'stdout').map((table: any, index: number) => (
+            <div key={index} className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+              <TableDisplay table={table} />
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Standard Error (non-fatal) - Collapsible Warnings */}
-      {result.stderr && !hasError && (
-        <div className="mb-4">
-          <div
-            className="flex items-center space-x-2 mb-2 cursor-pointer hover:bg-gray-50 p-2 rounded -ml-2"
-            onClick={() => setWarningsCollapsed(!warningsCollapsed)}
-          >
-            {warningsCollapsed ? (
-              <ChevronRight className="h-4 w-4 text-gray-500" />
-            ) : (
-              <ChevronDown className="h-4 w-4 text-gray-500" />
-            )}
-            <span className="text-sm font-medium text-gray-700">Warnings</span>
-            <span className="text-xs text-gray-500">
-              ({warningsCollapsed ? 'click to expand' : 'click to collapse'})
-            </span>
-          </div>
-          {!warningsCollapsed && (
-            <pre className="bg-yellow-50 border border-yellow-200 p-3 rounded text-sm overflow-x-auto whitespace-pre-wrap">
-              {result.stderr}
-            </pre>
-          )}
-        </div>
-      )}
+      {/* Note: Console output, intermediary data, and warnings are available via TRACE button → Execution Details */}
 
       {/* Matplotlib Plots */}
       {result.plots.length > 0 && (
@@ -480,289 +453,76 @@ const formatCellValue = (value: any): string => {
   return String(value)
 }
 
-// Smart console output component that detects and handles tabular data
+// Simplified console output - tables are now parsed on backend and shown in Tables section
 const ConsoleOutput: React.FC<{ output: string }> = ({ output }) => {
-  const [viewMode, setViewMode] = React.useState<'auto' | 'raw' | 'table'>('auto')
-  
-  // Detect if output looks like tabular data based on repetitive patterns/structure
-  const isTabularData = React.useMemo(() => {
-    const lines = output.trim().split('\n').filter(line => line.trim())
-    if (lines.length < 2) return false
-    
-    // Check for consistent structure across multiple lines
-    const hasConsistentSpacing = () => {
-      const dataLines = lines.filter(line => line.trim() && !line.includes('Generated') && !line.includes('First few'))
-      if (dataLines.length < 2) return false
-      
-      // Analyze spacing patterns in each line
-      const spacingPatterns = dataLines.map(line => {
-        const matches = [...line.matchAll(/\s{2,}/g)]
-        return matches.map(match => match.index).sort((a, b) => a - b)
-      })
-      
-      if (spacingPatterns.length < 2) return false
-      
-      // Check if spacing patterns are similar (allowing some variance)
-      const firstPattern = spacingPatterns[0]
-      if (!firstPattern || firstPattern.length < 1) return false
-      
-      return spacingPatterns.slice(1).every(pattern => {
-        if (!pattern || Math.abs(pattern.length - firstPattern.length) > 2) return false
-        
-        // Check if column positions are roughly aligned (within 3 characters)
-        return pattern.every((pos, i) => {
-          const expectedPos = firstPattern[i]
-          return expectedPos !== undefined && Math.abs(pos - expectedPos) <= 3
-        })
-      })
-    }
-    
-    // Check for repetitive data patterns
-    const hasRepetitiveStructure = () => {
-      const dataLines = lines.filter(line => line.trim() && !line.includes('Generated') && !line.includes('First few'))
-      if (dataLines.length < 2) return false
-      
-      // Look for lines that start with similar patterns (like row indices, IDs, etc.)
-      const startsWithNumbers = dataLines.filter(line => /^\s*\d+/.test(line)).length
-      const startsWithWords = dataLines.filter(line => /^\s*[A-Z]\w+/.test(line)).length
-      
-      // If most lines start with numbers or consistent word patterns, it's likely tabular
-      return (startsWithNumbers >= dataLines.length * 0.6) || (startsWithWords >= dataLines.length * 0.6)
-    }
-    
-    // Check for multiple columns of data
-    const hasMultipleColumns = () => {
-      const dataLines = lines.filter(line => line.trim() && !line.includes('Generated') && !line.includes('First few'))
-      return dataLines.some(line => (line.match(/\s{2,}/g) || []).length >= 1)
-    }
-    
-    // Check for mixed data types (numbers, words) which is common in tables
-    const hasMixedDataTypes = () => {
-      const content = lines.join(' ')
-      const hasNumbers = /\d+(\.\d+)?/.test(content)
-      const hasWords = /[A-Za-z]{2,}/.test(content)
-      return hasNumbers && hasWords
-    }
-    
-    return hasConsistentSpacing() || (hasRepetitiveStructure() && hasMultipleColumns() && hasMixedDataTypes())
-  }, [output])
-  
-  // Parse tabular data into structured format
-  const parseTabularData = React.useMemo(() => {
-    if (!isTabularData) return null
-    
-    const lines = output.trim().split('\n').filter(line => line.trim())
-    if (lines.length < 2) return null
-    
-    // Filter out descriptive lines, keep only data lines
-    const dataLines = lines.filter(line => 
-      line.trim() && 
-      !line.includes('Generated') && 
-      !line.includes('First few') &&
-      !line.includes('dataset with')
-    )
-    
-    if (dataLines.length < 2) return null
-    
-    // Find the header line - look for a line with column names (letters/underscores)
-    let headerIndex = -1
-    for (let i = 0; i < Math.min(3, dataLines.length); i++) {
-      const line = dataLines[i].trim()
-      // Look for lines that contain column headers (mix of letters, numbers, underscores)
-      if (/[A-Z_]/.test(line) && (line.match(/\s{2,}/g) || []).length >= 1) {
-        headerIndex = i
-        break
-      }
-    }
-    
-    // If no clear header found, create generic column names based on first data row
-    let columns: string[] = []
-    let actualDataLines: string[] = []
-    
-    if (headerIndex === -1) {
-      // Use first data line to determine column structure
-      const firstDataLine = dataLines[0]
-      const spaceMatches = [...firstDataLine.matchAll(/\s{2,}/g)]
-      const numColumns = spaceMatches.length + 1
-      columns = Array.from({ length: numColumns }, (_, i) => `Column ${i + 1}`)
-      actualDataLines = dataLines
-    } else {
-      const headerLine = dataLines[headerIndex]
-      actualDataLines = dataLines.slice(headerIndex + 1)
-      
-      // Extract column positions by finding consistent spacing
-      const columnPositions: number[] = []
-      const headerSpaces = [...headerLine.matchAll(/\s{2,}/g)]
-      
-      columnPositions.push(0) // First column starts at 0
-      headerSpaces.forEach(match => {
-        if (match.index !== undefined) {
-          columnPositions.push(match.index + match[0].length)
-        }
-      })
-      
-      // Extract column names
-      for (let i = 0; i < columnPositions.length; i++) {
-        const start = columnPositions[i]
-        const end = columnPositions[i + 1] || headerLine.length
-        const columnName = headerLine.slice(start, end).trim()
-        if (columnName) columns.push(columnName)
-      }
-    }
-    
-    // Use the first data line to establish column positions
-    const referenceLine = actualDataLines[0] || dataLines[0]
-    const columnPositions: number[] = []
-    const spaces = [...referenceLine.matchAll(/\s{2,}/g)]
-    
-    columnPositions.push(0)
-    spaces.forEach(match => {
-      if (match.index !== undefined) {
-        columnPositions.push(match.index + match[0].length)
-      }
-    })
-    
-    // Ensure we have enough columns
-    while (columns.length < columnPositions.length) {
-      columns.push(`Column ${columns.length + 1}`)
-    }
-    
-    // Extract data rows
-    const rows: string[][] = []
-    actualDataLines.forEach(line => {
-      if (!line.trim()) return
-      
-      const row: string[] = []
-      for (let i = 0; i < columnPositions.length; i++) {
-        const start = columnPositions[i]
-        const end = columnPositions[i + 1] || line.length
-        const cellValue = line.slice(start, end).trim()
-        row.push(cellValue || '-')
-      }
-      
-      // Ensure row has same number of columns as headers
-      while (row.length < columns.length) {
-        row.push('-')
-      }
-      
-      if (row.some(cell => cell && cell !== '-')) { // Only add non-empty rows
-        rows.push(row.slice(0, columns.length)) // Trim to match column count
-      }
-    })
-    
-    return { columns, rows }
-  }, [output, isTabularData])
-  
-  const effectiveViewMode = viewMode === 'auto' ? (isTabularData ? 'table' : 'raw') : viewMode
-  
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden">
-      {/* View Mode Controls */}
+      {/* Header */}
       <div className="bg-gray-50 px-3 py-2 border-b flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <span className="text-xs text-gray-600">Console Output</span>
-          {isTabularData && (
-            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-              Tabular data detected
-            </span>
-          )}
-          <span className="text-xs text-gray-400">
-            Mode: {effectiveViewMode}
-          </span>
-        </div>
-        
-        <div className="flex items-center space-x-1">
-          <button
-            onClick={() => setViewMode('auto')}
-            className={`text-xs px-2 py-1 rounded transition-colors ${
-              viewMode === 'auto' 
-                ? 'bg-blue-600 text-white' 
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            Auto
-          </button>
-          <button
-            onClick={() => setViewMode('table')}
-            className={`text-xs px-2 py-1 rounded transition-colors ${
-              viewMode === 'table' 
-                ? 'bg-blue-600 text-white' 
-                : parseTabularData 
-                  ? 'text-gray-600 hover:bg-gray-100'
-                  : 'text-gray-400 cursor-not-allowed'
-            }`}
-            disabled={!parseTabularData}
-          >
-            Table
-          </button>
-          <button
-            onClick={() => setViewMode('raw')}
-            className={`text-xs px-2 py-1 rounded transition-colors ${
-              viewMode === 'raw' 
-                ? 'bg-blue-600 text-white' 
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            Raw
-          </button>
-        </div>
+        <span className="text-xs text-gray-600">Console Output</span>
+        <span className="text-xs text-gray-400 italic">
+          Tables are parsed automatically and shown above
+        </span>
       </div>
-      
-      {/* Content Display */}
-      <div className="bg-white">
-        {effectiveViewMode === 'table' && parseTabularData ? (
-          <div className="overflow-x-auto max-h-96 enhanced-table-scroll">
-            <table className="min-w-full text-xs">
-              <thead className="bg-gray-50 sticky top-0">
-                <tr>
-                  {parseTabularData.columns.map((column, index) => (
-                    <th
-                      key={index}
-                      className="px-3 py-2 text-left font-medium text-gray-700 border-r border-gray-200 last:border-r-0"
-                      style={{ minWidth: '100px' }}
-                    >
-                      <div className="truncate" title={column}>
-                        {column}
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {parseTabularData.rows.map((row, rowIndex) => (
-                  <tr key={rowIndex} className="hover:bg-gray-50">
-                    {row.map((cell, cellIndex) => (
-                      <td
-                        key={cellIndex}
-                        className="px-3 py-2 text-gray-900 border-r border-gray-100 last:border-r-0 font-mono"
-                        style={{ minWidth: '100px' }}
-                      >
-                        <div className="truncate" title={cell}>
-                          {cell || '-'}
-                        </div>
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="bg-gray-50 p-3">
-            <div className="text-xs text-gray-500 mb-2 border-b border-gray-200 pb-2">
-              Raw console output (no formatting applied)
-            </div>
-            <pre className="text-xs font-mono overflow-x-auto whitespace-pre text-gray-800 bg-white p-2 rounded border">
-              {output}
-            </pre>
-          </div>
-        )}
+
+      {/* Content */}
+      <div className="bg-white p-3">
+        <pre className="text-xs font-mono overflow-x-auto whitespace-pre text-gray-800">
+          {output}
+        </pre>
       </div>
     </div>
   )
 }
 
-// Collapsible Data Tables Section Component
+// Analysis Results Tables Section - Expanded by default, shows tables parsed from stdout
+const AnalysisResultsTablesSection: React.FC<{ tables: TableData[] }> = ({ tables }) => {
+  const [isExpanded, setIsExpanded] = React.useState(true) // Expanded by default
+
+  return (
+    <div className="mb-4">
+      {/* Collapsible Header */}
+      <div
+        className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center space-x-2">
+          <Table className="h-4 w-4 text-blue-600" />
+          <span className="text-sm font-medium text-blue-700">
+            Analysis Results
+          </span>
+          <span className="text-xs text-blue-500 bg-blue-200 px-2 py-0.5 rounded">
+            {tables.length} table{tables.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <span className="text-xs text-blue-600">
+            {isExpanded ? 'Click to fold' : 'Click to expand'}
+          </span>
+          {isExpanded ? (
+            <ChevronDown className="h-4 w-4 text-blue-600" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-blue-600" />
+          )}
+        </div>
+      </div>
+
+      {/* Collapsible Content */}
+      {isExpanded && (
+        <div className="mt-2 space-y-4">
+          {tables.map((table, index) => (
+            <div key={index} className="bg-white rounded-lg border border-blue-200 overflow-hidden shadow-sm">
+              <TableDisplay table={table} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Collapsible Data Tables Section Component - Intermediary data from variables
 const DataTablesSection: React.FC<{ tables: TableData[] }> = ({ tables }) => {
   const [isExpanded, setIsExpanded] = React.useState(false) // Folded by default
   

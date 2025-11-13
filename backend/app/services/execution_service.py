@@ -12,8 +12,10 @@ import base64
 import time
 import logging
 import warnings
+import ast
+import re
 from contextlib import redirect_stdout, redirect_stderr
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import matplotlib
 import matplotlib.pyplot as plt
 import plotly
@@ -198,10 +200,10 @@ class ExecutionService:
     def set_notebook_execution_seed(self, notebook_id: str, seed: Optional[int] = None):
         """
         Set random seed for the execution environment (separate from LLM seed).
-        
+
         This ensures that when generated code runs random operations like np.random.randn(),
         the results are consistent per notebook.
-        
+
         Args:
             notebook_id: Notebook identifier
             seed: Random seed (if None, checks for custom seed then uses notebook_id hash)
@@ -214,47 +216,198 @@ class ExecutionService:
                 # Generate consistent seed from notebook_id hash
                 import hashlib
                 seed = int(hashlib.md5(notebook_id.encode()).hexdigest()[:8], 16) % (2**31)
-        
+
         self.notebook_execution_seed = seed
-        
+
         # Set seeds in the execution environment
         import random
         import numpy as np
-        
+
         random.seed(seed)
         np.random.seed(seed)
-        
+
         # Also set in globals_dict so user code can access if needed
         self.globals_dict['_notebook_execution_seed'] = seed
-        
+
         logger.info(f"🎲 Set execution environment seed: {seed} for notebook {notebook_id}")
+
+    def validate_code_syntax(self, code: str) -> Tuple[bool, Optional[str], Optional[List[str]]]:
+        """
+        Validate Python code for syntax errors and common anti-patterns.
+
+        This catches errors BEFORE execution to provide immediate feedback to the LLM.
+
+        Args:
+            code: Python code to validate
+
+        Returns:
+            Tuple of (is_valid, error_message, suggestions)
+        """
+        suggestions = []
+
+        # Phase 1: Check for basic Python syntax using AST
+        try:
+            ast.parse(code)
+        except SyntaxError as e:
+            error_msg = f"Syntax Error on line {e.lineno}: {e.msg}"
+
+            # Provide helpful suggestions for common syntax errors
+            if "invalid syntax" in str(e.msg).lower():
+                # Check for common mistakes around the error line
+                lines = code.split('\n')
+                if 0 <= e.lineno - 1 < len(lines):
+                    error_line = lines[e.lineno - 1]
+
+                    # Detect function call written as assignment (e.g., random.choice=)
+                    if re.search(r'\w+\.\w+\s*=\s*[^\s]', error_line):
+                        suggestions.append("CRITICAL: You wrote an assignment (=) instead of a function call ()")
+                        suggestions.append("Example: 'random.choice=' should be 'random.choice()'")
+                        suggestions.append(f"Problem line: {error_line.strip()}")
+
+                    # Detect missing parentheses for function calls
+                    if re.search(r'(random|np|pd)\.\w+\s*=', error_line):
+                        suggestions.append("You appear to be calling a function but used '=' instead of '()'")
+                        suggestions.append("Functions must be called with parentheses: function_name()")
+
+            return False, error_msg, suggestions
+        except Exception as e:
+            return False, f"Code parsing error: {str(e)}", ["Code could not be parsed - check for syntax errors"]
+
+        # Phase 2: Check for anti-patterns and common mistakes
+        lines = code.split('\n')
+        line_num = 0
+
+        for line in lines:
+            line_num += 1
+            stripped = line.strip()
+
+            # Skip empty lines and comments
+            if not stripped or stripped.startswith('#'):
+                continue
+
+            # Anti-pattern 1: Function call written as assignment
+            # Example: random.choice= instead of random.choice()
+            if re.search(r'(\w+\.\w+)\s*=(?!=)', stripped):
+                # Check if it's actually trying to call a function (not a variable assignment)
+                match = re.search(r'(random|np|pd|plt|sns|stats)\.\w+\s*=', stripped)
+                if match:
+                    return (False,
+                           f"Anti-pattern detected on line {line_num}: Function call written as assignment",
+                           [
+                               f"Line {line_num}: '{stripped}'",
+                               "This looks like you're trying to call a function but used '=' instead of '()'",
+                               "CORRECT: random.choice(['A', 'B'])",
+                               "WRONG: random.choice=['A', 'B']",
+                               "Functions from libraries (random, np, pd, etc.) must be called with parentheses"
+                           ])
+
+            # Anti-pattern 2: Missing parentheses for function calls in list comprehensions
+            if re.search(r'random\.choice\[', stripped):
+                return (False,
+                       f"Anti-pattern detected on line {line_num}: Square brackets used instead of parentheses",
+                       [
+                           f"Line {line_num}: '{stripped}'",
+                           "You used square brackets [] but functions need parentheses ()",
+                           "CORRECT: random.choice(items)",
+                           "WRONG: random.choice[items]"
+                       ])
+
+            # Anti-pattern 3: Trying to call built-in functions incorrectly
+            if re.search(r'(int|float|str|list|dict|tuple)\[', stripped) and '=' in stripped:
+                return (False,
+                       f"Anti-pattern detected on line {line_num}: Type conversion with wrong syntax",
+                       [
+                           f"Line {line_num}: '{stripped}'",
+                           "Type conversion functions need parentheses (), not brackets []",
+                           "CORRECT: int(value), float(value), str(value)",
+                           "WRONG: int[value], float[value], str[value]"
+                       ])
+
+        # Phase 3: Check for imports without usage
+        # (This is informational, not an error)
+        imported_modules = set()
+        used_modules = set()
+
+        for line in lines:
+            stripped = line.strip()
+            # Track imports
+            if stripped.startswith('import ') or stripped.startswith('from '):
+                # Extract module name
+                if 'import' in stripped:
+                    parts = stripped.split()
+                    if 'as' in parts:
+                        alias_idx = parts.index('as') + 1
+                        if alias_idx < len(parts):
+                            imported_modules.add(parts[alias_idx])
+                    elif stripped.startswith('import '):
+                        imported_modules.add(parts[1].split('.')[0])
+
+            # Track usage (simple heuristic)
+            for module in ['pd', 'np', 'plt', 'px', 'go', 'sns', 'stats']:
+                if module + '.' in stripped or module + '(' in stripped:
+                    used_modules.add(module)
+
+        # All validation passed
+        return True, None, None
     
     def execute_code(self, code: str, cell_id: str, notebook_id: Optional[str] = None) -> ExecutionResult:
         """
         Execute Python code and capture all outputs.
-        
+
         Args:
             code: Python code to execute
             cell_id: Unique identifier for the cell being executed
-            
+
         Returns:
             ExecutionResult containing all outputs and metadata
         """
         result = ExecutionResult()
         start_time = time.time()
-        
+
+        # PHASE 1: Validate code syntax and anti-patterns BEFORE execution
+        is_valid, error_msg, suggestions = self.validate_code_syntax(code)
+
+        if not is_valid:
+            logger.error(f"❌ CODE VALIDATION FAILED for cell {cell_id}")
+            logger.error(f"   Error: {error_msg}")
+            if suggestions:
+                logger.error("   Suggestions:")
+                for suggestion in suggestions:
+                    logger.error(f"     - {suggestion}")
+
+            # Return validation error immediately (don't waste execution attempt)
+            result.status = ExecutionStatus.ERROR
+            result.error_type = "ValidationError"
+            result.error_message = error_msg
+
+            # Format helpful error message with suggestions
+            if suggestions:
+                suggestion_text = "\n".join(f"  • {s}" for s in suggestions)
+                result.stderr = f"CODE VALIDATION FAILED:\n{error_msg}\n\nSUGGESTIONS:\n{suggestion_text}"
+                result.traceback = f"Validation failed - code did not pass syntax checks\n\n{error_msg}\n\nCommon fixes:\n{suggestion_text}"
+            else:
+                result.stderr = f"CODE VALIDATION FAILED:\n{error_msg}"
+                result.traceback = f"Validation failed - code did not pass syntax checks\n\n{error_msg}"
+
+            result.execution_time = time.time() - start_time
+            logger.error(f"💥 Returning validation error result (no execution attempted)")
+            return result
+
+        logger.info(f"✅ Code validation passed for cell {cell_id}")
+
+        # PHASE 2: Proceed with execution setup
         # Use notebook-specific data manager if provided
         if notebook_id:
             from .data_manager_clean import get_data_manager
             notebook_data_manager = get_data_manager(notebook_id)
             working_dir = notebook_data_manager.get_working_directory()
-            
+
             # Set notebook-specific execution environment seed for consistency
             if self.notebook_execution_seed is None:
                 self.set_notebook_execution_seed(notebook_id)
         else:
             working_dir = self.data_manager.get_working_directory()
-        
+
         # Ensure we're in the correct working directory for this notebook
         import os
         if str(working_dir) != os.getcwd():
@@ -293,11 +446,20 @@ class ExecutionService:
             result.stdout = stdout_buffer.getvalue()
             result.stderr = stderr_buffer.getvalue()
             result.status = ExecutionStatus.SUCCESS
-            
+
             # Capture visualizations and rich outputs
             result.plots = self._capture_plots()
             result.tables = self._capture_tables(pre_execution_vars, pre_execution_dataframes)
             result.interactive_plots = self._capture_interactive_plots()
+
+            # Parse pandas DataFrames from stdout and add to tables
+            stdout_tables = self._parse_pandas_stdout(result.stdout)
+            if stdout_tables:
+                logger.info(f"📊 Parsed {len(stdout_tables)} table(s) from stdout")
+                # Mark stdout tables with source indicator
+                for table in stdout_tables:
+                    table['source'] = 'stdout'
+                result.tables.extend(stdout_tables)
             
             self.execution_count += 1
             logger.info(f"Successfully executed cell {cell_id}")
@@ -458,16 +620,16 @@ class ExecutionService:
     def _capture_tables(self, pre_execution_vars: set = None, pre_execution_dataframes: dict = None) -> List[Dict[str, Any]]:
         """
         Capture pandas DataFrames and other tabular data created by the current execution.
-        
+
         Args:
             pre_execution_vars: Set of variable names that existed before execution
             pre_execution_dataframes: Dict of DataFrames that existed before execution
-        
+
         Returns:
             List of table data as dictionaries
         """
         tables = []
-        
+
         try:
             # Look for DataFrames in the global namespace
             for name, obj in self.globals_dict.items():
@@ -475,60 +637,311 @@ class ExecutionService:
                     # Only capture DataFrames that are new or have been modified
                     is_new_variable = pre_execution_vars is None or name not in pre_execution_vars
                     is_modified_dataframe = (
-                        pre_execution_dataframes is not None and 
-                        name in pre_execution_dataframes and 
+                        pre_execution_dataframes is not None and
+                        name in pre_execution_dataframes and
                         not obj.equals(pre_execution_dataframes[name])
                     )
-                    
+
                     if is_new_variable or is_modified_dataframe:
-                        # Convert DataFrame to dictionary format with numpy-safe serialization
-                        def make_json_serializable(obj):
-                            """Convert numpy types to Python native types for JSON serialization."""
-                            # Import numpy locally to handle the conversion
-                            import numpy as np
-
-                            # Handle numpy scalar types (int64, float64, etc.)
-                            if isinstance(obj, (np.integer, np.floating)):
-                                return obj.item()  # Convert to Python native type
-                            elif isinstance(obj, np.ndarray):
-                                return obj.tolist()
-                            elif hasattr(obj, 'dtype'):
-                                # Fallback for other numpy types
-                                if hasattr(obj, 'tolist'):
-                                    return obj.tolist()
-                                elif hasattr(obj, 'item'):
-                                    return obj.item()
-                            elif isinstance(obj, dict):
-                                return {k: make_json_serializable(v) for k, v in obj.items()}
-                            elif isinstance(obj, (list, tuple)):
-                                return type(obj)([make_json_serializable(item) for item in obj])
-                            return obj
-
-                        # Safely convert DataFrame data
-                        safe_data = []
-                        for record in obj.to_dict('records'):
-                            safe_record = make_json_serializable(record)
-                            safe_data.append(safe_record)
-
-                        # Use make_json_serializable for all potentially-numpy data
-                        table_data = {
-                            'name': name,
-                            'shape': make_json_serializable(obj.shape),  # Handles any numpy types in shape
-                            'columns': obj.columns.tolist(),
-                            'data': safe_data,
-                            'html': obj.to_html(classes='table table-striped'),
-                            'info': {
-                                'dtypes': {col: str(dtype) for col, dtype in obj.dtypes.to_dict().items()},
-                                'memory_usage': make_json_serializable(obj.memory_usage(deep=True).to_dict())
-                            }
-                        }
+                        table_data = self._dataframe_to_table_data(obj, name)
+                        table_data['source'] = 'variable'  # Mark as variable table
                         tables.append(table_data)
                         logger.info(f"Captured {'new' if is_new_variable else 'modified'} DataFrame: {name} {obj.shape}")
-                    
+
         except Exception as e:
             logger.warning(f"Failed to capture tables: {e}")
-        
+
         return tables
+
+    def _dataframe_to_table_data(self, df: pd.DataFrame, name: str = "table") -> Dict[str, Any]:
+        """
+        Convert a pandas DataFrame to TableData format.
+
+        Args:
+            df: DataFrame to convert
+            name: Name for the table
+
+        Returns:
+            TableData dictionary
+        """
+        def make_json_serializable(obj):
+            """Convert numpy types to Python native types for JSON serialization."""
+            import numpy as np
+
+            # Handle numpy scalar types (int64, float64, etc.)
+            if isinstance(obj, (np.integer, np.floating)):
+                return obj.item()  # Convert to Python native type
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif hasattr(obj, 'dtype'):
+                # Fallback for other numpy types
+                if hasattr(obj, 'tolist'):
+                    return obj.tolist()
+                elif hasattr(obj, 'item'):
+                    return obj.item()
+            elif isinstance(obj, dict):
+                return {k: make_json_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, (list, tuple)):
+                return type(obj)([make_json_serializable(item) for item in obj])
+            return obj
+
+        # Safely convert DataFrame data
+        safe_data = []
+        for record in df.to_dict('records'):
+            safe_record = make_json_serializable(record)
+            safe_data.append(safe_record)
+
+        # Use make_json_serializable for all potentially-numpy data
+        table_data = {
+            'name': name,
+            'shape': make_json_serializable(df.shape),  # Handles any numpy types in shape
+            'columns': df.columns.tolist(),
+            'data': safe_data,
+            'html': df.to_html(classes='table table-striped'),
+            'info': {
+                'dtypes': {col: str(dtype) for col, dtype in df.dtypes.to_dict().items()},
+                'memory_usage': make_json_serializable(df.memory_usage(deep=True).to_dict())
+            }
+        }
+
+        return table_data
+
+    def _parse_pandas_stdout(self, stdout: str) -> List[Dict[str, Any]]:
+        """
+        Parse pandas DataFrame output from stdout text.
+
+        Detects pandas DataFrame string representations and converts them to TableData format.
+
+        Handles:
+        - print(df)
+        - print(df.head())
+        - print(df.to_string())
+        - DataFrames with truncated columns (...)
+
+        Args:
+            stdout: Console output text
+
+        Returns:
+            List of TableData dictionaries
+        """
+        tables = []
+
+        if not stdout or len(stdout.strip()) < 20:
+            return tables
+
+        try:
+            lines = stdout.strip().split('\n')
+            i = 0
+            table_count = 0
+
+            while i < len(lines):
+                # Skip empty lines
+                if not lines[i].strip():
+                    i += 1
+                    continue
+
+                # Check if this looks like a pandas DataFrame header
+                if self._is_pandas_header_line(lines[i]) and i + 1 < len(lines):
+                    # Try to parse the table starting from this line
+                    table_data, lines_consumed = self._parse_pandas_table_from_lines(lines[i:])
+
+                    if table_data:
+                        # Generate a name for this table
+                        table_count += 1
+                        table_data['name'] = f"Analysis Result {table_count}"
+                        tables.append(table_data)
+                        logger.info(f"✅ Parsed table from stdout: {table_data['shape']}")
+                        i += lines_consumed
+                    else:
+                        i += 1
+                else:
+                    i += 1
+
+        except Exception as e:
+            logger.warning(f"Failed to parse pandas stdout: {e}")
+            import traceback
+            logger.warning(traceback.format_exc())
+
+        return tables
+
+    def _is_pandas_header_line(self, line: str) -> bool:
+        """Check if a line looks like a pandas DataFrame header."""
+        if not line.strip():
+            return False
+
+        # Should NOT be a footer line like "[5 rows x 8 columns]"
+        if '[' in line and 'rows' in line and 'columns' in line:
+            return False
+
+        # Should NOT be descriptive text lines
+        if line.strip().endswith(':'):
+            return False
+
+        # Should have words that look like column names (letters, numbers, underscores)
+        # More lenient: allow lowercase, mixed case, numbers
+        potential_columns = re.findall(r'[A-Za-z_][A-Za-z0-9_]*', line)
+
+        # Should have at least 1 potential column name
+        if len(potential_columns) < 1:
+            return False
+
+        # For single column, require it to be indented (pandas adds spacing for index)
+        if len(potential_columns) == 1:
+            if not line.startswith(' ') and not line.startswith('\t'):
+                return False
+
+        return True
+
+    def _parse_pandas_table_from_lines(self, lines: List[str]) -> Tuple[Optional[Dict[str, Any]], int]:
+        """
+        Parse a pandas DataFrame from console output lines using fixed-width format detection.
+
+        Args:
+            lines: Lines starting with the header
+
+        Returns:
+            Tuple of (TableData dict or None, number of lines consumed)
+        """
+        try:
+            if len(lines) < 2:
+                return None, 0
+
+            # Collect all lines that are part of this table
+            table_lines = []
+            row_index = 0
+
+            # Add header
+            table_lines.append(lines[0])
+            row_index = 1
+
+            # Add data rows
+            while row_index < len(lines):
+                line = lines[row_index]
+
+                # Stop at empty line
+                if not line.strip():
+                    break
+
+                # Stop at footer line like "[5 rows x 8 columns]"
+                if '[' in line and 'rows' in line and 'columns' in line:
+                    row_index += 1
+                    break
+
+                # Stop if line doesn't look like data (starts with letter but no digit)
+                if line and line[0].isalpha() and not re.search(r'\d', line):
+                    break
+
+                # Check if line has index-like start (number or spaces)
+                if re.match(r'^\s*\d+\s+', line) or line.startswith('  '):
+                    table_lines.append(line)
+                    row_index += 1
+                else:
+                    break
+
+            if len(table_lines) < 2:
+                return None, 0
+
+            # Try to parse using pandas read_fwf (fixed-width format)
+            try:
+                table_text = '\n'.join(table_lines)
+                df = pd.read_fwf(io.StringIO(table_text), widths='infer')
+
+                # Check if we got valid data
+                if df.empty or len(df.columns) < 1:
+                    raise ValueError("Empty or invalid DataFrame from read_fwf")
+
+                # Clean up: Remove columns that are just '...' or NaN
+                cols_to_keep = []
+                for col in df.columns:
+                    col_str = str(col)
+                    if '...' not in col_str and col_str != 'nan' and col_str.strip():
+                        cols_to_keep.append(col)
+
+                if len(cols_to_keep) < 1:
+                    raise ValueError("Not enough valid columns after cleanup")
+
+                df = df[cols_to_keep]
+
+                # Remove '...' rows if they exist
+                mask = pd.Series([True] * len(df))
+                for col in df.columns:
+                    mask &= ~df[col].astype(str).str.contains(r'\.\.\.', na=False)
+
+                df = df[mask]
+
+                if df.empty:
+                    raise ValueError("No valid rows after cleanup")
+
+                # Convert to TableData format
+                table_data = self._dataframe_to_table_data(df, "stdout_table")
+
+                logger.debug(f"Successfully parsed table with read_fwf: {df.shape}")
+                return table_data, row_index
+
+            except Exception as e:
+                logger.debug(f"read_fwf failed ({e}), trying manual parsing")
+
+                # Fallback to manual parsing
+                header_parts = lines[0].split()
+                columns = [part for part in header_parts if part and part != '...']
+
+                if len(columns) < 1:
+                    return None, 0
+
+                # Parse data rows manually
+                data_rows = []
+                for line in table_lines[1:]:
+                    row_parts = line.split()
+                    if len(row_parts) < 2:
+                        continue
+
+                    # Skip index column (first element)
+                    row_values = row_parts[1:]
+
+                    # Remove '...' from row values
+                    row_values = [v for v in row_values if v != '...']
+
+                    # Create row dictionary
+                    row_dict = {}
+                    for idx, col in enumerate(columns):
+                        if idx < len(row_values):
+                            value = row_values[idx]
+                            # Convert to appropriate type
+                            try:
+                                if '.' in value:
+                                    row_dict[col] = float(value)
+                                else:
+                                    row_dict[col] = int(value)
+                            except ValueError:
+                                row_dict[col] = value
+                        else:
+                            row_dict[col] = None
+
+                    if row_dict:
+                        data_rows.append(row_dict)
+
+                if data_rows and columns:
+                    table_data = {
+                        'name': 'stdout_table',
+                        'shape': [len(data_rows), len(columns)],
+                        'columns': columns,
+                        'data': data_rows,
+                        'html': '<table></table>',
+                        'info': {
+                            'dtypes': {col: 'object' for col in columns},
+                            'memory_usage': {}
+                        }
+                    }
+
+                    return table_data, row_index
+
+                return None, 0
+
+        except Exception as e:
+            logger.warning(f"Failed to parse pandas table: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return None, 0
     
     def _capture_interactive_plots(self) -> List[Dict[str, Any]]:
         """
