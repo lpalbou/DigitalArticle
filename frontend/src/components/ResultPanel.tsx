@@ -1,12 +1,12 @@
 import React, { useMemo, useState } from 'react'
 import Plot from 'react-plotly.js'
-import { 
-  AlertCircle, 
-  CheckCircle, 
-  Image as ImageIcon, 
-  BarChart3, 
-  Table, 
-  ChevronRight, 
+import {
+  AlertCircle,
+  CheckCircle,
+  Image as ImageIcon,
+  BarChart3,
+  Table,
+  ChevronRight,
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,

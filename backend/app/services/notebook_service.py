@@ -203,14 +203,14 @@ class NotebookService:
             except Exception as e:
                 logger.warning(f"Could not get data manager context: {e}")
 
-            # Get available variables from execution service
+            # Get available variables from execution service (notebook-specific)
             try:
-                variables = self.execution_service.get_variable_info()
+                variables = self.execution_service.get_variable_info(str(notebook.id))
                 if variables:
                     context['available_variables'] = variables
-                    logger.info(f"Added {len(variables)} available variables to context")
+                    logger.info(f"Added {len(variables)} available variables to context for notebook {notebook.id}")
             except Exception as e:
-                logger.warning(f"Could not get variable info: {e}")
+                logger.warning(f"Could not get variable info for notebook {notebook.id}: {e}")
 
             # Get previous cells context for LLM awareness
             previous_cells = []
@@ -912,6 +912,9 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                         # Use suggest_improvements with enhanced error context and tracing
                         # This will automatically use ErrorAnalyzer to provide domain-specific guidance
                         try:
+                            # Build full context for retry (includes available variables, DataFrames, previous cells)
+                            retry_context = self._build_execution_context(notebook, cell)
+
                             fixed_code, trace_id, full_trace = self.llm_service.suggest_improvements(
                                 prompt=cell.prompt,
                                 code=cell.code,
@@ -920,7 +923,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                                 traceback=result.traceback,
                                 step_type='code_fix',
                                 attempt_number=cell.retry_count + 1,
-                                context={'notebook_id': str(notebook.id), 'cell_id': str(cell.id)}
+                                context=retry_context  # Pass full context including available variables
                             )
 
                             # Store trace_id for backward compatibility

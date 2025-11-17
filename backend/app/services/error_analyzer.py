@@ -77,7 +77,8 @@ class ErrorAnalyzer:
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> ErrorContext:
         """
         Analyze an execution error and provide enhanced context.
@@ -87,6 +88,7 @@ class ErrorAnalyzer:
             error_type: The exception type (e.g., "ValueError")
             traceback: Full Python traceback
             code: The code that caused the error
+            context: Optional execution context with available variables
 
         Returns:
             ErrorContext with enhanced guidance for LLM
@@ -96,10 +98,10 @@ class ErrorAnalyzer:
         # Try each analyzer in order
         for analyzer in self.analyzers:
             try:
-                context = analyzer(error_message, error_type, traceback, code)
-                if context:
+                error_context = analyzer(error_message, error_type, traceback, code, context)
+                if error_context:
                     logger.info(f"Enhanced error with {analyzer.__name__}")
-                    return context
+                    return error_context
             except Exception as e:
                 logger.warning(f"Analyzer {analyzer.__name__} failed: {e}")
                 continue
@@ -116,7 +118,8 @@ class ErrorAnalyzer:
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """Analyze matplotlib color mapping errors."""
         if error_type != "ValueError":
@@ -181,7 +184,8 @@ class ErrorAnalyzer:
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """
         Analyze matplotlib subplot grid constraint errors.
@@ -274,7 +278,8 @@ You cannot have position {invalid_index} in a {max_valid}-position grid.
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """Analyze matplotlib figure management errors."""
         if "figure" not in error_message.lower() and "Figure" not in traceback:
@@ -311,7 +316,8 @@ You cannot have position {invalid_index} in a {max_valid}-position grid.
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """Analyze file not found errors with data/ directory context."""
         if error_type not in ("FileNotFoundError", "OSError"):
@@ -401,7 +407,8 @@ Prefix all file paths with 'data/', for example:
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """
         Analyze pandas length mismatch errors.
@@ -562,7 +569,8 @@ The key is to match the assignment target to your actual data, not force mismatc
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """Analyze pandas KeyError (column not found)."""
         if error_type != "KeyError":
@@ -588,24 +596,45 @@ The key is to match the assignment target to your actual data, not force mismatc
         suggestions = [
             f"PANDAS KEYERROR - Column '{missing_key}' not found in DataFrame",
             "",
-            "Common causes:",
-            "1. Typo in column name (pandas is case-sensitive)",
-            "2. Column doesn't exist in the data",
-            "3. Column name has extra spaces or special characters",
-            "4. Using wrong DataFrame variable",
-            "",
-            "Solutions:",
-            "1. Print column names first: print(df.columns.tolist())",
-            "2. Check for exact spelling and case",
-            "3. Strip whitespace: df.columns = df.columns.str.strip()",
-            "4. Use df.get() for safe access: df.get('column', default_value)",
-            "",
-            f"DEBUGGING STEPS:",
-            f"1. Add before the error line:",
-            f"   print('Available columns:', df.columns.tolist())",
-            f"2. Check if '{missing_key}' appears in the list",
-            f"3. Look for similar column names with different case/spacing",
         ]
+
+        # ENHANCEMENT: If context provides available variables, show actual DataFrame columns
+        dataframe_found = False
+        if context and 'available_variables' in context:
+            for var_name, var_info in context['available_variables'].items():
+                if 'DataFrame' in var_info:
+                    dataframe_found = True
+                    suggestions.append(f"ACTUAL AVAILABLE DATA:")
+                    suggestions.append(f"  Variable '{var_name}': {var_info}")
+                    suggestions.append("")
+                    suggestions.append(f"CRITICAL FIX:")
+                    suggestions.append(f"  1. The DataFrame '{var_name}' exists but doesn't have column '{missing_key}'")
+                    suggestions.append(f"  2. Use ONLY the columns shown above in the DataFrame info")
+                    suggestions.append(f"  3. Adapt your code to work with the ACTUAL available columns")
+                    suggestions.append("")
+                    break
+
+        if not dataframe_found:
+            # Fallback to generic guidance
+            suggestions.extend([
+                "Common causes:",
+                "1. Typo in column name (pandas is case-sensitive)",
+                "2. Column doesn't exist in the data",
+                "3. Column name has extra spaces or special characters",
+                "4. Using wrong DataFrame variable",
+                "",
+                "Solutions:",
+                "1. Print column names first: print(df.columns.tolist())",
+                "2. Check for exact spelling and case",
+                "3. Strip whitespace: df.columns = df.columns.str.strip()",
+                "4. Use df.get() for safe access: df.get('column', default_value)",
+                "",
+                f"DEBUGGING STEPS:",
+                f"1. Add before the error line:",
+                f"   print('Available columns:', df.columns.tolist())",
+                f"2. Check if '{missing_key}' appears in the list",
+                f"3. Look for similar column names with different case/spacing",
+            ])
 
         return ErrorContext(
             original_error=error_message,
@@ -619,7 +648,8 @@ The key is to match the assignment target to your actual data, not force mismatc
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """Analyze pandas merge/join errors."""
         if "merge" not in error_message.lower() and "join" not in error_message.lower():
@@ -657,7 +687,8 @@ The key is to match the assignment target to your actual data, not force mismatc
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """
         Analyze numpy type incompatibility with timedelta.
@@ -753,7 +784,8 @@ QUICK FIX:
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """
         Analyze general numpy type conversion errors.
@@ -829,7 +861,8 @@ Quick fix: Convert numpy types to Python types using .item() or int()/float()
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """Analyze numpy shape mismatch errors."""
         if "shape" not in error_message.lower() and error_type != "ValueError":
@@ -869,7 +902,8 @@ Quick fix: Convert numpy types to Python types using .item() or int()/float()
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """Analyze import errors with simple, targeted suggestions."""
         if error_type not in ("ImportError", "ModuleNotFoundError"):
@@ -958,7 +992,8 @@ Quick fix: Convert numpy types to Python types using .item() or int()/float()
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """Analyze TypeError."""
         if error_type != "TypeError":
@@ -992,7 +1027,8 @@ Quick fix: Convert numpy types to Python types using .item() or int()/float()
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """Analyze IndexError."""
         if error_type != "IndexError":
@@ -1025,7 +1061,8 @@ Quick fix: Convert numpy types to Python types using .item() or int()/float()
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """Analyze generic ValueError."""
         if error_type != "ValueError":

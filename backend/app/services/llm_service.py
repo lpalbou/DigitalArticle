@@ -279,216 +279,45 @@ class LLMService:
         
         base_prompt = """You are a data analysis assistant that converts natural language requests into Python code.
 
-CRITICAL DATA PATH INFORMATION:
-- ALL data files are located in the 'data/' directory (relative to working directory)
-- ALWAYS use paths like: 'data/filename.csv' 
-- NEVER use bare filenames like 'filename.csv'
-- The working directory contains a 'data/' subdirectory with all datasets
-- Files are managed by the data manager and guaranteed to be accessible
+DATA FILES:
+All data files are in the 'data/' directory. Always use 'data/filename.csv' format, never bare filenames.
 
 RULES:
-1. Generate ONLY executable Python code - no explanations or markdown
-2. Always import required libraries at the start
-3. Use common data science libraries: pandas, numpy, matplotlib, plotly, seaborn, scipy, sklearn
-4. For data files, ALWAYS use 'data/filename.csv' format
-5. For plots, always use matplotlib.pyplot or plotly and ensure plots are displayed
-6. For tables, use pandas DataFrame.to_html() or print formatted output
-7. Handle errors gracefully with try/except blocks
-8. Keep code concise but complete
-9. Always end plotting code with plt.show() or fig.show()
-10. Use descriptive variable names
-11. RANDOM DATA: Generate random data without setting seeds - the system handles reproducibility automatically
+1. ALWAYS DISPLAY what you create. When creating datasets, tables, figures, or plots:
+   - Print DataFrames: print(df.head(20))
+   - Display plots: plt.show() or fig.show()
+   - Show results in output, don't just print messages like "saved to file"
 
-⚠️ CRITICAL - COMMON PYTHON MISTAKES TO AVOID ⚠️
+2. Generate executable Python code only - no explanations or markdown
 
-These are REAL errors that have occurred. YOU MUST NOT make these mistakes:
+3. Import required libraries at the start (pandas, numpy, matplotlib, plotly, seaborn, scipy, sklearn)
 
-MISTAKE #1: Using = instead of () for function calls
-❌ WRONG:
-   outcome = random.choice=['RECOVERED', 'RECOVERING', 'NOT RECOVERED']
-   severity = random.choice['MILD', 'MODERATE', 'SEVERE']
-   value = np.random.normal=loc, scale
+4. Use descriptive variable names
 
-✅ CORRECT:
-   outcome = random.choice(['RECOVERED', 'RECOVERING', 'NOT RECOVERED'])
-   severity = random.choice(['MILD', 'MODERATE', 'SEVERE'])
-   value = np.random.normal(loc, scale)
+5. Handle errors with try/except blocks
 
-EXPLANATION: Functions MUST be called with parentheses (). Never use = or [] for function calls!
+6. Generate random data without seeds - reproducibility is handled automatically
 
-MISTAKE #2: Using [] instead of () for function calls
-❌ WRONG:
-   result = random.randint[1, 10]
-   item = random.choice[items_list]
+COMMON MISTAKES TO AVOID:
 
-✅ CORRECT:
-   result = random.randint(1, 10)
-   item = random.choice(items_list)
+1. Function calls need parentheses
+   WRONG: random.choice['A', 'B']
+   RIGHT: random.choice(['A', 'B'])
 
-EXPLANATION: Square brackets [] are for indexing lists/arrays, NOT for calling functions!
+2. NumPy types incompatible with Python built-ins
+   WRONG: timedelta(days=np.random.randint(1, 30))
+   RIGHT: timedelta(days=int(np.random.randint(1, 30)))
+   OR USE: safe_timedelta(days=np.random.randint(1, 30))
 
-MISTAKE #3: Forgetting parentheses entirely
-❌ WRONG:
-   today = datetime.now  # Missing ()
-   value = df.mean  # Missing ()
-
-✅ CORRECT:
-   today = datetime.now()
-   value = df.mean()
-
-EXPLANATION: Functions need () to execute. Without them, you get the function object, not the result!
-
-BEFORE YOU WRITE CODE, VERIFY:
-• Every function call has parentheses: function()
-• random.choice(), np.random.randint(), etc. ALL need ()
-• Square brackets [] are ONLY for indexing: array[0], dict['key']
-• You cannot assign to a function: function = value  (this overwrites the function!)
-
-⚠️ PROACTIVE ERROR PREVENTION - LEARN FROM PAST MISTAKES ⚠️
-
-These issues cause frequent errors. PREVENT them by following these patterns:
-
-1. FILE PATHS - ALWAYS use 'data/' prefix:
-   ✅ CORRECT: pd.read_csv('data/patients.csv')
-   ❌ WRONG: pd.read_csv('patients.csv')  # Will fail with FileNotFoundError!
-
-2. NUMPY TYPE CONVERSIONS - Convert before using with Python built-ins:
-   ✅ CORRECT: timedelta(days=int(np_value))  # Convert to Python int
-   ✅ CORRECT: pd.to_timedelta(df['days'], unit='D')  # Use pandas method
-   ❌ WRONG: timedelta(days=np.random.randint(1, 30))  # numpy.int64 incompatible!
-
-3. DATAFRAME COLUMNS - Check columns exist before accessing:
-   ✅ CORRECT: print(df.columns.tolist())  # Then use exact column names
-   ✅ CORRECT: if 'column' in df.columns: df['column']
-   ❌ WRONG: df['colum']  # Typo causes KeyError!
-
-4. PANDAS LENGTH MISMATCHES - Match assignment target to data size:
-   ✅ CORRECT: df_filtered = df[condition]; df_filtered['new'] = values
-   ✅ CORRECT: df.loc[condition, 'new'] = values  # Use .loc for subsets
-   ❌ WRONG: df['new'] = filtered_values  # Length mismatch if filtered!
-
-5. MATPLOTLIB COLORS - Convert categorical data before plotting:
-   ✅ CORRECT: colors = df['category'].map({'A': 'red', 'B': 'blue'})
-   ✅ CORRECT: sns.scatterplot(data=df, hue='category')  # seaborn handles it
-   ❌ WRONG: plt.scatter(x, y, c=df['category'])  # Can't use text as colors!
-
-6. IMPORTS - Only use available libraries:
-   ✅ AVAILABLE: pandas, numpy, matplotlib, plotly, seaborn, scipy, sklearn
-   ✅ AVAILABLE: PIL, requests, openpyxl, scanpy, umap
-   ❌ NOT AVAILABLE: tensorflow, torch, opencv (cv2)
-
-QUICK CHECKLIST BEFORE GENERATING CODE:
-□ Are you calling functions with () not = or [] ?
-□ Do all file paths start with 'data/' ?
-□ Are you converting numpy types when needed?
-□ Have you checked DataFrame columns exist?
-□ Are array/DataFrame sizes compatible for operations?
-□ Are you using only available libraries?
+3. File paths need 'data/' prefix
+   WRONG: pd.read_csv('patients.csv')
+   RIGHT: pd.read_csv('data/patients.csv')
 
 AVAILABLE LIBRARIES:
-- pandas as pd (data manipulation)
-- numpy as np (numerical computing)
-- matplotlib.pyplot as plt (plotting)
-- plotly.express as px (interactive plots)
-- plotly.graph_objects as go (advanced plots)
-- seaborn as sns (statistical visualization)
-- scipy.stats as stats (statistical functions)
-- sklearn (scikit-learn - machine learning)
-- scanpy as sc (single-cell analysis)
-- umap (UMAP dimensionality reduction)
-- PIL (pillow - image manipulation)
-- requests (HTTP requests)
-- openpyxl (Excel files)
-- datetime, timedelta, date (from datetime module)
+pandas, numpy, matplotlib, plotly, seaborn, scipy, sklearn, scanpy, umap, PIL, requests, openpyxl
 
-TYPE SAFETY HELPERS (automatically available):
-- safe_timedelta(days=value) - Creates timedelta with automatic numpy type conversion
-- to_python_type(value) - Converts numpy/pandas types to Python native types
-- safe_int(value) - Converts to int, handling numpy types
-- safe_float(value) - Converts to float, handling numpy types
-
-IMPORTANT - NumPy Type Conversion:
-When using numpy or pandas operations that return numeric types (np.random.randint, series.sum(), etc.),
-these return numpy types (numpy.int64, numpy.float64) which are NOT compatible with Python built-ins like timedelta, range, etc.
-
-SOLUTION:
-- Use safe_timedelta() instead of timedelta() when value comes from numpy/pandas
-- Use int()/float() conversion: timedelta(days=int(np_value))
-- Use pandas vectorized methods: pd.to_timedelta() instead of loops with timedelta()
-
-EXAMPLES:
-```python
-# WRONG - Will fail with numpy types
-days = np.random.randint(1, 30)
-td = timedelta(days=days)  # TypeError!
-
-# RIGHT - Convert numpy type
-days = int(np.random.randint(1, 30))
-td = timedelta(days=days)
-
-# BETTER - Use helper
-days = np.random.randint(1, 30)
-td = safe_timedelta(days=days)  # Automatically converts
-
-# BEST - Use pandas vectorized operations
-df['timedelta_col'] = pd.to_timedelta(df['days'], unit='D')
-```
-
-DATA FILE EXAMPLES:
-```python
-# CORRECT - Use data/ directory
-df = pd.read_csv('data/gene_expression.csv')
-patients = pd.read_csv('data/patient_data.csv')
-
-# WRONG - Don't use bare filenames
-df = pd.read_csv('gene_expression.csv')  # This will fail!
-```
-
-ADDITIONAL LIBRARY EXAMPLES:
-```python
-# Image handling with PIL
-from PIL import Image
-img = Image.open('data/image.jpg')
-img_resized = img.resize((100, 100))
-
-# Excel file handling
-df = pd.read_excel('data/file.xlsx', sheet_name='Sheet1')
-# OR for advanced Excel operations:
-import openpyxl
-wb = openpyxl.load_workbook('data/file.xlsx')
-
-# Web requests
-import requests
-response = requests.get('https://api.example.com/data')
-data = response.json()
-
-# UMAP dimensionality reduction
-from umap import UMAP
-reducer = UMAP(n_neighbors=15, min_dist=0.1, n_components=2)
-embedding = reducer.fit_transform(data)
-
-# Scanpy single-cell analysis
-import scanpy as sc
-sc.pp.filter_cells(adata, min_genes=200)
-sc.pp.filter_genes(adata, min_cells=3)
-```
-
-COMPLETE EXAMPLE:
-```python
-import pandas as pd
-import matplotlib.pyplot as plt
-
-# Load data from data directory
-data = pd.read_csv('data/gene_expression.csv')
-print("Shape:", data.shape)
-print("Columns:", data.columns.tolist())
-
-# Create visualization
-plt.figure(figsize=(10, 6))
-plt.hist(data['Sample_1'])
-plt.title('Gene Expression Distribution')
-plt.show()
-```"""
+TYPE HELPERS (pre-loaded):
+safe_timedelta(), safe_int(), safe_float(), to_python_type()"""
 
         # Add context-specific information
         if context:
@@ -858,7 +687,8 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
                 error_message,
                 error_type or "Unknown",
                 traceback or "",
-                code
+                code,
+                context  # Pass context to error analyzer for DataFrame column info
             )
 
             improvement_prompt += f"\n\nBut it failed with this error:\n\n{enhanced_error}\n\nFix the code to resolve this error."
@@ -872,7 +702,7 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
         try:
             response = self.llm.generate(
                 improvement_prompt,
-                system_prompt=self._build_system_prompt(),
+                system_prompt=self._build_system_prompt(context),  # Pass context for available variables
                 trace_metadata={
                     'step_type': step_type,
                     'attempt_number': attempt_number,
@@ -916,7 +746,8 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
         error_message: str,
         error_type: str,
         traceback: str,
-        code: str
+        code: str,
+        context: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Enhance error message with domain-specific guidance.
@@ -929,6 +760,7 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
             error_type: Exception type
             traceback: Full Python traceback
             code: Code that caused the error
+            context: Optional execution context with available variables
 
         Returns:
             Enhanced error message with guidance
@@ -937,10 +769,10 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
             from .error_analyzer import ErrorAnalyzer
 
             analyzer = ErrorAnalyzer()
-            context = analyzer.analyze_error(error_message, error_type, traceback, code)
-            formatted = analyzer.format_for_llm(context, traceback)
+            error_context = analyzer.analyze_error(error_message, error_type, traceback, code, context)
+            formatted = analyzer.format_for_llm(error_context, traceback)
 
-            logger.info(f"Error enhanced with {len(context.suggestions)} suggestions")
+            logger.info(f"Error enhanced with {len(error_context.suggestions)} suggestions")
 
             return formatted
 

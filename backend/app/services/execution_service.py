@@ -73,11 +73,12 @@ class ExecutionService:
             logger.error(f"💥 Full traceback:\n{traceback.format_exc()}")
             raise
         
-        self.globals_dict = self._initialize_globals()
+        # Per-notebook execution environments for complete isolation
+        self.notebook_globals: Dict[str, Dict[str, Any]] = {}
         self.execution_count = 0
-        
+
         # Execution environment seed management (separate from LLM seed)
-        self.notebook_execution_seed = None  # Will be set per notebook
+        self.notebook_execution_seeds: Dict[str, Optional[int]] = {}  # Per-notebook seeds
     
     def _initialize_globals(self) -> Dict[str, Any]:
         """Initialize the global namespace for code execution."""
@@ -196,7 +197,22 @@ class ExecutionService:
         logger.info("   Available helpers: safe_timedelta, to_python_type, safe_int, safe_float")
 
         return globals_dict
-    
+
+    def _get_notebook_globals(self, notebook_id: str) -> Dict[str, Any]:
+        """
+        Get or create the globals dictionary for a specific notebook.
+
+        Args:
+            notebook_id: Unique identifier for the notebook
+
+        Returns:
+            The globals dictionary for this notebook
+        """
+        if notebook_id not in self.notebook_globals:
+            logger.info(f"🆕 Creating new execution environment for notebook {notebook_id}")
+            self.notebook_globals[notebook_id] = self._initialize_globals()
+        return self.notebook_globals[notebook_id]
+
     def set_notebook_execution_seed(self, notebook_id: str, seed: Optional[int] = None):
         """
         Set random seed for the execution environment (separate from LLM seed).
@@ -217,7 +233,8 @@ class ExecutionService:
                 import hashlib
                 seed = int(hashlib.md5(notebook_id.encode()).hexdigest()[:8], 16) % (2**31)
 
-        self.notebook_execution_seed = seed
+        # Store seed for this notebook
+        self.notebook_execution_seeds[notebook_id] = seed
 
         # Set seeds in the execution environment
         import random
@@ -226,8 +243,9 @@ class ExecutionService:
         random.seed(seed)
         np.random.seed(seed)
 
-        # Also set in globals_dict so user code can access if needed
-        self.globals_dict['_notebook_execution_seed'] = seed
+        # Also set in notebook-specific globals_dict so user code can access if needed
+        globals_dict = self._get_notebook_globals(notebook_id)
+        globals_dict['_notebook_execution_seed'] = seed
 
         logger.info(f"🎲 Set execution environment seed: {seed} for notebook {notebook_id}")
 
@@ -403,16 +421,22 @@ class ExecutionService:
             working_dir = notebook_data_manager.get_working_directory()
 
             # Set notebook-specific execution environment seed for consistency
-            if self.notebook_execution_seed is None:
+            if notebook_id not in self.notebook_execution_seeds:
                 self.set_notebook_execution_seed(notebook_id)
         else:
+            # Fallback for backward compatibility (shouldn't happen in normal use)
             working_dir = self.data_manager.get_working_directory()
+            notebook_id = "default"
+            logger.warning("⚠️ No notebook_id provided - using default namespace")
+
+        # Get or create notebook-specific globals
+        globals_dict = self._get_notebook_globals(notebook_id)
 
         # Ensure we're in the correct working directory for this notebook
         import os
         if str(working_dir) != os.getcwd():
             os.chdir(str(working_dir))
-        
+
         # Prepare output capture
         stdout_buffer = io.StringIO()
         stderr_buffer = io.StringIO()
@@ -429,18 +453,18 @@ class ExecutionService:
             plt.close('all')
 
             # Track variables before execution to only capture new DataFrames
-            pre_execution_vars = set(self.globals_dict.keys())
+            pre_execution_vars = set(globals_dict.keys())
             pre_execution_dataframes = {
-                name: obj for name, obj in self.globals_dict.items() 
+                name: obj for name, obj in globals_dict.items()
                 if isinstance(obj, pd.DataFrame) and not name.startswith('_')
             }
-            
+
             # Add lazy imports to code if needed
             processed_code = self._preprocess_code(code)
-            
-            # Execute the code with output redirection
+
+            # Execute the code with output redirection in notebook-specific namespace
             with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-                exec(processed_code, self.globals_dict)
+                exec(processed_code, globals_dict)
             
             # Capture outputs
             result.stdout = stdout_buffer.getvalue()
@@ -449,7 +473,7 @@ class ExecutionService:
 
             # Capture visualizations and rich outputs
             result.plots = self._capture_plots()
-            result.tables = self._capture_tables(pre_execution_vars, pre_execution_dataframes)
+            result.tables = self._capture_tables(globals_dict, pre_execution_vars, pre_execution_dataframes)
             result.interactive_plots = self._capture_interactive_plots()
 
             # Parse pandas DataFrames from stdout and add to tables
@@ -509,11 +533,22 @@ class ExecutionService:
             
         return result
     
-    def get_variable_info(self) -> Dict[str, Any]:
-        """Get information about variables in the current execution context."""
+    def get_variable_info(self, notebook_id: str) -> Dict[str, Any]:
+        """
+        Get information about variables in the notebook-specific execution context.
+
+        Args:
+            notebook_id: Unique identifier for the notebook
+
+        Returns:
+            Dict mapping variable names to their type info
+        """
         try:
+            # Get notebook-specific globals
+            globals_dict = self._get_notebook_globals(notebook_id)
+
             variables = {}
-            for name, value in self.globals_dict.items():
+            for name, value in globals_dict.items():
                 if not name.startswith('_') and not callable(value):
                     try:
                         # Get basic info about the variable
@@ -526,7 +561,7 @@ class ExecutionService:
                         variables[name] = "unknown"
             return variables
         except Exception as e:
-            logger.warning(f"Failed to get variable info: {e}")
+            logger.warning(f"Failed to get variable info for notebook {notebook_id}: {e}")
             return {}
     
     def _preprocess_code(self, code: str) -> str:
@@ -617,11 +652,12 @@ class ExecutionService:
         
         return plots
     
-    def _capture_tables(self, pre_execution_vars: set = None, pre_execution_dataframes: dict = None) -> List[Dict[str, Any]]:
+    def _capture_tables(self, globals_dict: Dict[str, Any], pre_execution_vars: set = None, pre_execution_dataframes: dict = None) -> List[Dict[str, Any]]:
         """
         Capture pandas DataFrames and other tabular data created by the current execution.
 
         Args:
+            globals_dict: The globals dictionary to search for DataFrames
             pre_execution_vars: Set of variable names that existed before execution
             pre_execution_dataframes: Dict of DataFrames that existed before execution
 
@@ -632,7 +668,7 @@ class ExecutionService:
 
         try:
             # Look for DataFrames in the global namespace
-            for name, obj in self.globals_dict.items():
+            for name, obj in globals_dict.items():
                 if isinstance(obj, pd.DataFrame) and not name.startswith('_'):
                     # Only capture DataFrames that are new or have been modified
                     is_new_variable = pre_execution_vars is None or name not in pre_execution_vars
@@ -1027,24 +1063,33 @@ class ExecutionService:
         
         return variable_info
     
-    def clear_namespace(self, keep_imports: bool = True):
+    def clear_namespace(self, notebook_id: str, keep_imports: bool = True):
         """
-        Clear the execution namespace.
-        
+        Clear the execution namespace for a specific notebook.
+
         Args:
+            notebook_id: Unique identifier for the notebook
             keep_imports: Whether to keep imported modules
         """
+        if notebook_id not in self.notebook_globals:
+            logger.warning(f"⚠️ No execution environment found for notebook {notebook_id}")
+            return
+
+        globals_dict = self.notebook_globals[notebook_id]
+
         if keep_imports:
             # Keep only built-ins and imported modules
             to_keep = {
-                k: v for k, v in self.globals_dict.items()
+                k: v for k, v in globals_dict.items()
                 if k.startswith('_') or hasattr(v, '__module__')
             }
-            self.globals_dict.clear()
-            self.globals_dict.update(to_keep)
+            globals_dict.clear()
+            globals_dict.update(to_keep)
+            logger.info(f"🧹 Cleared namespace for notebook {notebook_id} (kept imports)")
         else:
-            # Complete reset
-            self.globals_dict = self._initialize_globals()
+            # Complete reset - create fresh environment
+            self.notebook_globals[notebook_id] = self._initialize_globals()
+            logger.info(f"🧹 Completely reset namespace for notebook {notebook_id}")
         
         self.execution_count = 0
         plt.close('all')

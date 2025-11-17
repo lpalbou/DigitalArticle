@@ -225,8 +225,8 @@ async def get_cell_variables(notebook_id: str, cell_id: str):
                 detail=f"Cell {cell_id} not found"
             )
         
-        # Get variable information from execution service
-        variables = notebook_service.execution_service.get_variable_info()
+        # Get variable information from execution service (notebook-specific)
+        variables = notebook_service.execution_service.get_variable_info(notebook_id)
         return {"variables": variables}
         
     except Exception as e:
@@ -248,10 +248,10 @@ async def clear_execution_context(notebook_id: str):
                 detail=f"Digital Article {notebook_id} not found"
             )
         
-        # Clear the execution namespace
-        notebook_service.execution_service.clear_namespace()
-        
-        return {"message": "Execution context cleared"}
+        # Clear the execution namespace for this specific notebook
+        notebook_service.execution_service.clear_namespace(notebook_id)
+
+        return {"message": f"Execution context cleared for notebook {notebook_id}"}
         
     except Exception as e:
         raise HTTPException(
