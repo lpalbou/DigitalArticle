@@ -79,6 +79,10 @@ class ExecutionService:
 
         # Execution environment seed management (separate from LLM seed)
         self.notebook_execution_seeds: Dict[str, Optional[int]] = {}  # Per-notebook seeds
+
+        # State persistence service for automatic save/restore across backend restarts
+        from .state_persistence_service import StatePersistenceService
+        self.state_persistence = StatePersistenceService()
     
     def _initialize_globals(self) -> Dict[str, Any]:
         """Initialize the global namespace for code execution."""
@@ -202,6 +206,10 @@ class ExecutionService:
         """
         Get or create the globals dictionary for a specific notebook.
 
+        This method attempts to restore previously saved state before creating
+        a new execution environment, enabling seamless continuation of work
+        across backend restarts.
+
         Args:
             notebook_id: Unique identifier for the notebook
 
@@ -209,8 +217,23 @@ class ExecutionService:
             The globals dictionary for this notebook
         """
         if notebook_id not in self.notebook_globals:
-            logger.info(f"🆕 Creating new execution environment for notebook {notebook_id}")
-            self.notebook_globals[notebook_id] = self._initialize_globals()
+            # Try to restore from saved state first
+            saved_state = self.state_persistence.load_notebook_state(notebook_id)
+
+            if saved_state:
+                # State restored - merge with fresh globals for built-ins
+                logger.info(f"✅ Restored execution state for notebook {notebook_id} "
+                           f"({len(saved_state)} variables)")
+                # Start with fresh globals (includes imports and helpers)
+                fresh_globals = self._initialize_globals()
+                # Merge saved state on top (user variables take precedence)
+                fresh_globals.update(saved_state)
+                self.notebook_globals[notebook_id] = fresh_globals
+            else:
+                # No saved state - create fresh environment
+                logger.info(f"🆕 Creating new execution environment for notebook {notebook_id}")
+                self.notebook_globals[notebook_id] = self._initialize_globals()
+
         return self.notebook_globals[notebook_id]
 
     def set_notebook_execution_seed(self, notebook_id: str, seed: Optional[int] = None):
@@ -487,7 +510,18 @@ class ExecutionService:
             
             self.execution_count += 1
             logger.info(f"Successfully executed cell {cell_id}")
-            
+
+            # Auto-save notebook state after successful execution
+            if notebook_id:
+                try:
+                    self.state_persistence.save_notebook_state(
+                        notebook_id,
+                        globals_dict
+                    )
+                except Exception as save_error:
+                    # State save failure shouldn't break execution
+                    logger.error(f"Failed to save state for notebook {notebook_id}: {save_error}")
+
         except Exception as e:
             logger.error(f"💥 EXECUTION EXCEPTION CAUGHT: {type(e).__name__}: {e}")
             
@@ -1090,7 +1124,14 @@ class ExecutionService:
             # Complete reset - create fresh environment
             self.notebook_globals[notebook_id] = self._initialize_globals()
             logger.info(f"🧹 Completely reset namespace for notebook {notebook_id}")
-        
+
+        # Clear saved state as well
+        try:
+            if self.state_persistence.clear_notebook_state(notebook_id):
+                logger.info(f"🗑️  Cleared saved state for notebook {notebook_id}")
+        except Exception as e:
+            logger.error(f"Failed to clear saved state: {e}")
+
         self.execution_count = 0
         plt.close('all')
         

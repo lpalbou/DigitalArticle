@@ -281,3 +281,108 @@ async def generate_abstract(notebook_id: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate abstract: {str(e)}"
         )
+
+
+# ============================================================================
+# STATE MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@router.get("/{notebook_id}/state")
+async def get_notebook_state_info(notebook_id: str):
+    """
+    Get information about saved execution state for a notebook.
+
+    Returns metadata including:
+    - When state was last saved
+    - Number of variables in saved state
+    - Size of state file
+    - Whether state file exists
+
+    This is useful for UI indicators showing state availability.
+    """
+    try:
+        metadata = notebook_service.execution_service.state_persistence.get_state_metadata(notebook_id)
+
+        if metadata is None:
+            return {
+                "has_saved_state": False,
+                "message": "No saved state found for this notebook"
+            }
+
+        return {
+            "has_saved_state": True,
+            **metadata
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get state info: {str(e)}"
+        )
+
+
+@router.delete("/{notebook_id}/state")
+async def clear_notebook_state(notebook_id: str):
+    """
+    Clear saved execution state for a notebook.
+
+    This removes the saved state file, forcing a fresh execution environment
+    on next access. Useful for troubleshooting or forcing re-execution.
+
+    Note: This does NOT clear the in-memory state if the notebook is currently loaded.
+    """
+    try:
+        cleared = notebook_service.execution_service.state_persistence.clear_notebook_state(notebook_id)
+
+        if cleared:
+            return {
+                "success": True,
+                "message": f"Cleared saved state for notebook {notebook_id}"
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"No saved state found for notebook {notebook_id}"
+            }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear state: {str(e)}"
+        )
+
+
+@router.post("/{notebook_id}/state/restore")
+async def force_state_restoration(notebook_id: str):
+    """
+    Force restoration of saved state for a notebook.
+
+    This explicitly loads the saved state into memory, replacing any current
+    in-memory state. Useful for manually triggering state restoration.
+    """
+    try:
+        # Clear in-memory state first
+        if notebook_id in notebook_service.execution_service.notebook_globals:
+            del notebook_service.execution_service.notebook_globals[notebook_id]
+
+        # Trigger state restoration by accessing globals
+        notebook_service.execution_service._get_notebook_globals(notebook_id)
+
+        # Check if state was actually restored
+        has_state = notebook_service.execution_service.state_persistence.has_saved_state(notebook_id)
+
+        if has_state:
+            metadata = notebook_service.execution_service.state_persistence.get_state_metadata(notebook_id)
+            return {
+                "success": True,
+                "message": "State restored successfully",
+                "variable_count": metadata.get('variable_count') if metadata else 0
+            }
+        else:
+            return {
+                "success": False,
+                "message": "No saved state found to restore"
+            }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to restore state: {str(e)}"
+        )
