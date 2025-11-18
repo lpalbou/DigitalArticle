@@ -572,7 +572,7 @@ The key is to match the assignment target to your actual data, not force mismatc
         code: str,
         context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
-        """Analyze pandas KeyError (column not found)."""
+        """Analyze pandas KeyError (column or index/value not found)."""
         if error_type != "KeyError":
             return None
 
@@ -582,7 +582,9 @@ The key is to match the assignment target to your actual data, not force mismatc
             "pd." in code or
             "pandas" in traceback.lower() or
             "df[" in code or
-            ".columns" in code
+            ".columns" in code or
+            ".loc[" in code or
+            "groupby" in code
         )
 
         if not is_pandas_related:
@@ -593,8 +595,88 @@ The key is to match the assignment target to your actual data, not force mismatc
         match = re.search(key_pattern, error_message)
         missing_key = match.group(1) if match else "unknown"
 
+        # CRITICAL: Distinguish between column access and index/value access
+        is_index_error = (
+            ".loc[" in traceback or
+            "get_loc" in traceback or
+            "index.get_loc" in traceback or
+            (".loc[" in code and missing_key in code)
+        )
+
+        if is_index_error:
+            # This is an INDEX/VALUE error (e.g., after groupby, .loc[] access)
+            return self._analyze_index_value_error(missing_key, traceback, code, context)
+        else:
+            # This is a COLUMN error (e.g., df['missing_column'])
+            return self._analyze_column_error(missing_key, traceback, code, context)
+
+    def _analyze_index_value_error(
+        self,
+        missing_value: str,
+        traceback: str,
+        code: str,
+        context: Optional[Dict[str, Any]] = None
+    ) -> ErrorContext:
+        """Analyze pandas index/value access error (e.g., .loc['missing_value'] or after groupby)."""
         suggestions = [
-            f"PANDAS KEYERROR - Column '{missing_key}' not found in DataFrame",
+            f"PANDAS INDEX/VALUE ERROR - Value '{missing_value}' not found in index",
+            "",
+            "This is NOT a column error - you're trying to access a VALUE that doesn't exist",
+            "Common cause: Using .loc[] or accessing grouped data with wrong value",
+            ""
+        ]
+
+        # Check if code contains groupby - common pattern for this error
+        if "groupby" in code:
+            suggestions.extend([
+                "CRITICAL: After groupby, the index contains the ACTUAL VALUES from your data",
+                "",
+                f"You tried to access: '{missing_value}'",
+                f"But this value doesn't exist in the grouped index",
+                "",
+                "FIX: Use the actual values from your data column",
+                "Example:",
+                "  ❌ WRONG: grouped.loc['TREATMENT']  # if data has 'DrugA'",
+                "  ✅ RIGHT: grouped.loc['DrugA']      # use actual value",
+                "",
+                "DEBUGGING:",
+                "  1. Print unique values: print(df['column'].unique())",
+                "  2. After groupby: print(grouped.index.tolist())",
+                "  3. Use EXACT values from the data (case-sensitive!)",
+                ""
+            ])
+
+        # Try to find actual available values from context
+        if context and 'available_variables' in context:
+            for var_name, var_info in context['available_variables'].items():
+                if 'DataFrame' in var_info:
+                    # Extract column info if available
+                    suggestions.append(f"AVAILABLE DATAFRAME: '{var_name}'")
+                    suggestions.append(f"  Info: {var_info}")
+                    suggestions.append("")
+                    suggestions.append("NEXT STEPS:")
+                    suggestions.append(f"  1. Check what values are actually in your grouping column")
+                    suggestions.append(f"  2. Use df['column'].unique() to see all unique values")
+                    suggestions.append(f"  3. Replace '{missing_value}' with the actual value from the data")
+                    break
+
+        return ErrorContext(
+            original_error=f"KeyError: '{missing_value}'",
+            error_type="KeyError",
+            enhanced_message=f"Value '{missing_value}' not found in DataFrame index (after groupby or .loc[] access)",
+            suggestions=suggestions
+        )
+
+    def _analyze_column_error(
+        self,
+        missing_key: str,
+        traceback: str,
+        code: str,
+        context: Optional[Dict[str, Any]] = None
+    ) -> ErrorContext:
+        """Analyze pandas column access error (e.g., df['missing_column'])."""
+        suggestions = [
+            f"PANDAS COLUMN ERROR - Column '{missing_key}' not found in DataFrame",
             "",
         ]
 
@@ -637,9 +719,9 @@ The key is to match the assignment target to your actual data, not force mismatc
             ])
 
         return ErrorContext(
-            original_error=error_message,
-            error_type=error_type,
-            enhanced_message=f"Pandas column '{missing_key}' not found in DataFrame",
+            original_error=f"KeyError: '{missing_key}'",
+            error_type="KeyError",
+            enhanced_message=f"Column '{missing_key}' not found in DataFrame",
             suggestions=suggestions
         )
 

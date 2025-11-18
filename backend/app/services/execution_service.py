@@ -14,6 +14,7 @@ import logging
 import warnings
 import ast
 import re
+import types
 from contextlib import redirect_stdout, redirect_stderr
 from typing import Dict, Any, List, Optional, Tuple
 import matplotlib
@@ -540,6 +541,10 @@ class ExecutionService:
             # Add lazy imports to code if needed
             processed_code = self._preprocess_code(code)
 
+            # Prepare namespace for imports (remove shadowing variables)
+            # This ensures imports always succeed even if variables with the same name exist
+            self._prepare_imports(processed_code, globals_dict)
+
             # Execute the code with output redirection in notebook-specific namespace
             with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
                 exec(processed_code, globals_dict)
@@ -663,7 +668,20 @@ class ExecutionService:
                             # This is a pandas DataFrame
                             cols = value.columns.tolist()[:10]  # First 10 columns
                             cols_str = str(cols) if len(value.columns) <= 10 else f"{cols}... ({len(value.columns)} total)"
-                            variables[name] = f"{var_type} {value.shape} columns={cols_str}"
+                            info_str = f"{var_type} {value.shape} columns={cols_str}"
+
+                            # ENHANCEMENT: Add unique values for likely categorical columns
+                            # This helps LLM understand what VALUES are in the data (not just column names)
+                            for col in value.columns:
+                                try:
+                                    # Show unique values for object/category columns with < 10 unique values
+                                    if (value[col].dtype == 'object' or value[col].dtype.name == 'category') and value[col].nunique() < 10:
+                                        unique_vals = value[col].unique().tolist()[:10]  # First 10 unique values
+                                        info_str += f" | {col}={unique_vals}"
+                                except:
+                                    pass  # Skip if any error getting unique values
+
+                            variables[name] = info_str
                         elif hasattr(value, 'shape'):  # numpy array or Series
                             variables[name] = f"{var_type} {getattr(value, 'shape', 'N/A')}"
                         else:
@@ -761,14 +779,68 @@ class ExecutionService:
         except Exception as e:
             logger.error(f"Failed to get variable content for '{variable_name}': {e}")
             return {"error": str(e)}
-    
+
+    def _prepare_imports(self, code: str, globals_dict: Dict[str, Any]) -> None:
+        """
+        Prepare namespace for imports by removing shadowing variables.
+
+        This ensures that import statements always succeed by deleting
+        any existing variables that would shadow module imports.
+
+        For example, if a previous cell set `stats = None`, and the current
+        cell tries `from scipy import stats`, this method will delete the
+        existing `stats = None` variable so the import can succeed.
+
+        Args:
+            code: Python code that may contain imports
+            globals_dict: The globals dictionary to clean
+        """
+        # Parse the code to find import statements
+        try:
+            tree = ast.parse(code)
+        except:
+            # If we can't parse the code, just proceed - exec() will handle syntax errors
+            return
+
+        # Find all import targets
+        imports_to_clean = set()
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                # import module1, module2
+                # or: import module1 as alias1
+                for alias in node.names:
+                    # Use the alias if provided, otherwise the module name
+                    name = alias.asname if alias.asname else alias.name.split('.')[0]
+                    imports_to_clean.add(name)
+
+            elif isinstance(node, ast.ImportFrom):
+                # from module import name1, name2
+                # or: from module import name1 as alias1
+                for alias in node.names:
+                    if alias.name != '*':  # Skip wildcard imports
+                        # Use the alias if provided, otherwise the imported name
+                        name = alias.asname if alias.asname else alias.name
+                        imports_to_clean.add(name)
+
+        # Delete any existing variables that would shadow imports
+        # Only delete if the variable is NOT already a module (safe check)
+        for name in imports_to_clean:
+            if name in globals_dict:
+                existing_value = globals_dict[name]
+                # Check if it's not already a module
+                # Use isinstance(value, types.ModuleType) to properly detect modules
+                if not isinstance(existing_value, types.ModuleType):
+                    logger.debug(f"🧹 Clearing shadowing variable '{name}' (was {type(existing_value).__name__}) to allow import")
+                    del globals_dict[name]
+
     def _preprocess_code(self, code: str) -> str:
         """
         Preprocess code to handle lazy imports and add necessary setup.
-        
+
         Args:
             code: Original Python code
-            
+
         Returns:
             Processed code with lazy imports resolved
         """
