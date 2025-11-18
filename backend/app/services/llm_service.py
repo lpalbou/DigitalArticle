@@ -283,10 +283,14 @@ DATA FILES:
 All data files are in the 'data/' directory. Always use 'data/filename.csv' format, never bare filenames.
 
 RULES:
-1. ALWAYS DISPLAY what you create. When creating datasets, tables, figures, or plots:
-   - Print DataFrames: print(df.head(20))
-   - Display plots: plt.show() or fig.show()
-   - Show results in output, don't just print messages like "saved to file"
+1. DISPLAY RESULTS using the display() function for article outputs:
+   - For tables/DataFrames: display(df, "Table 1: Summary Statistics")
+   - For matplotlib plots: fig, ax = plt.subplots(); ...; display(fig, "Figure 1: Age Distribution")
+   - For plotly plots: fig = go.Figure(...); display(fig, "Figure 2: Interactive Chart")
+   - The display() function auto-labels if you omit the label (Table 1, Table 2, etc.)
+   - DO NOT use print() for final results - use display() to mark them for the article
+   - DO NOT use plt.show() - it's not needed, use display(fig) instead
+   - You can print() intermediate values for debugging, but final results must use display()
 
 2. Generate executable Python code only - no explanations or markdown
 
@@ -313,11 +317,17 @@ COMMON MISTAKES TO AVOID:
    WRONG: pd.read_csv('patients.csv')
    RIGHT: pd.read_csv('data/patients.csv')
 
+4. CRITICAL - DataFrame columns: ALWAYS use exact column names as shown in DataFrame info
+   WRONG: df['visit_date'] when DataFrame has 'VISIT_DATE'
+   RIGHT: df['VISIT_DATE'] - use exact case and naming
+   VERIFY: If unsure, check with df.columns.tolist() first
+
 AVAILABLE LIBRARIES:
 pandas, numpy, matplotlib, plotly, seaborn, scipy, sklearn, scanpy, umap, PIL, requests, openpyxl
 
-TYPE HELPERS (pre-loaded):
-safe_timedelta(), safe_int(), safe_float(), to_python_type()"""
+HELPERS (pre-loaded):
+- Type conversion: safe_timedelta(), safe_int(), safe_float(), to_python_type()
+- Article display: display(obj, label=None) - marks results for article with auto-labeling"""
 
         # Add context-specific information
         if context:

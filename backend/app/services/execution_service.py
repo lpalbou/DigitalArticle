@@ -80,6 +80,10 @@ class ExecutionService:
         # Execution environment seed management (separate from LLM seed)
         self.notebook_execution_seeds: Dict[str, Optional[int]] = {}  # Per-notebook seeds
 
+        # Global figure/table counters per notebook for sequential numbering across entire article
+        self.notebook_table_counters: Dict[str, int] = {}  # Table 1, 2, 3... per notebook
+        self.notebook_figure_counters: Dict[str, int] = {}  # Figure 1, 2, 3... per notebook
+
         # State persistence service for automatic save/restore across backend restarts
         from .state_persistence_service import StatePersistenceService
         self.state_persistence = StatePersistenceService()
@@ -147,6 +151,50 @@ class ExecutionService:
                 return float(value.item())
             return float(value)
 
+        # Display function: Explicitly mark results for article display
+        def display(obj, label=None):
+            """
+            Mark an object for display in the article.
+
+            This function explicitly registers results (tables, figures) to be shown
+            in the article view with proper sequential numbering across the entire article.
+
+            Args:
+                obj: The object to display (DataFrame, matplotlib figure, plotly figure, etc.)
+                label: Optional custom label (e.g., "Table 1: Patient Demographics")
+                       If not provided, will be auto-numbered sequentially (Table 1, 2, 3... Figure 1, 2, 3...)
+
+            Returns:
+                The object (for chaining or further use)
+
+            Examples:
+                display(df)  # Auto-numbered: Table 1, Table 2, etc. (sequential across article)
+                display(stats_df, "Table 1: Summary Statistics")  # Custom label
+                display(fig, "Figure 1: Age Distribution")  # Custom label for figure
+            """
+            # Initialize results registry if it doesn't exist
+            if not hasattr(display, 'results'):
+                display.results = []
+
+            # Register the result (numbering will be done during capture with global counters)
+            display.results.append({
+                'object': obj,
+                'label': label,  # None means auto-number during capture
+                'type': type(obj).__name__
+            })
+
+            # Print preview to console for immediate feedback
+            # Note: Label might be None here if auto-numbering, will be assigned during capture
+            if isinstance(obj, pd.DataFrame):
+                preview_label = label if label else "[Will be auto-numbered]"
+                print(f"\n{preview_label}:")
+                print(obj)
+            elif hasattr(obj, '__str__') and label:
+                print(f"\n{label}:")
+                print(obj)
+
+            return obj
+
         # Override plt.show() to prevent warnings about non-interactive backend
         # Plots are captured automatically, so showing them is not needed
         def noop_show(*args, **kwargs):
@@ -174,6 +222,8 @@ class ExecutionService:
             'to_python_type': to_python_type,
             'safe_int': safe_int,
             'safe_float': safe_float,
+            # Add display function for explicit result registration
+            'display': display,
         }
 
         # Lazy import function for heavy libraries
@@ -475,6 +525,11 @@ class ExecutionService:
             plt.clf()
             plt.close('all')
 
+            # Clear display() results from previous execution (each cell starts fresh)
+            if 'display' in globals_dict and hasattr(globals_dict['display'], 'results'):
+                globals_dict['display'].results = []
+                logger.debug("🧹 Cleared previous display() results")
+
             # Track variables before execution to only capture new DataFrames
             pre_execution_vars = set(globals_dict.keys())
             pre_execution_dataframes = {
@@ -495,18 +550,33 @@ class ExecutionService:
             result.status = ExecutionStatus.SUCCESS
 
             # Capture visualizations and rich outputs
-            result.plots = self._capture_plots()
-            result.tables = self._capture_tables(globals_dict, pre_execution_vars, pre_execution_dataframes)
-            result.interactive_plots = self._capture_interactive_plots()
+            # 1. First capture explicitly displayed results (highest priority)
+            # Pass notebook_id for sequential numbering across entire article
+            displayed_tables, displayed_plots = self._capture_displayed_results(globals_dict, notebook_id)
+            result.tables = displayed_tables
+            result.plots = displayed_plots  # Start with explicitly displayed plots
+            logger.info(f"✅ Captured {len(displayed_tables)} displayed table(s) and {len(displayed_plots)} displayed plot(s)")
 
-            # Parse pandas DataFrames from stdout and add to tables
-            stdout_tables = self._parse_pandas_stdout(result.stdout)
-            if stdout_tables:
-                logger.info(f"📊 Parsed {len(stdout_tables)} table(s) from stdout")
-                # Mark stdout tables with source indicator
-                for table in stdout_tables:
-                    table['source'] = 'stdout'
-                result.tables.extend(stdout_tables)
+            # 2. Then capture other outputs (auto-captured plots without labels)
+            auto_plots = self._capture_plots()
+            result.plots.extend(auto_plots)  # Add auto-captured plots after displayed ones
+            logger.info(f"📊 Captured {len(auto_plots)} additional auto-captured plot(s)")
+
+            result.interactive_plots = self._capture_interactive_plots(globals_dict)
+
+            # 3. Capture intermediary DataFrame variables (for debugging in Execution Details)
+            variable_tables = self._capture_tables(globals_dict, pre_execution_vars, pre_execution_dataframes)
+            result.tables.extend(variable_tables)
+
+            # NOTE: Stdout table parsing is now DISABLED in favor of explicit display()
+            # Users should use display() to mark results for the article
+            # Uncomment below if backward compatibility with old notebooks is needed:
+            # stdout_tables = self._parse_pandas_stdout(result.stdout)
+            # if stdout_tables:
+            #     logger.info(f"📊 Parsed {len(stdout_tables)} table(s) from stdout")
+            #     for table in stdout_tables:
+            #         table['source'] = 'stdout'
+            #     result.tables.extend(stdout_tables)
             
             self.execution_count += 1
             logger.info(f"Successfully executed cell {cell_id}")
@@ -575,7 +645,7 @@ class ExecutionService:
             notebook_id: Unique identifier for the notebook
 
         Returns:
-            Dict mapping variable names to their type info
+            Dict mapping variable names to their type info with detailed metadata
         """
         try:
             # Get notebook-specific globals
@@ -587,7 +657,14 @@ class ExecutionService:
                     try:
                         # Get basic info about the variable
                         var_type = type(value).__name__
-                        if hasattr(value, 'shape'):  # pandas DataFrame, numpy array
+
+                        # Enhanced info for pandas DataFrames
+                        if hasattr(value, 'columns') and hasattr(value, 'shape'):
+                            # This is a pandas DataFrame
+                            cols = value.columns.tolist()[:10]  # First 10 columns
+                            cols_str = str(cols) if len(value.columns) <= 10 else f"{cols}... ({len(value.columns)} total)"
+                            variables[name] = f"{var_type} {value.shape} columns={cols_str}"
+                        elif hasattr(value, 'shape'):  # numpy array or Series
                             variables[name] = f"{var_type} {getattr(value, 'shape', 'N/A')}"
                         else:
                             variables[name] = var_type
@@ -685,7 +762,98 @@ class ExecutionService:
             logger.warning(f"Failed to capture plots: {e}")
         
         return plots
-    
+
+    def _capture_displayed_results(self, globals_dict: Dict[str, Any], notebook_id: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Capture results explicitly marked for display using the display() function.
+
+        This captures objects that were registered via display() and returns them
+        with their labels for article presentation. Auto-numbers results sequentially
+        across the entire notebook (Table 1, 2, 3... Figure 1, 2, 3...).
+
+        Args:
+            globals_dict: The globals dictionary containing the display function
+            notebook_id: The notebook identifier for global counter management
+
+        Returns:
+            Tuple of (tables, plots) - lists of captured displayed results
+        """
+        tables = []
+        plots = []
+
+        # Initialize counters for this notebook if they don't exist
+        if notebook_id not in self.notebook_table_counters:
+            self.notebook_table_counters[notebook_id] = 0
+        if notebook_id not in self.notebook_figure_counters:
+            self.notebook_figure_counters[notebook_id] = 0
+
+        try:
+            # Check if display function exists and has results
+            if 'display' in globals_dict and hasattr(globals_dict['display'], 'results'):
+                for entry in globals_dict['display'].results:
+                    obj = entry['object']
+                    label = entry['label']
+
+                    # Handle DataFrames
+                    if isinstance(obj, pd.DataFrame):
+                        # Auto-number if no label provided
+                        if label is None:
+                            self.notebook_table_counters[notebook_id] += 1
+                            label = f"Table {self.notebook_table_counters[notebook_id]}"
+
+                        # Use a generic name since we'll display the label prominently
+                        # Avoids duplication where both name and label show the same text
+                        table_data = self._dataframe_to_table_data(obj, "displayed_result")
+                        table_data['source'] = 'display'  # Mark as displayed result
+                        table_data['label'] = label  # Preserve the label for display
+                        tables.append(table_data)
+                        logger.info(f"✅ Captured displayed result: {label} (DataFrame {obj.shape})")
+
+                    # Handle matplotlib figures
+                    elif hasattr(obj, 'savefig'):
+                        try:
+                            import io
+                            import base64
+
+                            # Auto-number if no label provided
+                            if label is None:
+                                self.notebook_figure_counters[notebook_id] += 1
+                                label = f"Figure {self.notebook_figure_counters[notebook_id]}"
+
+                            # Save figure to buffer
+                            buffer = io.BytesIO()
+                            obj.savefig(buffer, format='png', bbox_inches='tight', dpi=150)
+                            buffer.seek(0)
+
+                            # Encode as base64
+                            plot_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+                            # Store with label
+                            plots.append({
+                                'data': plot_data,
+                                'label': label,
+                                'source': 'display'
+                            })
+                            logger.info(f"✅ Captured displayed figure: {label}")
+
+                            # Close buffer
+                            buffer.close()
+
+                        except Exception as fig_err:
+                            logger.warning(f"Failed to capture matplotlib figure: {fig_err}")
+
+                    # Handle plotly figures
+                    elif hasattr(obj, 'to_dict'):
+                        # This will be handled by interactive plot capture in the future
+                        # For now, log that we saw it
+                        logger.info(f"📊 Plotly figure registered: {label} (not yet captured)")
+                        pass
+
+        except Exception as e:
+            logger.warning(f"Failed to capture displayed results: {e}")
+
+        return tables, plots
+
     def _capture_tables(self, globals_dict: Dict[str, Any], pre_execution_vars: set = None, pre_execution_dataframes: dict = None) -> List[Dict[str, Any]]:
         """
         Capture pandas DataFrames and other tabular data created by the current execution.
@@ -735,8 +903,21 @@ class ExecutionService:
             TableData dictionary
         """
         def make_json_serializable(obj):
-            """Convert numpy types to Python native types for JSON serialization."""
+            """Convert numpy and pandas types to Python native types for JSON serialization."""
             import numpy as np
+            import pandas as pd
+
+            # Handle pandas Period types (convert to string representation)
+            if hasattr(pd, 'Period') and isinstance(obj, pd.Period):
+                return str(obj)
+
+            # Handle pandas Timestamp types (convert to ISO format)
+            if hasattr(pd, 'Timestamp') and isinstance(obj, pd.Timestamp):
+                return obj.isoformat()
+
+            # Handle pandas NaT (Not-a-Time)
+            if pd.isna(obj):
+                return None
 
             # Handle numpy scalar types (int64, float64, etc.)
             if isinstance(obj, (np.integer, np.floating)):
@@ -1013,18 +1194,21 @@ class ExecutionService:
             logger.debug(traceback.format_exc())
             return None, 0
     
-    def _capture_interactive_plots(self) -> List[Dict[str, Any]]:
+    def _capture_interactive_plots(self, globals_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Capture Plotly interactive plots.
-        
+
+        Args:
+            globals_dict: The notebook's global namespace
+
         Returns:
             List of Plotly figure JSON data
         """
         interactive_plots = []
-        
+
         try:
             # Look for Plotly figures in the global namespace
-            for name, obj in self.globals_dict.items():
+            for name, obj in globals_dict.items():
                 if hasattr(obj, 'to_dict') and hasattr(obj, 'data') and hasattr(obj, 'layout'):
                     # This is likely a Plotly figure
                     try:
@@ -1060,42 +1244,6 @@ class ExecutionService:
             logger.warning(f"Failed to capture interactive plots: {e}")
         
         return interactive_plots
-    
-    def get_variable_info(self) -> Dict[str, Any]:
-        """
-        Get information about variables in the current namespace.
-        
-        Returns:
-            Dictionary containing variable information
-        """
-        variable_info = {}
-        
-        for name, obj in self.globals_dict.items():
-            if not name.startswith('_') and not callable(obj):
-                try:
-                    info = {
-                        'type': type(obj).__name__,
-                        'size': sys.getsizeof(obj) if hasattr(obj, '__sizeof__') else None
-                    }
-                    
-                    # Add specific info for common types
-                    if isinstance(obj, (pd.DataFrame, pd.Series)):
-                        info['shape'] = getattr(obj, 'shape', None)
-                        info['columns'] = getattr(obj, 'columns', None)
-                        if hasattr(obj.columns, 'tolist'):
-                            info['columns'] = obj.columns.tolist()
-                    elif isinstance(obj, (list, tuple, dict)):
-                        info['length'] = len(obj)
-                    elif isinstance(obj, np.ndarray):
-                        info['shape'] = obj.shape
-                        info['dtype'] = str(obj.dtype)
-                    
-                    variable_info[name] = info
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to get info for variable {name}: {e}")
-        
-        return variable_info
     
     def clear_namespace(self, notebook_id: str, keep_imports: bool = True):
         """
@@ -1137,24 +1285,3 @@ class ExecutionService:
         
         logger.info("Execution namespace cleared")
     
-    def set_variable(self, name: str, value: Any):
-        """
-        Set a variable in the execution namespace.
-        
-        Args:
-            name: Variable name
-            value: Variable value
-        """
-        self.globals_dict[name] = value
-    
-    def get_variable(self, name: str) -> Any:
-        """
-        Get a variable from the execution namespace.
-        
-        Args:
-            name: Variable name
-            
-        Returns:
-            Variable value or None if not found
-        """
-        return self.globals_dict.get(name)

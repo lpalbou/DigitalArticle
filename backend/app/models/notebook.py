@@ -48,7 +48,7 @@ class ExecutionResult(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
     
     # Rich output data
-    plots: List[str] = Field(default_factory=list)  # Base64 encoded plot images
+    plots: List[Union[str, Dict[str, Any]]] = Field(default_factory=list)  # Base64 strings or plot dicts with labels
     tables: List[Dict[str, Any]] = Field(default_factory=list)  # Structured table data
     images: List[str] = Field(default_factory=list)  # Base64 encoded images
     interactive_plots: List[Dict[str, Any]] = Field(default_factory=list)  # Plotly JSON data

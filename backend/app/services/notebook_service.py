@@ -237,42 +237,12 @@ class NotebookService:
             logger.error(f"Error building execution context: {e}")
             return {}
     
-    def _generate_fallback_code(self, prompt: str) -> str:
-        """Generate simple fallback code when LLM is unavailable."""
-        if "gene_expression" in prompt.lower():
-            return """
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-# Load the gene expression data
-df = pd.read_csv('data/gene_expression.csv')
-print("Dataset shape:", df.shape)
-print("\\nColumns:", df.columns.tolist())
-print("\\nFirst 5 rows:")
-print(df.head())
-
-# Basic analysis
-print("\\nBasic statistics:")
-print(df.describe())
-"""
-        elif "patient" in prompt.lower():
-            return """
-import pandas as pd
-import matplotlib.pyplot as plt
-
-# Load patient data
-df = pd.read_csv('data/patient_data.csv')
-print("Dataset shape:", df.shape)
-print("\\nFirst 5 rows:")
-print(df.head())
-"""
-        else:
-            return """
-# Simple analysis
-print("Hello! This is a basic analysis.")
-print("LLM service is currently unavailable, using fallback code.")
-"""
+    # REMOVED: _generate_fallback_code() method
+    # Fallback code generation is harmful - it masks LLM errors with nonsense code
+    # Instead, we rely on:
+    # 1. Retry mechanism to fix actual code errors
+    # 2. Proper error surfacing when LLM is unavailable
+    # 3. User notification of the real problem (API keys, rate limits, etc.)
     
     def get_notebook(self, notebook_id: str) -> Optional[Notebook]:
         """
@@ -857,12 +827,19 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                             logger.warning(f"Could not update last_context_tokens: {token_err}")
 
                     except Exception as e:
-                        logger.error(f"LLM code generation failed: {e}")
+                        logger.error(f"❌ LLM code generation failed for cell {cell.id}")
+                        logger.error(f"   Prompt: {cell.prompt[:100]}...")
+                        logger.error(f"   Error type: {type(e).__name__}")
+                        logger.error(f"   Error message: {str(e)}")
                         import traceback
-                        logger.error(f"LLM error traceback: {traceback.format_exc()}")
-                        # Provide fallback code for basic analysis
-                        cell.code = self._generate_fallback_code(cell.prompt)
-                        logger.info("Using fallback code generation")
+                        logger.error(f"   Traceback:\n{traceback.format_exc()}")
+                        logger.error(f"   Check: API keys, rate limits, network connectivity, or LLM service availability")
+
+                        # DO NOT use fallback code - let the error surface properly
+                        # The retry mechanism will attempt to fix real errors
+                        # If LLM is completely unavailable, user needs to know
+                        cell.code = ""  # Empty code, will show error to user
+                        raise  # Re-raise the exception so it's properly handled
             
             # Execute code if available
             if cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
@@ -1112,7 +1089,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
 
                 # Mark downstream cells as stale
                 try:
-                    cell_index = self.get_cell_index(str(notebook.id), cell.id)
+                    cell_index = self.get_cell_index(str(notebook.id), str(cell.id))
                     if cell_index >= 0:
                         self.mark_cells_as_stale(str(notebook.id), cell_index)
                         logger.info(f"Marked cells below index {cell_index} as stale")
@@ -1168,7 +1145,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             # Write to temporary file first
             with open(temp_file, 'w', encoding='utf-8') as f:
                 json.dump(
-                    notebook.dict(),
+                    notebook.model_dump(),
                     f,
                     indent=2,
                     ensure_ascii=False,

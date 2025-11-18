@@ -92,7 +92,13 @@ class StatePersistenceService:
             if key.startswith('__'):
                 continue
 
-            # Skip imported modules
+            # Skip imported modules (pandas, numpy, etc.)
+            import types
+            if isinstance(value, types.ModuleType):
+                skipped.append((key, 'module'))
+                continue
+
+            # Skip imported functions and classes
             if hasattr(value, '__module__') and hasattr(value, '__name__'):
                 # This is likely a module or imported function
                 if callable(value) and not hasattr(value, '__self__'):

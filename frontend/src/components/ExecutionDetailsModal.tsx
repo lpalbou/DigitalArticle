@@ -1,10 +1,11 @@
-import React, { useState } from 'react'
-import { X, ChevronDown, ChevronRight, Activity, Download, Copy, Check, Terminal, AlertTriangle, Table as TableIcon, Zap } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { X, ChevronDown, ChevronRight, Activity, Download, Copy, Check, Terminal, AlertTriangle, Table as TableIcon, Zap, Database } from 'lucide-react'
 import { LLMTrace, ExecutionResult, TableData } from '../types'
 
 interface ExecutionDetailsModalProps {
   isVisible: boolean
   cellId: string
+  notebookId: string
   traces: LLMTrace[]
   executionResult: ExecutionResult | null
   onClose: () => void
@@ -13,14 +14,34 @@ interface ExecutionDetailsModalProps {
 const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
   isVisible,
   cellId,
+  notebookId,
   traces,
   executionResult,
   onClose
 }) => {
   const [expandedTraces, setExpandedTraces] = useState<Set<string>>(new Set())
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [activeMainTab, setActiveMainTab] = useState<'llm' | 'console' | 'warnings' | 'data'>('llm')
+  const [activeMainTab, setActiveMainTab] = useState<'llm' | 'console' | 'warnings' | 'data' | 'variables'>('llm')
   const [activeTraceTab, setActiveTraceTab] = useState<Record<string, 'prompt' | 'system' | 'response' | 'parameters' | 'json'>>({})
+  const [variables, setVariables] = useState<Record<string, string>>({})
+  const [loadingVariables, setLoadingVariables] = useState(false)
+
+  // Fetch variables when modal is opened
+  useEffect(() => {
+    if (isVisible && notebookId && cellId) {
+      setLoadingVariables(true)
+      fetch(`/api/cells/${notebookId}/${cellId}/variables`)
+        .then(res => res.json())
+        .then(data => {
+          setVariables(data.variables || {})
+          setLoadingVariables(false)
+        })
+        .catch(err => {
+          console.error('Failed to fetch variables:', err)
+          setLoadingVariables(false)
+        })
+    }
+  }, [isVisible, notebookId, cellId])
 
   if (!isVisible) return null
 
@@ -238,6 +259,20 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
                   <span className="ml-1 px-2 py-0.5 text-xs bg-gray-100 rounded-full">{intermediaryTables.length}</span>
                 </button>
               )}
+              <button
+                onClick={() => setActiveMainTab('variables')}
+                className={`px-6 py-3 text-sm font-medium transition-colors flex items-center space-x-2 ${
+                  activeMainTab === 'variables'
+                    ? 'border-b-2 border-green-500 text-green-600 bg-white'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <Database className="h-4 w-4" />
+                <span>Variables</span>
+                {Object.keys(variables).length > 0 && (
+                  <span className="ml-1 px-2 py-0.5 text-xs bg-gray-100 rounded-full">{Object.keys(variables).length}</span>
+                )}
+              </button>
             </div>
           </div>
 
@@ -684,6 +719,109 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
                   <div className="text-center py-12 text-gray-500">
                     <TableIcon className="h-12 w-12 mx-auto mb-3 text-gray-300" />
                     <p>No intermediate data tables for this cell</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Variables Tab */}
+            {activeMainTab === 'variables' && (
+              <div>
+                {loadingVariables ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <Database className="h-12 w-12 mx-auto mb-3 text-gray-300 animate-pulse" />
+                    <p>Loading variables...</p>
+                  </div>
+                ) : Object.keys(variables).length > 0 ? (
+                  <div className="space-y-6">
+                    <p className="text-xs text-gray-600 mb-3">
+                      All variables available at this cell execution. Click on a variable to see details.
+                    </p>
+
+                    {/* DataFrames Section */}
+                    {Object.entries(variables).some(([_, info]) => info.includes('DataFrame')) && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
+                          <TableIcon className="h-4 w-4 mr-2" />
+                          DataFrames
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {Object.entries(variables)
+                            .filter(([_, info]) => info.includes('DataFrame'))
+                            .map(([name, info]) => (
+                              <div
+                                key={name}
+                                className="inline-flex items-center px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 hover:bg-blue-100 cursor-pointer transition-colors"
+                                title={info}
+                              >
+                                <span className="font-mono text-sm font-medium text-blue-900">{name}</span>
+                                <span className="ml-2 text-xs text-blue-600">
+                                  {info.split(' ').slice(1).join(' ')}
+                                </span>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Arrays Section */}
+                    {Object.entries(variables).some(([_, info]) => info.includes('ndarray') || info.includes('Series')) && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
+                          <Zap className="h-4 w-4 mr-2" />
+                          Arrays & Series
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {Object.entries(variables)
+                            .filter(([_, info]) => info.includes('ndarray') || info.includes('Series'))
+                            .map(([name, info]) => (
+                              <div
+                                key={name}
+                                className="inline-flex items-center px-3 py-2 rounded-lg bg-purple-50 border border-purple-200 hover:bg-purple-100 cursor-pointer transition-colors"
+                                title={info}
+                              >
+                                <span className="font-mono text-sm font-medium text-purple-900">{name}</span>
+                                <span className="ml-2 text-xs text-purple-600">{info.split(' ').slice(1).join(' ')}</span>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Other Variables Section */}
+                    {Object.entries(variables).some(([_, info]) => !info.includes('DataFrame') && !info.includes('ndarray') && !info.includes('Series')) && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
+                          <Database className="h-4 w-4 mr-2" />
+                          Other Variables
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {Object.entries(variables)
+                            .filter(([_, info]) => !info.includes('DataFrame') && !info.includes('ndarray') && !info.includes('Series'))
+                            .map(([name, info]) => (
+                              <div
+                                key={name}
+                                className="inline-flex items-center px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 hover:bg-gray-100 cursor-pointer transition-colors"
+                                title={info}
+                              >
+                                <span className="font-mono text-sm font-medium text-gray-900">{name}</span>
+                                <span className="ml-2 text-xs text-gray-600">{info}</span>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <p className="text-xs text-yellow-800">
+                        <strong>💡 Tip:</strong> DataFrame info shows column names. Use the exact column names shown when accessing DataFrame columns in your code.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-gray-500">
+                    <Database className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                    <p>No variables available at this cell</p>
                   </div>
                 )}
               </div>

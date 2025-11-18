@@ -67,37 +67,52 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result }) => {
         </div>
       )}
 
-      {/* Analysis Results Tables - Clean article-first display */}
-      {result.tables.filter((t: any) => t.source === 'stdout').length > 0 && (
+      {/* Analysis Results - Clean article-first display */}
+      {result.tables.filter((t: any) => t.source === 'display').length > 0 && (
         <div className="mb-4 space-y-4">
-          {result.tables.filter((t: any) => t.source === 'stdout').map((table: any, index: number) => (
+          {result.tables.filter((t: any) => t.source === 'display').map((table: any, index: number) => (
             <div key={index} className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+              {/* Display the label prominently */}
+              {table.label && (
+                <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
+                  <h4 className="text-sm font-semibold text-gray-900">{table.label}</h4>
+                </div>
+              )}
               <TableDisplay table={table} />
             </div>
           ))}
         </div>
       )}
 
-      {/* Note: Console output, intermediary data, and warnings are available via TRACE button → Execution Details */}
+      {/* Note: Console output, intermediary variables, and warnings are available via TRACE button → Execution Details */}
 
       {/* Matplotlib Plots */}
       {result.plots.length > 0 && (
-        <div className="mb-4">
-          <div className="flex items-center space-x-2 mb-2">
-            <BarChart3 className="h-4 w-4" />
-            <span className="text-sm font-medium text-gray-700">Plots</span>
-          </div>
-          <div className="grid gap-4">
-            {result.plots.map((plot, index) => (
-              <div key={index} className="plot-container">
-                <img
-                  src={`data:image/png;base64,${plot}`}
-                  alt={`Plot ${index + 1}`}
-                  className="max-w-full h-auto"
-                />
+        <div className="mb-4 space-y-4">
+          {result.plots.map((plot: any, index: number) => {
+            // Handle both old format (string) and new format (object with label)
+            const plotData = typeof plot === 'string' ? plot : plot.data;
+            const plotLabel = typeof plot === 'object' && plot.label ? plot.label : null;
+            const isDisplayed = typeof plot === 'object' && plot.source === 'display';
+
+            return (
+              <div key={index} className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+                {/* Show label for explicitly displayed plots */}
+                {plotLabel && isDisplayed && (
+                  <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
+                    <h4 className="text-sm font-semibold text-gray-900">{plotLabel}</h4>
+                  </div>
+                )}
+                <div className="p-4">
+                  <img
+                    src={`data:image/png;base64,${plotData}`}
+                    alt={plotLabel || `Plot ${index + 1}`}
+                    className="max-w-full h-auto"
+                  />
+                </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
       )}
 

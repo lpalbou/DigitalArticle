@@ -939,6 +939,7 @@ const NotebookContainer: React.FC = () => {
       <ExecutionDetailsModal
         isVisible={isViewingTraces}
         cellId={tracesCellId}
+        notebookId={notebook?.id || ''}
         traces={cellTraces}
         executionResult={cellExecutionResult}
         onClose={() => setIsViewingTraces(false)}
