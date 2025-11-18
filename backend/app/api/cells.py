@@ -249,6 +249,56 @@ async def get_cell_variables(notebook_id: str, cell_id: str):
         )
 
 
+@router.get("/{notebook_id}/{cell_id}/variables/{variable_name}")
+async def get_variable_content(notebook_id: str, cell_id: str, variable_name: str):
+    """Get the actual content/preview of a specific variable."""
+    try:
+        # Check if notebook exists
+        notebook = notebook_service.get_notebook(notebook_id)
+        if not notebook:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Digital Article {notebook_id} not found"
+            )
+
+        # Convert cell_id string to UUID for lookup
+        from uuid import UUID
+        try:
+            cell_uuid = UUID(cell_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid cell ID format: {cell_id}"
+            )
+
+        cell = notebook.get_cell(cell_uuid)
+        if not cell:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Cell {cell_id} not found"
+            )
+
+        # Get variable content from execution service
+        content = notebook_service.execution_service.get_variable_content(notebook_id, variable_name)
+
+        if "error" in content:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=content["error"]
+            )
+
+        return content
+
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get variable content: {str(e)}"
+        )
+
+
 @router.post("/{notebook_id}/clear")
 async def clear_execution_context(notebook_id: str):
     """Clear the execution context for a notebook."""

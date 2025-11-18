@@ -21,10 +21,13 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
 }) => {
   const [expandedTraces, setExpandedTraces] = useState<Set<string>>(new Set())
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [activeMainTab, setActiveMainTab] = useState<'llm' | 'console' | 'warnings' | 'data' | 'variables'>('llm')
+  const [activeMainTab, setActiveMainTab] = useState<'llm' | 'console' | 'warnings' | 'variables'>('llm')
   const [activeTraceTab, setActiveTraceTab] = useState<Record<string, 'prompt' | 'system' | 'response' | 'parameters' | 'json'>>({})
   const [variables, setVariables] = useState<Record<string, string>>({})
   const [loadingVariables, setLoadingVariables] = useState(false)
+  const [expandedVariables, setExpandedVariables] = useState<Set<string>>(new Set())
+  const [variableContent, setVariableContent] = useState<Record<string, any>>({})
+  const [loadingContent, setLoadingContent] = useState<Set<string>>(new Set())
 
   // Fetch variables when modal is opened
   useEffect(() => {
@@ -42,6 +45,184 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
         })
     }
   }, [isVisible, notebookId, cellId])
+
+  // Toggle variable expansion and fetch content
+  const toggleVariable = async (varName: string) => {
+    const newExpanded = new Set(expandedVariables)
+
+    if (newExpanded.has(varName)) {
+      // Collapse
+      newExpanded.delete(varName)
+      setExpandedVariables(newExpanded)
+    } else {
+      // Expand - fetch content if not already loaded
+      newExpanded.add(varName)
+      setExpandedVariables(newExpanded)
+
+      if (!variableContent[varName]) {
+        // Fetch content
+        const newLoading = new Set(loadingContent)
+        newLoading.add(varName)
+        setLoadingContent(newLoading)
+
+        try {
+          const response = await fetch(`/api/cells/${notebookId}/${cellId}/variables/${varName}`)
+          const content = await response.json()
+          setVariableContent(prev => ({ ...prev, [varName]: content }))
+        } catch (err) {
+          console.error(`Failed to fetch content for ${varName}:`, err)
+          setVariableContent(prev => ({ ...prev, [varName]: { error: 'Failed to load content' } }))
+        } finally {
+          const newLoading = new Set(loadingContent)
+          newLoading.delete(varName)
+          setLoadingContent(newLoading)
+        }
+      }
+    }
+  }
+
+  // Render variable content preview based on type
+  const renderVariablePreview = (varName: string, content: any) => {
+    if (loadingContent.has(varName)) {
+      return (
+        <div className="mt-2 p-3 bg-gray-50 rounded text-sm text-gray-500 animate-pulse">
+          Loading content...
+        </div>
+      )
+    }
+
+    if (content.error) {
+      return (
+        <div className="mt-2 p-3 bg-red-50 rounded text-sm text-red-600">
+          Error: {content.error}
+        </div>
+      )
+    }
+
+    // DataFrame preview
+    if (content.type === 'DataFrame') {
+      return (
+        <div className="mt-2 border border-gray-200 rounded-lg overflow-hidden">
+          <div className="bg-gray-50 px-3 py-2 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-gray-700">
+                {content.shape[0]} rows × {content.shape[1]} columns
+              </span>
+              <span className="text-xs text-gray-500">
+                Showing {Math.min(content.preview_rows, content.total_rows)} of {content.total_rows} rows
+              </span>
+            </div>
+          </div>
+          <div className="overflow-x-auto max-h-96">
+            <table className="min-w-full divide-y divide-gray-200 text-xs">
+              <thead className="bg-gray-50 sticky top-0">
+                <tr>
+                  {content.columns.map((col: string, idx: number) => (
+                    <th key={idx} className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-100">
+                      <div className="font-mono">{col}</div>
+                      <div className="text-gray-500 font-normal">{content.dtypes[col]}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {content.preview.map((row: any, rowIdx: number) => (
+                  <tr key={rowIdx} className="hover:bg-gray-50">
+                    {content.columns.map((col: string, colIdx: number) => (
+                      <td key={colIdx} className="px-3 py-2 text-gray-900 border-r border-gray-100 font-mono">
+                        {row[col] !== null && row[col] !== undefined ? String(row[col]) : '-'}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )
+    }
+
+    // Array/Series preview
+    if (content.type === 'ndarray' || content.type === 'Series') {
+      return (
+        <div className="mt-2 p-3 bg-gray-50 rounded-lg">
+          <div className="text-xs text-gray-700 mb-2">
+            <span className="font-medium">Shape:</span> {JSON.stringify(content.shape)} |{' '}
+            <span className="font-medium">dtype:</span> {content.dtype}
+          </div>
+          <div className="text-xs font-mono text-gray-900 max-h-64 overflow-y-auto">
+            [{content.preview.join(', ')}]
+          </div>
+          {content.total_size > content.preview_size && (
+            <div className="text-xs text-gray-500 mt-2">
+              Showing {content.preview_size} of {content.total_size} values
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    // List/Tuple preview
+    if (content.type === 'list' || content.type === 'tuple') {
+      return (
+        <div className="mt-2 p-3 bg-gray-50 rounded-lg">
+          <div className="text-xs font-mono text-gray-900 max-h-64 overflow-y-auto">
+            <pre className="whitespace-pre-wrap">{JSON.stringify(content.preview, null, 2)}</pre>
+          </div>
+          {content.total_size > content.preview_size && (
+            <div className="text-xs text-gray-500 mt-2">
+              Showing {content.preview_size} of {content.total_size} items
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    // Dict preview
+    if (content.type === 'dict') {
+      return (
+        <div className="mt-2 p-3 bg-gray-50 rounded-lg">
+          <div className="text-xs font-mono text-gray-900 max-h-64 overflow-y-auto">
+            <pre className="whitespace-pre-wrap">{JSON.stringify(content.preview, null, 2)}</pre>
+          </div>
+          {content.total_size > content.preview_size && (
+            <div className="text-xs text-gray-500 mt-2">
+              Showing {content.preview_size} of {content.total_size} items
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    // String preview
+    if (content.type === 'str') {
+      return (
+        <div className="mt-2 p-3 bg-gray-50 rounded-lg">
+          <div className="text-xs font-mono text-gray-900 max-h-64 overflow-y-auto whitespace-pre-wrap">
+            {content.preview}
+          </div>
+          {content.total_size > content.preview_size && (
+            <div className="text-xs text-gray-500 mt-2">
+              Showing {content.preview_size} of {content.total_size} characters
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    // Scalar/other types
+    if (content.value !== undefined) {
+      return (
+        <div className="mt-2 p-3 bg-gray-50 rounded-lg">
+          <div className="text-xs font-mono text-gray-900">
+            {content.value}
+          </div>
+        </div>
+      )
+    }
+
+    return null
+  }
 
   if (!isVisible) return null
 
@@ -172,9 +353,6 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
   const totalTime = calculateTotalTime()
   const estimatedCost = estimateCost(totalTokens)
 
-  // Get intermediary data tables (source='variable')
-  const intermediaryTables = executionResult?.tables.filter((t: any) => t.source === 'variable') || []
-
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
@@ -243,20 +421,6 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
                 >
                   <AlertTriangle className="h-4 w-4" />
                   <span>Warnings</span>
-                </button>
-              )}
-              {intermediaryTables.length > 0 && (
-                <button
-                  onClick={() => setActiveMainTab('data')}
-                  className={`px-6 py-3 text-sm font-medium transition-colors flex items-center space-x-2 ${
-                    activeMainTab === 'data'
-                      ? 'border-b-2 border-blue-500 text-blue-600 bg-white'
-                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  <TableIcon className="h-4 w-4" />
-                  <span>Data Tables</span>
-                  <span className="ml-1 px-2 py-0.5 text-xs bg-gray-100 rounded-full">{intermediaryTables.length}</span>
                 </button>
               )}
               <button
@@ -659,71 +823,6 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
               </div>
             )}
 
-            {/* Data Tables Tab */}
-            {activeMainTab === 'data' && (
-              <div>
-                {intermediaryTables.length > 0 ? (
-                  <div className="space-y-4">
-                    <p className="text-xs text-gray-600 mb-3">
-                      Intermediate DataFrames created during code execution
-                    </p>
-                    {intermediaryTables.map((table: any, index: number) => (
-                      <div key={index} className="border border-gray-200 rounded-lg overflow-hidden">
-                        <div className="bg-gray-50 px-3 py-2 border-b border-gray-200">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium text-gray-900">{table.name}</span>
-                            <span className="text-xs text-gray-500">
-                              {table.shape[0]} rows × {table.shape[1]} columns
-                            </span>
-                          </div>
-                        </div>
-                        <div className="overflow-x-auto max-h-64">
-                          <table className="min-w-full text-xs">
-                            <thead className="bg-gray-50 sticky top-0">
-                              <tr>
-                                {table.columns.map((col: string, colIndex: number) => (
-                                  <th
-                                    key={colIndex}
-                                    className="px-3 py-2 text-left font-medium text-gray-700 border-r border-gray-200 last:border-r-0"
-                                  >
-                                    {col}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200">
-                              {table.data.slice(0, 10).map((row: any, rowIndex: number) => (
-                                <tr key={rowIndex} className="hover:bg-gray-50">
-                                  {table.columns.map((col: string, colIndex: number) => (
-                                    <td
-                                      key={colIndex}
-                                      className="px-3 py-2 text-gray-900 border-r border-gray-100 last:border-r-0 font-mono"
-                                    >
-                                      {row[col] !== null && row[col] !== undefined ? String(row[col]) : '-'}
-                                    </td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          {table.data.length > 10 && (
-                            <div className="bg-gray-50 px-3 py-2 text-xs text-gray-500 text-center border-t">
-                              Showing 10 of {table.data.length} rows
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-12 text-gray-500">
-                    <TableIcon className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                    <p>No intermediate data tables for this cell</p>
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Variables Tab */}
             {activeMainTab === 'variables' && (
               <div>
@@ -745,19 +844,33 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
                           <TableIcon className="h-4 w-4 mr-2" />
                           DataFrames
                         </h4>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="space-y-2">
                           {Object.entries(variables)
                             .filter(([_, info]) => info.includes('DataFrame'))
                             .map(([name, info]) => (
-                              <div
-                                key={name}
-                                className="inline-flex items-center px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 hover:bg-blue-100 cursor-pointer transition-colors"
-                                title={info}
-                              >
-                                <span className="font-mono text-sm font-medium text-blue-900">{name}</span>
-                                <span className="ml-2 text-xs text-blue-600">
-                                  {info.split(' ').slice(1).join(' ')}
-                                </span>
+                              <div key={name} className="border border-blue-200 rounded-lg overflow-hidden">
+                                <div
+                                  onClick={() => toggleVariable(name)}
+                                  className="flex items-center justify-between px-3 py-2 bg-blue-50 hover:bg-blue-100 cursor-pointer transition-colors"
+                                  title={info}
+                                >
+                                  <div className="flex items-center">
+                                    {expandedVariables.has(name) ? (
+                                      <ChevronDown className="h-4 w-4 mr-2 text-blue-600" />
+                                    ) : (
+                                      <ChevronRight className="h-4 w-4 mr-2 text-blue-600" />
+                                    )}
+                                    <span className="font-mono text-sm font-medium text-blue-900">{name}</span>
+                                  </div>
+                                  <span className="text-xs text-blue-600">
+                                    {info.split(' ').slice(1).join(' ')}
+                                  </span>
+                                </div>
+                                {expandedVariables.has(name) && variableContent[name] && (
+                                  <div className="p-3 bg-white">
+                                    {renderVariablePreview(name, variableContent[name])}
+                                  </div>
+                                )}
                               </div>
                             ))}
                         </div>
@@ -771,17 +884,31 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
                           <Zap className="h-4 w-4 mr-2" />
                           Arrays & Series
                         </h4>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="space-y-2">
                           {Object.entries(variables)
                             .filter(([_, info]) => info.includes('ndarray') || info.includes('Series'))
                             .map(([name, info]) => (
-                              <div
-                                key={name}
-                                className="inline-flex items-center px-3 py-2 rounded-lg bg-purple-50 border border-purple-200 hover:bg-purple-100 cursor-pointer transition-colors"
-                                title={info}
-                              >
-                                <span className="font-mono text-sm font-medium text-purple-900">{name}</span>
-                                <span className="ml-2 text-xs text-purple-600">{info.split(' ').slice(1).join(' ')}</span>
+                              <div key={name} className="border border-purple-200 rounded-lg overflow-hidden">
+                                <div
+                                  onClick={() => toggleVariable(name)}
+                                  className="flex items-center justify-between px-3 py-2 bg-purple-50 hover:bg-purple-100 cursor-pointer transition-colors"
+                                  title={info}
+                                >
+                                  <div className="flex items-center">
+                                    {expandedVariables.has(name) ? (
+                                      <ChevronDown className="h-4 w-4 mr-2 text-purple-600" />
+                                    ) : (
+                                      <ChevronRight className="h-4 w-4 mr-2 text-purple-600" />
+                                    )}
+                                    <span className="font-mono text-sm font-medium text-purple-900">{name}</span>
+                                  </div>
+                                  <span className="text-xs text-purple-600">{info.split(' ').slice(1).join(' ')}</span>
+                                </div>
+                                {expandedVariables.has(name) && variableContent[name] && (
+                                  <div className="p-3 bg-white">
+                                    {renderVariablePreview(name, variableContent[name])}
+                                  </div>
+                                )}
                               </div>
                             ))}
                         </div>
@@ -795,26 +922,40 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
                           <Database className="h-4 w-4 mr-2" />
                           Other Variables
                         </h4>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="space-y-2">
                           {Object.entries(variables)
                             .filter(([_, info]) => !info.includes('DataFrame') && !info.includes('ndarray') && !info.includes('Series'))
                             .map(([name, info]) => (
-                              <div
-                                key={name}
-                                className="inline-flex items-center px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 hover:bg-gray-100 cursor-pointer transition-colors"
-                                title={info}
-                              >
-                                <span className="font-mono text-sm font-medium text-gray-900">{name}</span>
-                                <span className="ml-2 text-xs text-gray-600">{info}</span>
+                              <div key={name} className="border border-gray-200 rounded-lg overflow-hidden">
+                                <div
+                                  onClick={() => toggleVariable(name)}
+                                  className="flex items-center justify-between px-3 py-2 bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors"
+                                  title={info}
+                                >
+                                  <div className="flex items-center">
+                                    {expandedVariables.has(name) ? (
+                                      <ChevronDown className="h-4 w-4 mr-2 text-gray-600" />
+                                    ) : (
+                                      <ChevronRight className="h-4 w-4 mr-2 text-gray-600" />
+                                    )}
+                                    <span className="font-mono text-sm font-medium text-gray-900">{name}</span>
+                                  </div>
+                                  <span className="text-xs text-gray-600">{info}</span>
+                                </div>
+                                {expandedVariables.has(name) && variableContent[name] && (
+                                  <div className="p-3 bg-white">
+                                    {renderVariablePreview(name, variableContent[name])}
+                                  </div>
+                                )}
                               </div>
                             ))}
                         </div>
                       </div>
                     )}
 
-                    <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                      <p className="text-xs text-yellow-800">
-                        <strong>💡 Tip:</strong> DataFrame info shows column names. Use the exact column names shown when accessing DataFrame columns in your code.
+                    <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-xs text-blue-800">
+                        <strong>💡 Tip:</strong> Click on any variable to expand and preview its content. DataFrames show column names and data types - use the exact names in your code.
                       </p>
                     </div>
                   </div>

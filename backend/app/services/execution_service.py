@@ -674,6 +674,93 @@ class ExecutionService:
         except Exception as e:
             logger.warning(f"Failed to get variable info for notebook {notebook_id}: {e}")
             return {}
+
+    def get_variable_content(self, notebook_id: str, variable_name: str) -> Dict[str, Any]:
+        """
+        Get the actual content/preview of a specific variable.
+
+        Args:
+            notebook_id: Unique identifier for the notebook
+            variable_name: Name of the variable to retrieve
+
+        Returns:
+            Dict with variable content and metadata
+        """
+        try:
+            # Get notebook-specific globals
+            globals_dict = self._get_notebook_globals(notebook_id)
+
+            if variable_name not in globals_dict:
+                return {"error": f"Variable '{variable_name}' not found"}
+
+            value = globals_dict[variable_name]
+            var_type = type(value).__name__
+
+            # Return different preview formats based on type
+            if hasattr(value, 'columns') and hasattr(value, 'shape'):
+                # Pandas DataFrame
+                preview_rows = min(100, len(value))
+                return {
+                    "type": "DataFrame",
+                    "shape": value.shape,
+                    "columns": value.columns.tolist(),
+                    "dtypes": {col: str(dtype) for col, dtype in value.dtypes.items()},
+                    "preview": value.head(preview_rows).to_dict('records'),
+                    "preview_rows": preview_rows,
+                    "total_rows": len(value)
+                }
+            elif hasattr(value, 'shape') and hasattr(value, 'dtype'):
+                # NumPy array or Pandas Series
+                import numpy as np
+                preview_size = min(1000, value.size)
+                flat_values = value.flatten()[:preview_size].tolist()
+
+                return {
+                    "type": var_type,
+                    "shape": getattr(value, 'shape', None),
+                    "dtype": str(getattr(value, 'dtype', 'unknown')),
+                    "preview": flat_values,
+                    "preview_size": preview_size,
+                    "total_size": value.size
+                }
+            elif isinstance(value, (list, tuple)):
+                # List or tuple
+                preview_size = min(100, len(value))
+                return {
+                    "type": var_type,
+                    "preview": list(value[:preview_size]),
+                    "preview_size": preview_size,
+                    "total_size": len(value)
+                }
+            elif isinstance(value, dict):
+                # Dictionary
+                preview_size = min(100, len(value))
+                items = list(value.items())[:preview_size]
+                return {
+                    "type": "dict",
+                    "preview": {k: v for k, v in items},
+                    "preview_size": preview_size,
+                    "total_size": len(value)
+                }
+            elif isinstance(value, str):
+                # String
+                preview_size = min(1000, len(value))
+                return {
+                    "type": "str",
+                    "preview": value[:preview_size],
+                    "preview_size": preview_size,
+                    "total_size": len(value)
+                }
+            else:
+                # Scalar or other types
+                return {
+                    "type": var_type,
+                    "value": str(value)
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to get variable content for '{variable_name}': {e}")
+            return {"error": str(e)}
     
     def _preprocess_code(self, code: str) -> str:
         """
