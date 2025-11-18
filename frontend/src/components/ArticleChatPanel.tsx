@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { X, Send, Loader2, Copy, Check, Trash2, MessageCircle } from 'lucide-react'
 import { Notebook, ChatMessage } from '../types'
 import { chatAPI } from '../services/api'
+import { marked } from 'marked'
 
 interface ArticleChatPanelProps {
   isOpen: boolean
@@ -22,6 +23,16 @@ const ArticleChatPanel: React.FC<ArticleChatPanelProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  // Configure marked for chat-friendly rendering
+  useMemo(() => {
+    marked.setOptions({
+      breaks: true,        // Convert \n to <br>
+      gfm: true,          // GitHub Flavored Markdown
+      headerIds: false,   // Don't add IDs to headings (not needed in chat)
+      mangle: false       // Don't escape emails
+    })
+  }, [])
 
   // Load conversation from localStorage on mount
   useEffect(() => {
@@ -158,7 +169,7 @@ const ArticleChatPanel: React.FC<ArticleChatPanelProps> = ({
       />
 
       {/* Chat panel */}
-      <div className="fixed right-0 top-0 bottom-0 w-full sm:w-96 bg-white shadow-2xl z-50 flex flex-col animate-slide-in-right">
+      <div className="fixed right-0 top-0 bottom-0 w-full sm:w-[560px] bg-white shadow-2xl z-50 flex flex-col animate-slide-in-right">
         {/* Header */}
         <div className="bg-blue-600 text-white p-4 flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -240,9 +251,10 @@ const ArticleChatPanel: React.FC<ArticleChatPanelProps> = ({
                     </div>
                   ) : (
                     <>
-                      <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                        {message.content}
-                      </div>
+                      <div
+                        className={`chat-markdown ${message.role === 'user' ? 'chat-markdown-white' : ''} text-sm leading-relaxed`}
+                        dangerouslySetInnerHTML={{ __html: marked.parse(message.content) }}
+                      />
                       {message.role === 'assistant' && (
                         <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
                           <span className="text-xs text-gray-500">
@@ -301,7 +313,7 @@ const ArticleChatPanel: React.FC<ArticleChatPanelProps> = ({
         </div>
       </div>
 
-      {/* Add slide-in animation to global CSS */}
+      {/* Add slide-in animation and markdown styles */}
       <style>{`
         @keyframes slide-in-right {
           from {
@@ -313,6 +325,90 @@ const ArticleChatPanel: React.FC<ArticleChatPanelProps> = ({
         }
         .animate-slide-in-right {
           animation: slide-in-right 0.3s ease-out;
+        }
+
+        /* Markdown styling for chat messages */
+        .chat-markdown h1, .chat-markdown h2, .chat-markdown h3 {
+          font-weight: 600;
+          margin-top: 0.75em;
+          margin-bottom: 0.5em;
+          line-height: 1.3;
+        }
+        .chat-markdown h1 { font-size: 1.25em; }
+        .chat-markdown h2 { font-size: 1.15em; }
+        .chat-markdown h3 { font-size: 1.1em; }
+
+        .chat-markdown p {
+          margin: 0.5em 0;
+        }
+
+        .chat-markdown strong {
+          font-weight: 600;
+          color: inherit;
+        }
+
+        .chat-markdown em {
+          font-style: italic;
+        }
+
+        .chat-markdown ul, .chat-markdown ol {
+          margin: 0.5em 0;
+          padding-left: 1.5em;
+        }
+
+        .chat-markdown li {
+          margin: 0.25em 0;
+        }
+
+        .chat-markdown code {
+          background-color: rgba(0, 0, 0, 0.05);
+          padding: 0.125em 0.25em;
+          border-radius: 0.25em;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          font-size: 0.9em;
+        }
+
+        .chat-markdown pre {
+          background-color: rgba(0, 0, 0, 0.05);
+          padding: 0.75em;
+          border-radius: 0.375em;
+          overflow-x: auto;
+          margin: 0.5em 0;
+        }
+
+        .chat-markdown pre code {
+          background-color: transparent;
+          padding: 0;
+        }
+
+        .chat-markdown a {
+          color: #2563eb;
+          text-decoration: underline;
+        }
+
+        .chat-markdown blockquote {
+          border-left: 3px solid rgba(0, 0, 0, 0.1);
+          padding-left: 1em;
+          margin: 0.5em 0;
+          color: rgba(0, 0, 0, 0.7);
+        }
+
+        /* White text variant for user messages */
+        .chat-markdown-white code {
+          background-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .chat-markdown-white pre {
+          background-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .chat-markdown-white a {
+          color: #93c5fd;
+        }
+
+        .chat-markdown-white blockquote {
+          border-left-color: rgba(255, 255, 255, 0.3);
+          color: rgba(255, 255, 255, 0.9);
         }
       `}</style>
     </>
