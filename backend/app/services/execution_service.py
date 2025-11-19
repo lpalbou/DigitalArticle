@@ -15,6 +15,7 @@ import warnings
 import ast
 import re
 import types
+import json
 from contextlib import redirect_stdout, redirect_stderr
 from typing import Dict, Any, List, Optional, Tuple
 import matplotlib
@@ -557,10 +558,10 @@ class ExecutionService:
             # Capture visualizations and rich outputs
             # 1. First capture explicitly displayed results (highest priority)
             # Pass notebook_id for sequential numbering across entire article
-            displayed_tables, displayed_plots = self._capture_displayed_results(globals_dict, notebook_id)
-            result.tables = displayed_tables
+            displayed_tables, displayed_plots, other_displays = self._capture_displayed_results(globals_dict, notebook_id)
+            result.tables = displayed_tables + other_displays  # Include HTML, JSON, text, model displays
             result.plots = displayed_plots  # Start with explicitly displayed plots
-            logger.info(f"✅ Captured {len(displayed_tables)} displayed table(s) and {len(displayed_plots)} displayed plot(s)")
+            logger.info(f"✅ Captured {len(displayed_tables)} table(s), {len(displayed_plots)} plot(s), {len(other_displays)} other display(s)")
 
             # 2. Then capture other outputs (auto-captured plots without labels)
             auto_plots = self._capture_plots()
@@ -1048,10 +1049,316 @@ class ExecutionService:
             
         except Exception as e:
             logger.warning(f"Failed to capture plots: {e}")
-        
+
         return plots
 
-    def _capture_displayed_results(self, globals_dict: Dict[str, Any], notebook_id: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    def _convert_to_display_format(self, obj: Any, label: Optional[str], notebook_id: str) -> Dict[str, Any]:
+        """
+        Universal converter that handles ANY object type for display.
+
+        Uses a priority-based conversion pipeline that:
+        1. Leverages Python/Jupyter standard representations (_repr_html_)
+        2. Handles known scientific types optimally (DataFrame, numpy, etc.)
+        3. Falls back gracefully for unknown types
+        4. Never silently fails - always returns something displayable
+
+        Args:
+            obj: The object to convert
+            label: Optional label for the display
+            notebook_id: Notebook ID for counter management
+
+        Returns:
+            Dict with display information including type, content, and label
+        """
+        # Initialize counters for this notebook if they don't exist
+        if notebook_id not in self.notebook_table_counters:
+            self.notebook_table_counters[notebook_id] = 0
+        if notebook_id not in self.notebook_figure_counters:
+            self.notebook_figure_counters[notebook_id] = 0
+
+        try:
+            # Priority 1: DataFrames (check before _repr_html_ to use our custom TableDisplay)
+            if isinstance(obj, pd.DataFrame):
+                if label is None:
+                    self.notebook_table_counters[notebook_id] += 1
+                    label = f"Table {self.notebook_table_counters[notebook_id]}"
+
+                table_data = self._dataframe_to_table_data(obj, "displayed_result")
+                table_data['source'] = 'display'
+                table_data['label'] = label
+                table_data['type'] = 'table'
+                return table_data
+
+            # Priority 2: pandas Series (keep existing optimized handling)
+            if isinstance(obj, pd.Series):
+                if label is None:
+                    self.notebook_table_counters[notebook_id] += 1
+                    label = f"Table {self.notebook_table_counters[notebook_id]}"
+
+                column_name = obj.name if obj.name else 'Value'
+                df = obj.to_frame(name=column_name).reset_index()
+                table_data = self._dataframe_to_table_data(df, "displayed_result")
+                table_data['source'] = 'display'
+                table_data['label'] = label
+                table_data['type'] = 'table'
+                return table_data
+
+            # Priority 3: Check for Jupyter-standard _repr_html_() method (after DataFrame/Series)
+            if hasattr(obj, '_repr_html_') and callable(getattr(obj, '_repr_html_')):
+                try:
+                    html_content = obj._repr_html_()
+                    if label is None:
+                        self.notebook_table_counters[notebook_id] += 1
+                        label = f"Table {self.notebook_table_counters[notebook_id]}"
+
+                    return {
+                        'type': 'html',
+                        'content': html_content,
+                        'label': label,
+                        'source': 'display'
+                    }
+                except Exception as e:
+                    logger.warning(f"Failed to get _repr_html_(): {e}")
+
+            # Priority 4: Matplotlib figures
+            if hasattr(obj, 'savefig') and callable(getattr(obj, 'savefig')):
+                if label is None:
+                    self.notebook_figure_counters[notebook_id] += 1
+                    label = f"Figure {self.notebook_figure_counters[notebook_id]}"
+
+                buffer = io.BytesIO()
+                obj.savefig(buffer, format='png', bbox_inches='tight', dpi=150)
+                buffer.seek(0)
+                plot_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                buffer.close()
+
+                return {
+                    'type': 'image',
+                    'data': plot_data,
+                    'label': label,
+                    'source': 'display'
+                }
+
+            # Priority 5: NumPy arrays
+            if isinstance(obj, np.ndarray):
+                if label is None:
+                    self.notebook_table_counters[notebook_id] += 1
+                    label = f"Table {self.notebook_table_counters[notebook_id]}"
+
+                # 1D array - convert to Series then DataFrame
+                if obj.ndim == 1:
+                    df = pd.Series(obj).to_frame('values').reset_index()
+                    df.columns = ['index', 'value']
+                # 2D array - convert directly to DataFrame
+                elif obj.ndim == 2:
+                    df = pd.DataFrame(obj)
+                # Higher dimensional - show as formatted text
+                else:
+                    content = f"Array shape: {obj.shape}\nDtype: {obj.dtype}\n\nFirst elements:\n{repr(obj.flat[:100])}"
+                    if len(obj.flat) > 100:
+                        content += f"\n... ({len(obj.flat) - 100} more elements)"
+                    return {
+                        'type': 'text',
+                        'content': content,
+                        'label': label,
+                        'source': 'display'
+                    }
+
+                table_data = self._dataframe_to_table_data(df, "displayed_result")
+                table_data['source'] = 'display'
+                table_data['label'] = label
+                table_data['type'] = 'table'
+                return table_data
+
+            # Priority 6: pandas Index / MultiIndex
+            if isinstance(obj, (pd.Index, pd.MultiIndex)):
+                if label is None:
+                    self.notebook_table_counters[notebook_id] += 1
+                    label = f"Table {self.notebook_table_counters[notebook_id]}"
+
+                df = pd.Series(obj).to_frame('values').reset_index()
+                df.columns = ['index', 'value']
+                table_data = self._dataframe_to_table_data(df, "displayed_result")
+                table_data['source'] = 'display'
+                table_data['label'] = label
+                table_data['type'] = 'table'
+                return table_data
+
+            # Priority 7: Dictionaries - format as JSON
+            if isinstance(obj, dict):
+                if label is None:
+                    label = "Data"
+
+                try:
+                    # Try to serialize as JSON with pretty printing
+                    content = json.dumps(obj, indent=2, default=str)
+                    return {
+                        'type': 'json',
+                        'content': content,
+                        'label': label,
+                        'source': 'display'
+                    }
+                except (TypeError, ValueError) as e:
+                    # Fall back to repr if JSON serialization fails
+                    logger.warning(f"Failed to JSON serialize dict: {e}")
+                    return {
+                        'type': 'text',
+                        'content': repr(obj),
+                        'label': label,
+                        'source': 'display'
+                    }
+
+            # Priority 8: Lists and tuples
+            if isinstance(obj, (list, tuple)):
+                if label is None:
+                    label = "Data"
+
+                # Small collections - show as JSON
+                if len(obj) <= 100:
+                    try:
+                        content = json.dumps(obj, indent=2, default=str)
+                        return {
+                            'type': 'json',
+                            'content': content,
+                            'label': label,
+                            'source': 'display'
+                        }
+                    except (TypeError, ValueError):
+                        pass
+
+                # Large collections or if JSON fails - convert to DataFrame
+                self.notebook_table_counters[notebook_id] += 1
+                label = f"Table {self.notebook_table_counters[notebook_id]}" if label == "Data" else label
+
+                df = pd.DataFrame({'index': range(len(obj)), 'value': list(obj)})
+                table_data = self._dataframe_to_table_data(df, "displayed_result")
+                table_data['source'] = 'display'
+                table_data['label'] = label
+                table_data['type'] = 'table'
+                return table_data
+
+            # Priority 9: sklearn models / estimators
+            if hasattr(obj, 'fit') and hasattr(obj, 'predict'):
+                if label is None:
+                    label = "Model"
+
+                # Extract model information
+                info = {
+                    'model_type': type(obj).__name__,
+                    'module': type(obj).__module__,
+                }
+
+                # Get parameters if available
+                if hasattr(obj, 'get_params'):
+                    try:
+                        info['parameters'] = obj.get_params()
+                    except Exception:
+                        pass
+
+                # Add coefficients if available
+                if hasattr(obj, 'coef_'):
+                    try:
+                        info['coefficients'] = obj.coef_.tolist() if hasattr(obj.coef_, 'tolist') else str(obj.coef_)
+                    except Exception:
+                        pass
+
+                # Add feature importances if available
+                if hasattr(obj, 'feature_importances_'):
+                    try:
+                        info['feature_importances'] = obj.feature_importances_.tolist()
+                    except Exception:
+                        pass
+
+                # Format as JSON
+                try:
+                    content = json.dumps(info, indent=2, default=str)
+                    return {
+                        'type': 'model',
+                        'content': content,
+                        'label': label,
+                        'source': 'display'
+                    }
+                except Exception:
+                    return {
+                        'type': 'text',
+                        'content': repr(obj),
+                        'label': label,
+                        'source': 'display'
+                    }
+
+            # Priority 10: PIL/Pillow Images
+            try:
+                from PIL import Image
+                if isinstance(obj, Image.Image):
+                    if label is None:
+                        self.notebook_figure_counters[notebook_id] += 1
+                        label = f"Figure {self.notebook_figure_counters[notebook_id]}"
+
+                    # Convert PIL image to PNG base64
+                    buffer = io.BytesIO()
+                    obj.save(buffer, format='PNG')
+                    buffer.seek(0)
+                    plot_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                    buffer.close()
+
+                    return {
+                        'type': 'image',
+                        'data': plot_data,
+                        'label': label,
+                        'source': 'display'
+                    }
+            except ImportError:
+                pass  # PIL not installed
+
+            # Priority 11: Plotly figures (placeholder for future implementation)
+            if hasattr(obj, 'to_dict') and hasattr(obj, 'data'):
+                if label is None:
+                    self.notebook_figure_counters[notebook_id] += 1
+                    label = f"Figure {self.notebook_figure_counters[notebook_id]}"
+
+                logger.info(f"📊 Plotly figure detected: {label} (interactive display not yet implemented)")
+                # For now, return as text - future: implement interactive plotly display
+                return {
+                    'type': 'text',
+                    'content': f"Plotly figure: {label}\n(Interactive display coming soon)",
+                    'label': label,
+                    'source': 'display'
+                }
+
+            # Final fallback: Use repr() for everything else
+            if label is None:
+                label = "Data"
+
+            repr_str = repr(obj)
+
+            # Smart truncation for very long representations
+            if len(repr_str) > 2000:
+                repr_str = (
+                    repr_str[:1000] +
+                    f"\n\n... ({len(repr_str) - 2000} chars omitted) ...\n\n" +
+                    repr_str[-1000:]
+                )
+
+            return {
+                'type': 'text',
+                'content': repr_str,
+                'label': label,
+                'source': 'display'
+            }
+
+        except Exception as e:
+            # Even if conversion fails, return something displayable
+            logger.error(f"Error converting object to display format: {e}")
+            logger.error(traceback.format_exc())
+
+            return {
+                'type': 'text',
+                'content': f"Error displaying object: {str(e)}\n\nObject type: {type(obj).__name__}",
+                'label': label or "Error",
+                'source': 'display'
+            }
+
+    def _capture_displayed_results(self, globals_dict: Dict[str, Any], notebook_id: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Capture results explicitly marked for display using the display() function.
 
@@ -1059,15 +1366,21 @@ class ExecutionService:
         with their labels for article presentation. Auto-numbers results sequentially
         across the entire notebook (Table 1, 2, 3... Figure 1, 2, 3...).
 
+        Uses the universal converter to handle ANY object type without silent failures.
+
         Args:
             globals_dict: The globals dictionary containing the display function
             notebook_id: The notebook identifier for global counter management
 
         Returns:
-            Tuple of (tables, plots) - lists of captured displayed results
+            Tuple of (tables, plots, other_displays) - lists of captured displayed results
+            - tables: table-type displays (DataFrame, Series, arrays, etc.)
+            - plots: image-type displays (matplotlib, PIL images, etc.)
+            - other_displays: other display types (HTML, JSON, text, model info)
         """
         tables = []
         plots = []
+        other_displays = []
 
         # Initialize counters for this notebook if they don't exist
         if notebook_id not in self.notebook_table_counters:
@@ -1082,65 +1395,48 @@ class ExecutionService:
                     obj = entry['object']
                     label = entry['label']
 
-                    # Handle DataFrames
-                    if isinstance(obj, pd.DataFrame):
-                        # Auto-number if no label provided
-                        if label is None:
-                            self.notebook_table_counters[notebook_id] += 1
-                            label = f"Table {self.notebook_table_counters[notebook_id]}"
+                    # Use universal converter to handle ANY type
+                    try:
+                        display_data = self._convert_to_display_format(obj, label, notebook_id)
 
-                        # Use a generic name since we'll display the label prominently
-                        # Avoids duplication where both name and label show the same text
-                        table_data = self._dataframe_to_table_data(obj, "displayed_result")
-                        table_data['source'] = 'display'  # Mark as displayed result
-                        table_data['label'] = label  # Preserve the label for display
-                        tables.append(table_data)
-                        logger.info(f"✅ Captured displayed result: {label} (DataFrame {obj.shape})")
+                        # Route to appropriate list based on display type
+                        display_type = display_data.get('type')
 
-                    # Handle matplotlib figures
-                    elif hasattr(obj, 'savefig'):
-                        try:
-                            import io
-                            import base64
+                        if display_type == 'table':
+                            tables.append(display_data)
+                            logger.info(f"✅ Captured displayed table: {display_data.get('label')}")
 
-                            # Auto-number if no label provided
-                            if label is None:
-                                self.notebook_figure_counters[notebook_id] += 1
-                                label = f"Figure {self.notebook_figure_counters[notebook_id]}"
+                        elif display_type == 'image':
+                            plots.append(display_data)
+                            logger.info(f"✅ Captured displayed image: {display_data.get('label')}")
 
-                            # Save figure to buffer
-                            buffer = io.BytesIO()
-                            obj.savefig(buffer, format='png', bbox_inches='tight', dpi=150)
-                            buffer.seek(0)
+                        elif display_type in ('html', 'json', 'text', 'model'):
+                            other_displays.append(display_data)
+                            logger.info(f"✅ Captured displayed {display_type}: {display_data.get('label')}")
 
-                            # Encode as base64
-                            plot_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                        else:
+                            # Unknown type - add to other_displays as failsafe
+                            other_displays.append(display_data)
+                            logger.warning(f"⚠️ Unknown display type '{display_type}': {display_data.get('label')}")
 
-                            # Store with label
-                            plots.append({
-                                'data': plot_data,
-                                'label': label,
-                                'source': 'display'
-                            })
-                            logger.info(f"✅ Captured displayed figure: {label}")
+                    except Exception as convert_err:
+                        # Even if conversion fails, log it (converter returns error display)
+                        logger.error(f"Error converting displayed object: {convert_err}")
+                        logger.error(traceback.format_exc())
 
-                            # Close buffer
-                            buffer.close()
-
-                        except Exception as fig_err:
-                            logger.warning(f"Failed to capture matplotlib figure: {fig_err}")
-
-                    # Handle plotly figures
-                    elif hasattr(obj, 'to_dict'):
-                        # This will be handled by interactive plot capture in the future
-                        # For now, log that we saw it
-                        logger.info(f"📊 Plotly figure registered: {label} (not yet captured)")
-                        pass
+                        # Add error display to other_displays
+                        other_displays.append({
+                            'type': 'text',
+                            'content': f"Error displaying object: {str(convert_err)}",
+                            'label': label or "Error",
+                            'source': 'display'
+                        })
 
         except Exception as e:
             logger.warning(f"Failed to capture displayed results: {e}")
+            logger.warning(traceback.format_exc())
 
-        return tables, plots
+        return tables, plots, other_displays
 
     def _capture_tables(self, globals_dict: Dict[str, Any], pre_execution_vars: set = None, pre_execution_dataframes: dict = None) -> List[Dict[str, Any]]:
         """

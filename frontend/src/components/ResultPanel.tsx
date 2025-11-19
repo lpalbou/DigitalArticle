@@ -70,17 +70,57 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result }) => {
       {/* Analysis Results - Clean article-first display */}
       {result.tables.filter((t: any) => t.source === 'display').length > 0 && (
         <div className="mb-4 space-y-4">
-          {result.tables.filter((t: any) => t.source === 'display').map((table: any, index: number) => (
-            <div key={index} className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
-              {/* Display the label prominently */}
-              {table.label && (
-                <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
-                  <h4 className="text-sm font-semibold text-gray-900">{table.label}</h4>
-                </div>
-              )}
-              <TableDisplay table={table} />
-            </div>
-          ))}
+          {result.tables.filter((t: any) => t.source === 'display').map((table: any, index: number) => {
+            const displayType = table.type || 'table'; // Default to table for backwards compatibility
+
+            return (
+              <div key={index} className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+                {/* Display the label prominently */}
+                {table.label && (
+                  <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
+                    <h4 className="text-sm font-semibold text-gray-900">{table.label}</h4>
+                  </div>
+                )}
+
+                {/* Render based on display type */}
+                {displayType === 'table' && <TableDisplay table={table} />}
+
+                {displayType === 'html' && (
+                  <div className="p-4 prose max-w-none" dangerouslySetInnerHTML={{ __html: table.content }} />
+                )}
+
+                {displayType === 'json' && (
+                  <div className="p-4">
+                    <pre className="bg-gray-50 p-3 rounded text-xs overflow-x-auto font-mono">
+                      <code className="text-gray-800">{table.content}</code>
+                    </pre>
+                  </div>
+                )}
+
+                {displayType === 'text' && (
+                  <div className="p-4">
+                    <pre className="bg-gray-50 p-3 rounded text-sm overflow-x-auto whitespace-pre-wrap font-mono">
+                      {table.content}
+                    </pre>
+                  </div>
+                )}
+
+                {displayType === 'model' && (
+                  <div className="p-4">
+                    <div className="bg-gradient-to-r from-purple-50 to-blue-50 p-4 rounded-lg border border-purple-200">
+                      <div className="flex items-center mb-3">
+                        <BarChart3 className="h-5 w-5 text-purple-600 mr-2" />
+                        <span className="font-semibold text-purple-900">Machine Learning Model</span>
+                      </div>
+                      <pre className="bg-white p-3 rounded text-xs overflow-x-auto font-mono border">
+                        <code className="text-gray-800">{table.content}</code>
+                      </pre>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
