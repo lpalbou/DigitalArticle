@@ -1023,13 +1023,34 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                         print(f"🔬 Methodology generation attempt #{methodology_attempt}...")
                         logger.info(f"🔬 Methodology generation attempt #{methodology_attempt}...")
 
+                        # Collect previous methodologies for narrative continuity
+                        previous_methodologies = []
+                        try:
+                            current_cell_index = None
+                            for i, nb_cell in enumerate(notebook.cells):
+                                if nb_cell.id == cell.id:
+                                    current_cell_index = i
+                                    break
+
+                            if current_cell_index is not None and current_cell_index > 0:
+                                # Get last 2-3 cells' methodologies (or fewer if less than 3 previous cells)
+                                start_index = max(0, current_cell_index - 3)
+                                for prev_cell in notebook.cells[start_index:current_cell_index]:
+                                    if prev_cell.scientific_explanation:
+                                        previous_methodologies.append(prev_cell.scientific_explanation)
+                                logger.info(f"📚 Collected {len(previous_methodologies)} previous methodologies for context")
+                        except Exception as prev_error:
+                            logger.warning(f"Could not collect previous methodologies: {prev_error}")
+                            previous_methodologies = []
+
                         explanation, explanation_gen_time, trace_id, full_trace = self.llm_service.generate_scientific_explanation(
                             cell.prompt,
                             cell.code,
                             execution_data,
                             context,  # Pass context for seed consistency and tracing
                             step_type='methodology_generation',
-                            attempt_number=methodology_attempt
+                            attempt_number=methodology_attempt,
+                            previous_methodologies=previous_methodologies  # Pass previous methodologies for continuity
                         )
 
                         print(f"🔬 LLM returned explanation: {len(explanation)} chars" +

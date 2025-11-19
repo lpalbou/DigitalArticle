@@ -10,10 +10,11 @@ Token Tracking:
 """
 
 import logging
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 from datetime import datetime
 from abstractcore import create_llm, ProviderAPIError, ModelNotFoundError, AuthenticationError
 from .token_tracker import TokenTracker
+from .execution_insights_extractor import ExecutionInsightsExtractor
 
 # Create a general LLMError that encompasses all AbstractCore errors
 class LLMError(Exception):
@@ -798,7 +799,8 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
         execution_result: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
         step_type: str = 'methodology_generation',
-        attempt_number: int = 1
+        attempt_number: int = 1,
+        previous_methodologies: Optional[List[str]] = None
     ) -> Tuple[str, Optional[float], Optional[str], Optional[Dict[str, Any]]]:
         """
         Generate a scientific article-style explanation of what was done and why with full tracing.
@@ -807,9 +809,10 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
             prompt: The original natural language prompt
             code: The generated Python code
             execution_result: The result of code execution (stdout, plots, etc.)
-            context: Additional context for tracing (notebook_id, cell_id)
+            context: Additional context for tracing (notebook_id, cell_id, available_variables)
             step_type: Type of step for tracing (e.g., 'methodology_generation')
             attempt_number: Attempt number for tracing
+            previous_methodologies: List of previous cells' methodologies for narrative continuity
 
         Returns:
             Tuple of (scientific explanation text, generation time in ms, trace_id or None, full_trace or None)
@@ -819,11 +822,29 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
         """
         if not self.llm:
             raise LLMError("LLM not initialized")
-        
+
+        # Extract rich insights from execution results
+        from .execution_service import ExecutionResult
+
+        # Convert execution_result dict to ExecutionResult object if needed
+        if isinstance(execution_result, dict):
+            # Create a simple object to hold the data
+            class ResultObj:
+                def __init__(self, data):
+                    for key, value in data.items():
+                        setattr(self, key, value)
+            result_obj = ResultObj(execution_result)
+        else:
+            result_obj = execution_result
+
+        # Extract insights
+        insights = ExecutionInsightsExtractor.extract_insights(result_obj, code, context)
+        formatted_insights = ExecutionInsightsExtractor.format_for_methodology_prompt(insights)
+
         # Build the system prompt for scientific writing
         system_prompt = """You are a scientific writing assistant that creates high-impact scientific article sections.
 
-TASK: Write a clear, professional scientific explanation of a data analysis step.
+TASK: Write a clear, professional scientific explanation of a data analysis step that reads like a Nature/Science article.
 
 STYLE REQUIREMENTS:
 - Write in the style of a high-impact scientific journal (Nature, Science, Cell)
@@ -836,21 +857,39 @@ STYLE REQUIREMENTS:
 
 STRUCTURE:
 1. Brief context of what analysis is being performed and why
-2. Methodology: Describe the approach taken
-3. Results: Summarize key findings from the execution
+2. Methodology: Describe the approach taken with specific details
+3. Results: Summarize key findings from the execution with ACTUAL QUANTITATIVE DATA
 
-EXAMPLE OUTPUT:
-"To assess the distribution of gene expression levels across samples, a comprehensive statistical analysis was performed. The dataset containing 20 genes across 6 experimental conditions was loaded and examined for basic descriptive statistics. The analysis revealed a mean expression level of 15.3 ± 4.2 across all genes, with significant variability observed between experimental conditions (CV = 28%). These findings suggest heterogeneous expression patterns that warrant further investigation through differential expression analysis."
+CRITICAL REQUIREMENT - ASSET REFERENCING:
+When tables or figures are generated, you MUST reference them by their labels:
+- Use "Table 1", "Table 2", "Figure 1", "Figure 2" etc. in your text
+- Include actual quantitative results from the tables/figures
+- Format: "As shown in Table 1, the cohort comprised 50 patients with mean age 52.3 ± 8.7 years..."
+- Format: "The dashboard visualization (Figure 1) revealed..."
+
+EXAMPLE OUTPUT WITH ASSET REFERENCES:
+"To assess the distribution of gene expression levels across samples, a comprehensive statistical analysis was performed on the normalized expression matrix (Table 1; 20 genes × 6 conditions). The analysis revealed a mean expression level of 15.3 ± 4.2 across all genes, with significant variability observed between experimental conditions (CV = 28%). Visualization of the expression patterns (Figure 1) demonstrated clear clustering of samples by treatment condition, with treated samples showing 2.5-fold higher expression of key marker genes (p < 0.001)."
+
+EXAMPLE OUTPUT FOR DASHBOARD:
+"A comprehensive clinical trial dashboard (Figure 1) was constructed to visualize key metrics and trends from the SDTM dataset of 50 TNBC patients. The dashboard revealed a cohort with mean age of 52.3 ± 8.7 years, predominantly female (95%), and mean tumor size of 4.2 ± 1.8 mm. Treatment response analysis showed complete response (CR) in 20% of patients, partial response (PR) in 30%, with the remaining showing stable disease (30%) or progression (20%). Correlation analysis revealed a positive association between tumor size and treatment duration (Spearman ρ = 0.45, p < 0.01)."
 
 GUIDELINES:
-- Keep paragraphs focused and coherent
-- Use quantitative results when available
+- ALWAYS reference tables and figures by their labels when they exist
+- Include ACTUAL quantitative results (means, percentages, p-values, counts)
+- Use specific numbers from the execution results provided
 - Mention statistical measures and sample sizes
-- Connect findings to broader scientific context
+- Connect findings to the analysis objective
 - Maintain objective, analytical tone
-- Length: 2-4 sentences, maximum 150 words"""
+- Length: 3-5 sentences, maximum 200 words for complex analyses"""
 
-        # Build the user prompt with all context
+        # Build context section for previous methodologies
+        previous_context = ""
+        if previous_methodologies and len(previous_methodologies) > 0:
+            previous_context = "\n## PREVIOUS ANALYSIS STEPS (for narrative continuity):\n"
+            for i, prev_method in enumerate(previous_methodologies, 1):
+                previous_context += f"\nStep {i}: {prev_method}\n"
+
+        # Build the user prompt with rich context
         user_prompt = f"""Generate a scientific article-style explanation for this analysis:
 
 ORIGINAL REQUEST: {prompt}
@@ -860,11 +899,16 @@ CODE EXECUTED:
 {code}
 ```
 
-EXECUTION RESULTS:
-- Status: {'Success' if execution_result.get('status') == 'success' else 'Error'}
-- Output: {execution_result.get('stdout', 'No output')}
-- Plots generated: {'Yes' if execution_result.get('plots') else 'No'}
-- Tables generated: {'Yes' if execution_result.get('tables') else 'No'}
+{formatted_insights}
+
+EXECUTION STATUS: {'Success' if execution_result.get('status') == 'success' else 'Error'}
+{previous_context}
+
+CRITICAL INSTRUCTIONS:
+1. Reference specific tables/figures by their labels (e.g., "Table 1", "Figure 1")
+2. Include ACTUAL quantitative results from the data above (means, counts, percentages, statistics)
+3. Connect this analysis to any previous steps if context is provided
+4. Write in publication-ready scientific prose
 
 Write a scientific explanation of what was done and the results obtained:"""
 
