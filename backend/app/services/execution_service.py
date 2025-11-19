@@ -644,54 +644,131 @@ class ExecutionService:
     
     def get_variable_info(self, notebook_id: str) -> Dict[str, Any]:
         """
-        Get information about variables in the notebook-specific execution context.
+        Get categorized information about variables in the notebook-specific execution context.
 
         Args:
             notebook_id: Unique identifier for the notebook
 
         Returns:
-            Dict mapping variable names to their type info with detailed metadata
+            Dict with categorized variables:
+            {
+                "dataframes": {name: {type, shape, display}},
+                "modules": {name: {type, module_name, display}},
+                "numbers": {name: {type, value, display}},
+                "dicts": {name: {type, size, display}},
+                "arrays": {name: {type, shape/size, display}},  # ndarray, Series, list
+                "other": {name: {type, display}}  # matplotlib objects, etc.
+            }
         """
         try:
             # Get notebook-specific globals
             globals_dict = self._get_notebook_globals(notebook_id)
 
-            variables = {}
+            # Initialize categorized storage
+            categorized = {
+                "dataframes": {},
+                "modules": {},
+                "numbers": {},
+                "dicts": {},
+                "arrays": {},  # Arrays & Series (ndarray, Series)
+                "other": {}
+            }
+
             for name, value in globals_dict.items():
-                if not name.startswith('_') and not callable(value):
-                    try:
-                        # Get basic info about the variable
-                        var_type = type(value).__name__
+                # Skip private variables and callables
+                if name.startswith('_') or callable(value):
+                    continue
 
-                        # Enhanced info for pandas DataFrames
-                        if hasattr(value, 'columns') and hasattr(value, 'shape'):
-                            # This is a pandas DataFrame
-                            cols = value.columns.tolist()[:10]  # First 10 columns
-                            cols_str = str(cols) if len(value.columns) <= 10 else f"{cols}... ({len(value.columns)} total)"
-                            info_str = f"{var_type} {value.shape} columns={cols_str}"
+                try:
+                    var_type = type(value).__name__
 
-                            # ENHANCEMENT: Add unique values for likely categorical columns
-                            # This helps LLM understand what VALUES are in the data (not just column names)
-                            for col in value.columns:
-                                try:
-                                    # Show unique values for object/category columns with < 10 unique values
-                                    if (value[col].dtype == 'object' or value[col].dtype.name == 'category') and value[col].nunique() < 10:
-                                        unique_vals = value[col].unique().tolist()[:10]  # First 10 unique values
-                                        info_str += f" | {col}={unique_vals}"
-                                except:
-                                    pass  # Skip if any error getting unique values
+                    # FILTER OUT: NoneType variables (import shadowing artifacts)
+                    if var_type == 'NoneType' or value is None:
+                        logger.debug(f"🧹 Filtering out NoneType variable '{name}' (likely import shadowing artifact)")
+                        continue
 
-                            variables[name] = info_str
-                        elif hasattr(value, 'shape'):  # numpy array or Series
-                            variables[name] = f"{var_type} {getattr(value, 'shape', 'N/A')}"
+                    # CATEGORY 1: DataFrames
+                    if hasattr(value, 'columns') and hasattr(value, 'shape'):
+                        categorized["dataframes"][name] = {
+                            "type": var_type,
+                            "shape": list(value.shape),
+                            "display": f"{var_type} {value.shape}"
+                        }
+
+                    # CATEGORY 2: Modules (library imports)
+                    elif isinstance(value, types.ModuleType):
+                        module_name = getattr(value, '__name__', var_type)
+                        categorized["modules"][name] = {
+                            "type": "module",
+                            "module_name": module_name,
+                            "display": module_name
+                        }
+
+                    # CATEGORY 3: Numbers (int, float, numpy numerics)
+                    elif var_type in ['int', 'float', 'int32', 'int64', 'float32', 'float64', 'complex']:
+                        # Format value for display
+                        if var_type in ['float', 'float32', 'float64']:
+                            display_value = f"{float(value):.2f}" if abs(value) < 1000 else f"{float(value):.2e}"
                         else:
-                            variables[name] = var_type
-                    except:
-                        variables[name] = "unknown"
-            return variables
+                            display_value = str(value)
+
+                        categorized["numbers"][name] = {
+                            "type": var_type,
+                            "value": float(value) if 'float' in var_type else int(value),
+                            "display": display_value
+                        }
+
+                    # CATEGORY 4: Dicts & JSON
+                    elif var_type == 'dict':
+                        size = len(value)
+                        categorized["dicts"][name] = {
+                            "type": "dict",
+                            "size": size,
+                            "display": f"dict ({size} items)"
+                        }
+
+                    # CATEGORY 5: Arrays & Series (ndarray, Series, list)
+                    elif var_type in ['ndarray', 'Series'] or (hasattr(value, 'shape') and hasattr(value, 'dtype')):
+                        categorized["arrays"][name] = {
+                            "type": var_type,
+                            "shape": getattr(value, 'shape', 'N/A'),
+                            "display": f"{var_type} {getattr(value, 'shape', '')}"
+                        }
+                    elif var_type == 'list':
+                        # Lists are array-like, group with arrays
+                        size = len(value)
+                        categorized["arrays"][name] = {
+                            "type": "list",
+                            "size": size,
+                            "display": f"list ({size} items)"
+                        }
+
+                    # CATEGORY 6: Other (matplotlib objects, strings, etc.)
+                    else:
+                        categorized["other"][name] = {
+                            "type": var_type,
+                            "display": var_type
+                        }
+
+                except Exception as e:
+                    logger.debug(f"Error categorizing variable '{name}': {e}")
+                    categorized["other"][name] = {
+                        "type": "unknown",
+                        "display": "unknown"
+                    }
+
+            return categorized
+
         except Exception as e:
             logger.warning(f"Failed to get variable info for notebook {notebook_id}: {e}")
-            return {}
+            return {
+                "dataframes": {},
+                "modules": {},
+                "numbers": {},
+                "dicts": {},
+                "arrays": {},
+                "other": {}
+            }
 
     def get_variable_content(self, notebook_id: str, variable_name: str) -> Dict[str, Any]:
         """
@@ -718,20 +795,58 @@ class ExecutionService:
             if hasattr(value, 'columns') and hasattr(value, 'shape'):
                 # Pandas DataFrame
                 preview_rows = min(100, len(value))
+
+                # Convert to dict and replace NaN with None for JSON compatibility
+                preview_data = value.head(preview_rows).to_dict('records')
+                # Replace NaN values with None (JSON null)
+                import math
+                for row in preview_data:
+                    for key in row:
+                        if isinstance(row[key], float) and math.isnan(row[key]):
+                            row[key] = None
+
                 return {
                     "type": "DataFrame",
                     "shape": value.shape,
                     "columns": value.columns.tolist(),
                     "dtypes": {col: str(dtype) for col, dtype in value.dtypes.items()},
-                    "preview": value.head(preview_rows).to_dict('records'),
+                    "preview": preview_data,
                     "preview_rows": preview_rows,
                     "total_rows": len(value)
                 }
+            elif var_type == 'Series':
+                # Pandas Series - handle separately (doesn't have .flatten())
+                import math
+                preview_size = min(1000, len(value))
+
+                # Convert to list and replace NaN with None for JSON compatibility
+                preview_values = value.head(preview_size).tolist()
+                for i in range(len(preview_values)):
+                    if isinstance(preview_values[i], float) and math.isnan(preview_values[i]):
+                        preview_values[i] = None
+
+                return {
+                    "type": "Series",
+                    "shape": value.shape,
+                    "dtype": str(value.dtype),
+                    "name": value.name if hasattr(value, 'name') else None,
+                    "preview": preview_values,
+                    "preview_size": preview_size,
+                    "total_size": len(value)
+                }
             elif hasattr(value, 'shape') and hasattr(value, 'dtype'):
-                # NumPy array or Pandas Series
+                # NumPy array
                 import numpy as np
+                import math
                 preview_size = min(1000, value.size)
+
+                # NumPy arrays have .flatten() method
                 flat_values = value.flatten()[:preview_size].tolist()
+
+                # Replace NaN with None for JSON compatibility
+                for i in range(len(flat_values)):
+                    if isinstance(flat_values[i], float) and math.isnan(flat_values[i]):
+                        flat_values[i] = None
 
                 return {
                     "type": var_type,
@@ -754,9 +869,23 @@ class ExecutionService:
                 # Dictionary
                 preview_size = min(100, len(value))
                 items = list(value.items())[:preview_size]
+
+                # Convert values to JSON-serializable format
+                # (e.g., LabelEncoder objects need string representation)
+                serializable_dict = {}
+                for k, v in items:
+                    try:
+                        # Try to serialize directly
+                        import json
+                        json.dumps(v)
+                        serializable_dict[k] = v
+                    except (TypeError, ValueError):
+                        # Not JSON-serializable - convert to string
+                        serializable_dict[k] = str(v)
+
                 return {
                     "type": "dict",
-                    "preview": {k: v for k, v in items},
+                    "preview": serializable_dict,
                     "preview_size": preview_size,
                     "total_size": len(value)
                 }

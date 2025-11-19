@@ -433,9 +433,18 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
               >
                 <Database className="h-4 w-4" />
                 <span>Variables</span>
-                {Object.keys(variables).length > 0 && (
-                  <span className="ml-1 px-2 py-0.5 text-xs bg-gray-100 rounded-full">{Object.keys(variables).length}</span>
-                )}
+                {(() => {
+                  const totalVars =
+                    (variables.dataframes ? Object.keys(variables.dataframes).length : 0) +
+                    (variables.modules ? Object.keys(variables.modules).length : 0) +
+                    (variables.numbers ? Object.keys(variables.numbers).length : 0) +
+                    (variables.dicts ? Object.keys(variables.dicts).length : 0) +
+                    (variables.arrays ? Object.keys(variables.arrays).length : 0) +
+                    (variables.other ? Object.keys(variables.other).length : 0)
+                  return totalVars > 0 && (
+                    <span className="ml-1 px-2 py-0.5 text-xs bg-gray-100 rounded-full">{totalVars}</span>
+                  )
+                })()}
               </button>
             </div>
           </div>
@@ -837,118 +846,191 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
                       All variables available at this cell execution. Click on a variable to see details.
                     </p>
 
-                    {/* DataFrames Section */}
-                    {Object.entries(variables).some(([_, info]) => info.includes('DataFrame')) && (
+                    {/* Library Imports Section */}
+                    {variables.modules && Object.keys(variables.modules).length > 0 && (
                       <div>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
-                          <TableIcon className="h-4 w-4 mr-2" />
-                          DataFrames
+                        <h4 className="text-sm font-semibold text-indigo-700 mb-3 flex items-center">
+                          <Database className="h-4 w-4 mr-2" />
+                          Library Imports
+                          <span className="ml-2 text-xs text-gray-500">({Object.keys(variables.modules).length})</span>
                         </h4>
-                        <div className="space-y-2">
-                          {Object.entries(variables)
-                            .filter(([_, info]) => info.includes('DataFrame'))
-                            .map(([name, info]) => (
-                              <div key={name} className="border border-blue-200 rounded-lg overflow-hidden">
-                                <div
-                                  onClick={() => toggleVariable(name)}
-                                  className="flex items-center justify-between px-3 py-2 bg-blue-50 hover:bg-blue-100 cursor-pointer transition-colors"
-                                  title={info}
-                                >
-                                  <div className="flex items-center">
-                                    {expandedVariables.has(name) ? (
-                                      <ChevronDown className="h-4 w-4 mr-2 text-blue-600" />
-                                    ) : (
-                                      <ChevronRight className="h-4 w-4 mr-2 text-blue-600" />
-                                    )}
-                                    <span className="font-mono text-sm font-medium text-blue-900">{name}</span>
-                                  </div>
-                                  <span className="text-xs text-blue-600">
-                                    {info.split(' ').slice(1).join(' ')}
-                                  </span>
-                                </div>
-                                {expandedVariables.has(name) && variableContent[name] && (
-                                  <div className="p-3 bg-white">
-                                    {renderVariablePreview(name, variableContent[name])}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
+                        <div className="flex flex-wrap gap-2">
+                          {Object.entries(variables.modules).map(([name, info]: [string, any]) => (
+                            <div
+                              key={name}
+                              className="inline-flex items-center px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded-md"
+                            >
+                              <span className="font-mono text-sm font-medium text-indigo-900 mr-2">{name}</span>
+                              <span className="text-xs text-indigo-600">→ {info.display}</span>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
 
-                    {/* Arrays Section */}
-                    {Object.entries(variables).some(([_, info]) => info.includes('ndarray') || info.includes('Series')) && (
+                    {/* DataFrames Section */}
+                    {variables.dataframes && Object.keys(variables.dataframes).length > 0 && (
                       <div>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
-                          <Zap className="h-4 w-4 mr-2" />
-                          Arrays & Series
+                        <h4 className="text-sm font-semibold text-blue-700 mb-3 flex items-center">
+                          <TableIcon className="h-4 w-4 mr-2" />
+                          DataFrames
+                          <span className="ml-2 text-xs text-gray-500">({Object.keys(variables.dataframes).length})</span>
                         </h4>
                         <div className="space-y-2">
-                          {Object.entries(variables)
-                            .filter(([_, info]) => info.includes('ndarray') || info.includes('Series'))
-                            .map(([name, info]) => (
-                              <div key={name} className="border border-purple-200 rounded-lg overflow-hidden">
-                                <div
-                                  onClick={() => toggleVariable(name)}
-                                  className="flex items-center justify-between px-3 py-2 bg-purple-50 hover:bg-purple-100 cursor-pointer transition-colors"
-                                  title={info}
-                                >
-                                  <div className="flex items-center">
-                                    {expandedVariables.has(name) ? (
-                                      <ChevronDown className="h-4 w-4 mr-2 text-purple-600" />
-                                    ) : (
-                                      <ChevronRight className="h-4 w-4 mr-2 text-purple-600" />
-                                    )}
-                                    <span className="font-mono text-sm font-medium text-purple-900">{name}</span>
-                                  </div>
-                                  <span className="text-xs text-purple-600">{info.split(' ').slice(1).join(' ')}</span>
+                          {Object.entries(variables.dataframes).map(([name, info]: [string, any]) => (
+                            <div key={name} className="border border-blue-200 rounded-lg overflow-hidden">
+                              <div
+                                onClick={() => toggleVariable(name)}
+                                className="flex items-center justify-between px-3 py-2 bg-blue-50 hover:bg-blue-100 cursor-pointer transition-colors"
+                              >
+                                <div className="flex items-center">
+                                  {expandedVariables.has(name) ? (
+                                    <ChevronDown className="h-4 w-4 mr-2 text-blue-600" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4 mr-2 text-blue-600" />
+                                  )}
+                                  <span className="font-mono text-sm font-medium text-blue-900">{name}</span>
                                 </div>
-                                {expandedVariables.has(name) && variableContent[name] && (
-                                  <div className="p-3 bg-white">
-                                    {renderVariablePreview(name, variableContent[name])}
-                                  </div>
-                                )}
+                                <span className="text-xs text-blue-600">{info.display}</span>
                               </div>
-                            ))}
+                              {expandedVariables.has(name) && variableContent[name] && (
+                                <div className="p-3 bg-white">
+                                  {renderVariablePreview(name, variableContent[name])}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Dicts & JSON Section */}
+                    {variables.dicts && Object.keys(variables.dicts).length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-amber-700 mb-3 flex items-center">
+                          <Database className="h-4 w-4 mr-2" />
+                          Dicts & JSON
+                          <span className="ml-2 text-xs text-gray-500">({Object.keys(variables.dicts).length})</span>
+                        </h4>
+                        <div className="space-y-2">
+                          {Object.entries(variables.dicts).map(([name, info]: [string, any]) => (
+                            <div key={name} className="border border-amber-200 rounded-lg overflow-hidden">
+                              <div
+                                onClick={() => toggleVariable(name)}
+                                className="flex items-center justify-between px-3 py-2 bg-amber-50 hover:bg-amber-100 cursor-pointer transition-colors"
+                              >
+                                <div className="flex items-center">
+                                  {expandedVariables.has(name) ? (
+                                    <ChevronDown className="h-4 w-4 mr-2 text-amber-600" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4 mr-2 text-amber-600" />
+                                  )}
+                                  <span className="font-mono text-sm font-medium text-amber-900">{name}</span>
+                                </div>
+                                <span className="text-xs text-amber-600">{info.display}</span>
+                              </div>
+                              {expandedVariables.has(name) && variableContent[name] && (
+                                <div className="p-3 bg-white">
+                                  {renderVariablePreview(name, variableContent[name])}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Arrays, Series & Lists Section */}
+                    {variables.arrays && Object.keys(variables.arrays).length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-purple-700 mb-3 flex items-center">
+                          <Zap className="h-4 w-4 mr-2" />
+                          Arrays, Series & Lists
+                          <span className="ml-2 text-xs text-gray-500">({Object.keys(variables.arrays).length})</span>
+                        </h4>
+                        <div className="space-y-2">
+                          {Object.entries(variables.arrays).map(([name, info]: [string, any]) => (
+                            <div key={name} className="border border-purple-200 rounded-lg overflow-hidden">
+                              <div
+                                onClick={() => toggleVariable(name)}
+                                className="flex items-center justify-between px-3 py-2 bg-purple-50 hover:bg-purple-100 cursor-pointer transition-colors"
+                              >
+                                <div className="flex items-center">
+                                  {expandedVariables.has(name) ? (
+                                    <ChevronDown className="h-4 w-4 mr-2 text-purple-600" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4 mr-2 text-purple-600" />
+                                  )}
+                                  <span className="font-mono text-sm font-medium text-purple-900">{name}</span>
+                                </div>
+                                <span className="text-xs text-purple-600">{info.display}</span>
+                              </div>
+                              {expandedVariables.has(name) && variableContent[name] && (
+                                <div className="p-3 bg-white">
+                                  {renderVariablePreview(name, variableContent[name])}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Numbers Section */}
+                    {variables.numbers && Object.keys(variables.numbers).length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-green-700 mb-3 flex items-center">
+                          <Zap className="h-4 w-4 mr-2" />
+                          Numbers
+                          <span className="ml-2 text-xs text-gray-500">({Object.keys(variables.numbers).length})</span>
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {Object.entries(variables.numbers).map(([name, info]: [string, any]) => (
+                            <div
+                              key={name}
+                              className="inline-flex items-center px-2 py-1 bg-green-50 border border-green-200 rounded-md"
+                              title={`${name}: ${info.type}`}
+                            >
+                              <span className="font-mono text-xs font-medium text-green-900 mr-1">{name}</span>
+                              <span className="text-xs text-green-600">({info.display})</span>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
 
                     {/* Other Variables Section */}
-                    {Object.entries(variables).some(([_, info]) => !info.includes('DataFrame') && !info.includes('ndarray') && !info.includes('Series')) && (
+                    {variables.other && Object.keys(variables.other).length > 0 && (
                       <div>
                         <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
                           <Database className="h-4 w-4 mr-2" />
                           Other Variables
+                          <span className="ml-2 text-xs text-gray-500">({Object.keys(variables.other).length})</span>
                         </h4>
                         <div className="space-y-2">
-                          {Object.entries(variables)
-                            .filter(([_, info]) => !info.includes('DataFrame') && !info.includes('ndarray') && !info.includes('Series'))
-                            .map(([name, info]) => (
-                              <div key={name} className="border border-gray-200 rounded-lg overflow-hidden">
-                                <div
-                                  onClick={() => toggleVariable(name)}
-                                  className="flex items-center justify-between px-3 py-2 bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors"
-                                  title={info}
-                                >
-                                  <div className="flex items-center">
-                                    {expandedVariables.has(name) ? (
-                                      <ChevronDown className="h-4 w-4 mr-2 text-gray-600" />
-                                    ) : (
-                                      <ChevronRight className="h-4 w-4 mr-2 text-gray-600" />
-                                    )}
-                                    <span className="font-mono text-sm font-medium text-gray-900">{name}</span>
-                                  </div>
-                                  <span className="text-xs text-gray-600">{info}</span>
+                          {Object.entries(variables.other).map(([name, info]: [string, any]) => (
+                            <div key={name} className="border border-gray-200 rounded-lg overflow-hidden">
+                              <div
+                                onClick={() => toggleVariable(name)}
+                                className="flex items-center justify-between px-3 py-2 bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors"
+                              >
+                                <div className="flex items-center">
+                                  {expandedVariables.has(name) ? (
+                                    <ChevronDown className="h-4 w-4 mr-2 text-gray-600" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4 mr-2 text-gray-600" />
+                                  )}
+                                  <span className="font-mono text-sm font-medium text-gray-900">{name}</span>
                                 </div>
-                                {expandedVariables.has(name) && variableContent[name] && (
-                                  <div className="p-3 bg-white">
-                                    {renderVariablePreview(name, variableContent[name])}
-                                  </div>
-                                )}
+                                <span className="text-xs text-gray-600">{info.display}</span>
                               </div>
-                            ))}
+                              {expandedVariables.has(name) && variableContent[name] && (
+                                <div className="p-3 bg-white">
+                                  {renderVariablePreview(name, variableContent[name])}
+                                </div>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
