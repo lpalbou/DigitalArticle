@@ -27,48 +27,40 @@ newgrp docker  # Refresh group membership
 
 ## 🚀 Quick Start
 
-### Quick Test (skip 17GB model download)
+### Option 1: Quick Test (without LLM) - ~2 minutes
+
+Test frontend and backend infrastructure only. **Recommended for first-time setup validation.**
 
 ```bash
-# Build and start frontend/backend only (~2 minutes)
+# Build and start frontend/backend only (skip Ollama entirely)
 docker-compose build frontend backend
 docker-compose up -d frontend backend
 
-# Test UI and API at http://localhost
+# Access application - UI and API work, code generation will fail
+open http://localhost
 ```
 
-### Full Deployment (with LLM)
+**Note**: This tests the containerization works. Code generation will fail without Ollama, but you can verify UI, API, and infrastructure are healthy.
+
+---
+
+### Option 2: Full Deployment (with Ollama LLM) - ~30-40 minutes
+
+Full deployment with local LLM support. **Requires 16-32GB RAM and 25GB disk space.**
 
 ```bash
 # Build all images (5-10 minutes)
 docker-compose build
 
-# Start all services
+# Start all services (frontend, backend, Ollama)
 docker-compose up -d
 
-# Pull qwen3-coder:30b model (10-30 minutes)
+# Pull qwen3-coder:30b model (10-30 minutes, 17GB download)
 ./docker/init-ollama.sh
 
-# Access application
+# Access application - full functionality including code generation
 open http://localhost
 ```
-
-### Quick Test (without LLM model)
-
-For testing frontend/backend infrastructure only (skip 17GB model download):
-
-```bash
-# Build only frontend and backend
-docker-compose build frontend backend
-
-# Start without Ollama
-docker-compose up -d frontend backend
-
-# Access application (LLM won't work but UI/API will)
-open http://localhost
-```
-
-**Note**: Code generation will fail without Ollama, but you can test UI, API, and infrastructure.
 
 ### Expected Output
 
