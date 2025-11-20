@@ -42,8 +42,9 @@ WORKDIR /app
 # Copy application code
 COPY backend/ ./backend/
 
-# Copy default configuration
-COPY config.json .
+# Copy default configuration (from example if config.json doesn't exist)
+COPY config.json* ./
+RUN if [ ! -f config.json ]; then cp config.json.example config.json; fi
 
 # Create directories for persistence
 RUN mkdir -p /app/notebooks /app/data /app/sample_data /app/logs && \
