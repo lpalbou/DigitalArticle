@@ -27,12 +27,18 @@ newgrp docker  # Refresh group membership
 
 ## 🚀 Quick Start
 
-### Step 1: Clone and Navigate
+### Quick Test (skip 17GB model download)
+
 ```bash
-cd DigitalArticle
+# Build and start frontend/backend only (~2 minutes)
+docker-compose build frontend backend
+docker-compose up -d frontend backend
+
+# Test UI and API at http://localhost
 ```
 
-### Step 2: Build and Start Services
+### Full Deployment (with LLM)
+
 ```bash
 # Build all images (5-10 minutes)
 docker-compose build
@@ -40,28 +46,45 @@ docker-compose build
 # Start all services
 docker-compose up -d
 
-# Check service health
-docker-compose ps
+# Pull qwen3-coder:30b model (10-30 minutes)
+./docker/init-ollama.sh
+
+# Access application
+open http://localhost
 ```
 
-Expected output:
+### Quick Test (without LLM model)
+
+For testing frontend/backend infrastructure only (skip 17GB model download):
+
+```bash
+# Build only frontend and backend
+docker-compose build frontend backend
+
+# Start without Ollama
+docker-compose up -d frontend backend
+
+# Access application (LLM won't work but UI/API will)
+open http://localhost
 ```
+
+**Note**: Code generation will fail without Ollama, but you can test UI, API, and infrastructure.
+
+### Expected Output
+
+```bash
+docker-compose ps
+
 NAME                        STATUS          PORTS
 digitalarticle-backend      Up (healthy)    0.0.0.0:8000->8000/tcp
 digitalarticle-frontend     Up (healthy)    0.0.0.0:80->80/tcp
-digitalarticle-ollama       Up (healthy)    0.0.0.0:11434->11434/tcp
+digitalarticle-ollama       Up (healthy)    0.0.0.0:11434->11434/tcp  # Only if started
 ```
 
-### Step 3: Pull LLM Model
-```bash
-# Pull qwen3-coder:30b model (10-30 minutes)
-./docker/init-ollama.sh
-```
-
-### Step 4: Access Application
+### Access Points
 - **Web UI**: http://localhost
 - **Backend API**: http://localhost:8000/docs (Swagger UI)
-- **Ollama API**: http://localhost:11434/api/tags
+- **Ollama API**: http://localhost:11434/api/tags (if running)
 
 ## 📦 Architecture
 
