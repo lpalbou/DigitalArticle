@@ -41,8 +41,6 @@ WORKDIR /app
 
 # Copy application code
 COPY backend/ ./backend/
-COPY pyproject.toml .
-COPY digitalarticle/ ./digitalarticle/ 2>/dev/null || true
 
 # Copy default configuration
 COPY config.json .

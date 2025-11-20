@@ -38,6 +38,11 @@ else
 fi
 
 echo ""
+echo "🔥 Warming up model (loading into memory)..."
+echo "   This ensures fast response on first code generation."
+docker exec digitalarticle-ollama ollama run qwen3-coder:30b "print('Hello')" > /dev/null 2>&1 || echo "⚠️  Warm-up skipped (optional)"
+
+echo ""
 echo "=================================================="
 echo "🎉 Ollama initialization complete!"
 echo "=================================================="

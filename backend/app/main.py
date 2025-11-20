@@ -56,10 +56,16 @@ async def global_exception_handler(request: Request, exc: Exception):
         content=error_response
     )
 
-# Configure CORS for development
+# Configure CORS for development, Docker, and remote deployment
+import os
+# Allow all origins if CORS_ORIGINS is "*" (for development/testing)
+# Otherwise split comma-separated list of allowed origins
+cors_origins_env = os.getenv("CORS_ORIGINS", "*")
+allowed_origins = ["*"] if cors_origins_env == "*" else cors_origins_env.split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # React dev servers
+    allow_origins=allowed_origins,  # Configurable via environment variable
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
