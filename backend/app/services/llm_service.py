@@ -463,6 +463,49 @@ HELPERS (pre-loaded):
                 user_prompt += "\n⚠️  REMINDER: Use existing variable names EXACTLY as shown above!\n"
                 user_prompt += "=" * 80 + "\n\n"
 
+        # ANALYSIS PLAN GUIDANCE: Show planning results to guide code generation
+        if context and 'analysis_plan' in context:
+            plan = context['analysis_plan']
+            user_prompt += "=" * 80 + "\n"
+            user_prompt += "📋 ANALYSIS PLAN GUIDANCE (AI Pre-Analysis)\n"
+            user_prompt += "=" * 80 + "\n\n"
+            user_prompt += "Before generating code, AI analyzed your request:\n\n"
+
+            if plan.get('research_question'):
+                user_prompt += f"Research Question: {plan['research_question']}\n"
+
+            if plan.get('suggested_method'):
+                user_prompt += f"\n✅ Recommended Method: {plan['suggested_method']}\n"
+
+            if plan.get('method_rationale'):
+                user_prompt += f"   Rationale: {plan['method_rationale']}\n"
+
+            if plan.get('target_variable'):
+                user_prompt += f"\n🎯 Target Variable: {plan['target_variable']}\n"
+
+            if plan.get('predictor_variables'):
+                predictors = ', '.join(plan['predictor_variables'])
+                user_prompt += f"📊 Predictor Variables: {predictors}\n"
+
+            if plan.get('assumptions') and len(plan['assumptions']) > 0:
+                user_prompt += f"\n⚙️  Assumptions to Consider:\n"
+                for assumption in plan['assumptions'][:5]:  # Limit to 5
+                    user_prompt += f"   - {assumption}\n"
+
+            if plan.get('validation_issues') and len(plan['validation_issues']) > 0:
+                # Show non-critical warnings (critical already blocked execution)
+                warnings = [issue for issue in plan['validation_issues']
+                          if issue.get('severity') != 'critical']
+                if warnings:
+                    user_prompt += f"\n⚠️  VALIDATION WARNINGS ({len(warnings)}):\n"
+                    for issue in warnings[:3]:  # Limit to 3
+                        user_prompt += f"   - {issue.get('message', 'Unknown issue')}\n"
+                        if issue.get('suggestion'):
+                            user_prompt += f"     Suggestion: {issue['suggestion']}\n"
+
+            user_prompt += "\n💡 IMPORTANT: Follow the recommended method and consider the assumptions above.\n"
+            user_prompt += "=" * 80 + "\n\n"
+
         # SECOND: Add previous cells context for awareness
         if context and 'previous_cells' in context:
             previous_cells = context['previous_cells']

@@ -25,6 +25,10 @@ from .pdf_service_scientific import ScientificPDFService
 from .semantic_service import SemanticExtractionService
 from .semantic_analysis_service import SemanticAnalysisService
 from .semantic_profile_service import SemanticProfileService
+from .analysis_planner import AnalysisPlanner
+from .analysis_critic import AnalysisCritic
+from ..models.analysis_plan import AnalysisPlan
+from ..models.analysis_critique import AnalysisCritique
 
 logger = logging.getLogger(__name__)
 
@@ -780,6 +784,84 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             # Generate code if needed
             if not cell.code or request.force_regenerate:
                 if cell.cell_type == CellType.PROMPT and cell.prompt:
+                    # ===================================================================
+                    # PLANNING PHASE - Reason about analysis before generating code
+                    # ===================================================================
+                    logger.info(f"🧠 PLANNING PHASE: Analyzing request logic for: {cell.prompt[:100]}...")
+
+                    try:
+                        # Initialize planner with notebook-specific LLM config
+                        planner = AnalysisPlanner(
+                            llm_provider=notebook.llm_provider,
+                            llm_model=notebook.llm_model
+                        )
+
+                        # Plan analysis with full context
+                        analysis_plan, reasoning_trace = planner.plan_analysis(
+                            user_prompt=cell.prompt,
+                            available_data=context,
+                            previous_cells=context.get('previous_cells', [])
+                        )
+
+                        # Store plan in cell metadata
+                        cell.metadata['analysis_plan'] = analysis_plan.to_dict()
+                        cell.metadata['reasoning_trace'] = reasoning_trace.model_dump()
+
+                        logger.info(
+                            f"✅ Planning complete: method={analysis_plan.suggested_method}, "
+                            f"issues={len(analysis_plan.validation_issues)}, "
+                            f"confidence={analysis_plan.confidence_level}"
+                        )
+
+                        # ADD ANALYSIS PLAN TO CONTEXT for code generation guidance
+                        # This ensures the LLM sees the planning results when generating code
+                        context['analysis_plan'] = cell.metadata['analysis_plan']
+                        logger.info("📋 Added analysis plan to context for code generation")
+
+                        # CHECK FOR CRITICAL ISSUES
+                        if analysis_plan.has_critical_issues():
+                            critical_issues = analysis_plan.get_critical_issues()
+                            logger.warning(
+                                f"🚨 CRITICAL ISSUES DETECTED ({len(critical_issues)}): "
+                                f"{[issue.message for issue in critical_issues]}"
+                            )
+
+                            # Store critical issues for UI display
+                            cell.metadata['planning_blocked'] = True
+                            cell.metadata['critical_issues'] = [
+                                {
+                                    'severity': issue.severity.value,
+                                    'type': issue.type.value,
+                                    'message': issue.message,
+                                    'explanation': issue.explanation,
+                                    'suggestion': issue.suggestion,
+                                    'affected_variables': issue.affected_variables
+                                }
+                                for issue in critical_issues
+                            ]
+
+                            # Create error result
+                            error_result = ExecutionResult(
+                                status=ExecutionStatus.ERROR,
+                                error_type="PlanningCriticalIssue",
+                                error_message=f"Planning detected critical logical issues: {critical_issues[0].message}",
+                                traceback=analysis_plan.get_summary()
+                            )
+                            cell.last_result = error_result
+                            cell.is_executing = False
+                            self._save_notebook(notebook)
+
+                            logger.warning("🚫 Execution blocked due to critical planning issues")
+                            return cell, error_result
+
+                    except Exception as planning_error:
+                        logger.warning(f"⚠️ Planning phase failed (non-critical): {planning_error}")
+                        # Continue with code generation even if planning fails (fail-safe)
+                        pass
+
+                    # ===================================================================
+                    # CODE GENERATION PHASE
+                    # ===================================================================
                     logger.info(f"Generating code for prompt: {cell.prompt[:100]}...")
                     
                     try:
@@ -980,7 +1062,69 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             cell.last_result = result
             cell.is_executing = False
             notebook.updated_at = datetime.now()
-            
+
+            # ===================================================================
+            # CRITIQUE PHASE - Evaluate completed analysis
+            # ===================================================================
+            if result.status == ExecutionStatus.SUCCESS and cell.prompt and cell.code:
+                logger.info(f"🔍 CRITIQUE PHASE: Evaluating analysis quality...")
+
+                try:
+                    # Initialize critic with notebook-specific LLM config
+                    critic = AnalysisCritic(
+                        llm_provider=notebook.llm_provider,
+                        llm_model=notebook.llm_model
+                    )
+
+                    # Prepare execution result data
+                    execution_data = {
+                        'stdout': result.stdout,
+                        'stderr': result.stderr,
+                        'tables': result.tables,
+                        'plots': result.plots,
+                        'interactive_plots': result.interactive_plots
+                    }
+
+                    # Get analysis plan if it exists
+                    analysis_plan = None
+                    if 'analysis_plan' in cell.metadata:
+                        try:
+                            analysis_plan = AnalysisPlan.from_dict(cell.metadata['analysis_plan'])
+                        except Exception as e:
+                            logger.warning(f"Could not load analysis plan from metadata: {e}")
+
+                    # Critique the analysis
+                    critique, critique_trace = critic.critique_analysis(
+                        user_intent=cell.prompt,
+                        code=cell.code,
+                        execution_result=execution_data,
+                        analysis_plan=analysis_plan,
+                        context=context
+                    )
+
+                    # Store critique in cell metadata
+                    cell.metadata['critique'] = critique.to_dict()
+                    cell.metadata['critique_trace'] = critique_trace.model_dump()
+
+                    logger.info(
+                        f"✅ Critique complete: quality={critique.overall_quality}, "
+                        f"confidence={critique.confidence_in_results}, "
+                        f"findings={len(critique.findings)}"
+                    )
+
+                    # If critique found critical issues, log them
+                    if critique.has_critical_findings():
+                        critical_findings = critique.get_critical_findings()
+                        logger.warning(
+                            f"🚨 CRITICAL FINDINGS IN RESULTS ({len(critical_findings)}): "
+                            f"{[f.title for f in critical_findings]}"
+                        )
+
+                except Exception as critique_error:
+                    logger.warning(f"⚠️ Critique phase failed (non-critical): {critique_error}")
+                    # Don't let critique failure break execution (fail-safe)
+                    pass
+
             # Generate scientific explanation for successful prompt cells
             print(f"🔬 ALWAYS CHECKING scientific explanation conditions:")
             print(f"   - Result status: {result.status} (SUCCESS={ExecutionStatus.SUCCESS})")
@@ -1074,6 +1218,19 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                             # Valid explanation - update cell
                             cell.scientific_explanation = explanation
                             print(f"🔬 ✅ Cell updated with explanation: {len(cell.scientific_explanation)} chars")
+
+                            # Enhance methodology with critique limitations if available
+                            if 'critique' in cell.metadata:
+                                try:
+                                    critique_data = cell.metadata['critique']
+                                    if critique_data.get('identified_limitations'):
+                                        limitations_section = "\n\n### Limitations and Considerations\n\n"
+                                        for limitation in critique_data['identified_limitations']:
+                                            limitations_section += f"- {limitation}\n"
+                                        cell.scientific_explanation += limitations_section
+                                        logger.info("📝 Enhanced methodology with critique limitations")
+                                except Exception as e:
+                                    logger.warning(f"Could not enhance methodology with critique: {e}")
 
                             # Update notebook's last context tokens from methodology generation
                             try:
