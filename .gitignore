@@ -207,7 +207,7 @@ notebooks/
 .DS_Store
 .vscode/
 .idea/
-config.json
+# config.json - Now versioned for Docker deployment (contains defaults)
 
 backend/notebook_workspace/
 untracked
