@@ -56,6 +56,7 @@ class ErrorAnalyzer:
         """Initialize the error analyzer with registered analyzers."""
         # Ordered list of analyzer methods to try
         self.analyzers = [
+            self._analyze_logical_coherence_error,  # NEW: Highest priority - check logical issues first
             self._analyze_matplotlib_color_error,  # NEW: Handle color mapping errors
             self._analyze_matplotlib_subplot_error,
             self._analyze_matplotlib_figure_error,
@@ -108,6 +109,271 @@ class ErrorAnalyzer:
 
         # No specific analyzer matched, return generic enhanced context
         return self._create_generic_context(error_message, error_type, traceback, code)
+
+    # ============================================================================
+    # LOGICAL COHERENCE ANALYZER (Highest Priority)
+    # ============================================================================
+
+    def _analyze_logical_coherence_error(
+        self,
+        error_message: str,
+        error_type: str,
+        traceback: str,
+        code: str,
+        context: Optional[Dict[str, Any]] = None
+    ) -> Optional[ErrorContext]:
+        """
+        Detect logical/analytical errors using domain-agnostic reasoning.
+
+        This analyzer checks for conceptual issues rather than technical errors:
+        - Circular reasoning (predicting grouping variables)
+        - Non-existent columns being used
+        - Temporal logic violations
+        - Sample size adequacy issues
+
+        NOTE: This runs even if code succeeds, to catch logical errors.
+        """
+        suggestions = []
+        error_detected = False
+
+        # CHECK 1: Detect prediction of grouping/assignment variables
+        # Pattern: Using categorical grouping variables as prediction targets
+        if self._is_predicting_grouping_variable(code, context):
+            error_detected = True
+            suggestions.extend([
+                "🚨 LOGICAL ERROR: Attempting to Predict Grouping/Assignment Variable",
+                "",
+                "CRITICAL ISSUE DETECTED:",
+                "Your code appears to be predicting a grouping or assignment variable",
+                "(e.g., experimental condition, group label, category assignment) from characteristics.",
+                "",
+                "WHY THIS IS PROBLEMATIC:",
+                "If the grouping was externally assigned or predetermined, it should NOT be",
+                "predictable from baseline characteristics. If it is predictable, this indicates:",
+                "  1. The grouping was not truly independent",
+                "  2. You're analyzing the wrong relationship",
+                "  3. There's circular reasoning in the analysis",
+                "",
+                "CORRECT APPROACH:",
+                "Instead of predicting group assignment, you should:",
+                "  1. Predict an OUTCOME that varies WITHIN groups (e.g., success, performance, value)",
+                "  2. Compare outcomes BETWEEN groups (e.g., does group A differ from group B?)",
+                "  3. Identify which characteristics predict the outcome, not the group",
+                "",
+                "EXAMPLE FIX:",
+                "  ❌ WRONG: predict group_assignment from [age, category, initial_value]",
+                "  ✅ RIGHT: predict outcome from [group_assignment, age, category, initial_value]",
+                "  ✅ RIGHT: compare outcome between different group_assignment values",
+                ""
+            ])
+
+        # CHECK 2: Detect use of non-existent columns
+        if context and 'available_variables' in context:
+            missing_columns = self._find_missing_columns(code, context)
+            if missing_columns:
+                error_detected = True
+                suggestions.extend([
+                    "🚨 DATA MISMATCH: Using Non-Existent Columns",
+                    "",
+                    f"The following columns are referenced in code but DON'T EXIST:",
+                    f"{', '.join(missing_columns)}",
+                    "",
+                    "AVAILABLE DATA:",
+                    self._format_available_variables(context),
+                    "",
+                    "CRITICAL FIX:",
+                    "1. Check available variables above and use ONLY columns that exist",
+                    "2. If you need a column that doesn't exist:",
+                    "   a) Derive it from existing columns",
+                    "   b) Adapt the analysis to use what's available",
+                    "3. Verify column names with df.columns.tolist() before using them",
+                    ""
+                ])
+
+        # CHECK 3: Sample size adequacy
+        if context:
+            sample_size_issue = self._check_sample_size_adequacy(code, context)
+            if sample_size_issue:
+                error_detected = True
+                suggestions.extend([
+                    f"⚠️ STATISTICAL WARNING: {sample_size_issue}",
+                    ""
+                ])
+
+        if error_detected:
+            return ErrorContext(
+                original_error=error_message if error_message else "Logical coherence check",
+                error_type="LogicalCoherenceError",
+                enhanced_message="Analysis contains logical or conceptual issues",
+                suggestions=suggestions
+            )
+
+        return None
+
+    def _is_predicting_grouping_variable(
+        self,
+        code: str,
+        context: Optional[Dict[str, Any]]
+    ) -> bool:
+        """
+        Detect if code is attempting to predict a grouping/assignment variable.
+
+        Red flags:
+        - Target variable has keywords: arm, treatment, group, assignment, category, label
+        - Target variable has few unique values relative to sample size
+        - Target variable appears to be categorical/discrete
+        """
+        code_lower = code.lower()
+
+        # Pattern 1: Explicit target variable assignment with grouping keywords
+        # Look for: y = df['ARM'] or target = df['TREATMENT'] or similar
+        # NOTE: Includes common domain-specific terms (arm, treatment, cohort) for comprehensive
+        # detection across all domains (clinical, experimental, operational, etc.)
+        grouping_keywords = ['arm', 'treatment', 'group', 'assign', 'cohort', 'category', 'label', 'condition', 'segment']
+
+        # Find target variable patterns
+        target_patterns = [
+            r"y\s*=\s*df\['([^']+)'\]",
+            r"y\s*=\s*df\[\"([^\"]+)\"\]",
+            r"target\s*=\s*df\['([^']+)'\]",
+            r"target\s*=\s*df\[\"([^\"]+)\"\]",
+            r"predict\(.*?df\['([^']+)'\]",
+            r"predict\(.*?df\[\"([^\"]+)\"\]",
+        ]
+
+        for pattern in target_patterns:
+            matches = re.findall(pattern, code, re.IGNORECASE)
+            for match in matches:
+                target_var = match.lower()
+                if any(keyword in target_var for keyword in grouping_keywords):
+                    logger.warning(f"🚨 Detected prediction of grouping variable: {match}")
+                    return True
+
+        # Pattern 2: Classification with grouping-related target in comments or variable names
+        if ('classification' in code_lower or 'classifier' in code_lower or 'logisticregression' in code_lower):
+            # Check if variable names suggest grouping
+            for keyword in grouping_keywords:
+                if keyword in code_lower and ('target' in code_lower or 'predict' in code_lower):
+                    return True
+
+        return False
+
+    def _find_missing_columns(
+        self,
+        code: str,
+        context: Dict[str, Any]
+    ) -> List[str]:
+        """Find columns referenced in code that don't exist in available data."""
+        if not context or 'available_variables' not in context:
+            return []
+
+        # Extract all column references from code
+        # Patterns: df['COL'], df["COL"], df.COL (case-insensitive)
+        column_patterns = [
+            r"df\['([^']+)'\]",  # df['column_name']
+            r"df\[\"([^\"]+)\"\]",  # df["column_name"]
+            r"\[[\"']([^\"']+)[\"']\]",  # Generic bracket notation [' or ["]
+            r"\.([A-Za-z_][A-Za-z0-9_]+)(?=\s*[,\)\[\]]|\s*$)",  # df.column_name (any case)
+        ]
+
+        referenced_columns = set()
+        for pattern in column_patterns:
+            matches = re.findall(pattern, code)
+            referenced_columns.update(matches)
+
+        # Get available columns from context
+        available_columns = set()
+        for var_name, var_info in context['available_variables'].items():
+            if isinstance(var_info, dict) and 'columns' in var_info:
+                available_columns.update(var_info['columns'])
+            elif isinstance(var_info, str) and 'columns:' in var_info.lower():
+                # Parse column list from string representation
+                match = re.search(r'columns:\s*\[([^\]]+)\]', var_info, re.IGNORECASE)
+                if match:
+                    cols = [c.strip().strip("'\"") for c in match.group(1).split(',')]
+                    available_columns.update(cols)
+
+        # Find missing
+        missing = referenced_columns - available_columns
+        # Filter out common false positives (methods, keywords)
+        false_positives = {'head', 'tail', 'info', 'describe', 'columns', 'shape', 'index', 'values', 'dtypes'}
+        missing = missing - false_positives
+
+        return list(missing)
+
+    def _format_available_variables(self, context: Dict[str, Any]) -> str:
+        """Format available variables for display."""
+        if not context or 'available_variables' not in context:
+            return "  No variables available"
+
+        lines = []
+        for var_name, var_info in context['available_variables'].items():
+            if isinstance(var_info, dict):
+                lines.append(f"  • {var_name}: {var_info.get('type', 'unknown')}")
+                if 'columns' in var_info:
+                    cols = var_info['columns']
+                    if len(cols) <= 10:
+                        lines.append(f"    Columns: {', '.join(cols)}")
+                    else:
+                        lines.append(f"    Columns ({len(cols)}): {', '.join(cols[:10])}, ...")
+            else:
+                lines.append(f"  • {var_name}: {str(var_info)[:100]}")
+
+        return "\n".join(lines)
+
+    def _check_sample_size_adequacy(
+        self,
+        code: str,
+        context: Dict[str, Any]
+    ) -> Optional[str]:
+        """Check if sample size is adequate for the analysis being performed."""
+        # Get sample size from context
+        sample_size = None
+        for var_info in context.get('available_variables', {}).values():
+            info_str = str(var_info)
+            if 'rows' in info_str.lower():
+                match = re.search(r'(\d+)\s+rows', info_str)
+                if match:
+                    sample_size = int(match.group(1))
+                    break
+
+        if not sample_size:
+            return None
+
+        code_lower = code.lower()
+
+        # Check for statistical inference with small sample
+        if sample_size < 30:
+            statistical_methods = [
+                'ttest', 't_test', 'anova', 'f_oneway',
+                'linregress', 'linearregression', 'ols',
+                'chi2', 'chisquare'
+            ]
+
+            if any(method in code_lower for method in statistical_methods):
+                return (
+                    f"Small sample size (n={sample_size}) for statistical inference. "
+                    f"With n<30, parametric tests may be unreliable. Consider:\n"
+                    f"  • Non-parametric alternatives (Mann-Whitney, Kruskal-Wallis)\n"
+                    f"  • Bootstrapping for confidence intervals\n"
+                    f"  • Treating this as exploratory/pilot analysis\n"
+                    f"  • Reporting effect sizes rather than just p-values"
+                )
+
+        # Check for machine learning with very small sample
+        if sample_size < 100:
+            ml_methods = ['randomforest', 'logisticregression', 'svc', 'mlp', 'xgb', 'gradient']
+            if any(method in code_lower for method in ml_methods):
+                return (
+                    f"Small sample size (n={sample_size}) for machine learning. "
+                    f"ML models may overfit. Consider:\n"
+                    f"  • Simpler models (logistic regression instead of random forest)\n"
+                    f"  • Cross-validation to assess generalization\n"
+                    f"  • Regularization to prevent overfitting\n"
+                    f"  • Interpreting as exploratory analysis"
+                )
+
+        return None
 
     # ============================================================================
     # MATPLOTLIB ERROR ANALYZERS

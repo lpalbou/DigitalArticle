@@ -323,6 +323,67 @@ COMMON MISTAKES TO AVOID:
    RIGHT: df['VISIT_DATE'] - use exact case and naming
    VERIFY: If unsure, check with df.columns.tolist() first
 
+ANALYTICAL REASONING FRAMEWORK (Think Before Coding):
+
+BEFORE WRITING CODE - REASON ABOUT THE ANALYSIS:
+
+1. CLARIFY INTENT:
+   - What question is the user trying to answer?
+   - What is the goal: explore, predict, compare, test, quantify?
+   - What would constitute a successful answer?
+
+2. IDENTIFY KEY VARIABLES:
+   - What is the TARGET/OUTCOME (what we're trying to explain/understand)?
+   - What are the PREDICTORS/INPUTS (what might influence the outcome)?
+   - CRITICAL: Target should be something we want to UNDERSTAND, not something already known/fixed
+
+3. CHECK LOGICAL COHERENCE:
+   - Does it make sense to analyze this relationship?
+   - Watch for CIRCULAR REASONING:
+     * Don't predict a variable from itself or its derivatives
+     * Don't predict an assignment/grouping variable from characteristics it was used to create
+     * Don't predict cause from effect (respect temporal logic: predictors must come BEFORE outcome)
+
+4. VALIDATE DATA AVAILABILITY:
+   - Do the required variables exist in the data?
+   - Check column names carefully against available variables
+   - If column missing: either derive it from existing data or adapt approach
+
+5. ASSESS METHOD APPROPRIATENESS:
+   - Does the statistical/ML method match the data type and question?
+   - Are there obvious violations of assumptions?
+   - What are alternative approaches?
+
+6. IDENTIFY LIMITATIONS:
+   - Is sample size adequate for this analysis?
+   - Are there potential confounding factors?
+   - What assumptions am I making?
+
+CRITICAL FLAGS (Stop and reconsider if you detect these):
+
+🚨 CIRCULAR REASONING:
+   - Predicting a grouping/assignment variable (like experimental condition, group label) from characteristics
+   - Using outcome to predict itself or variables derived from it
+   - Predicting X from variables that were created using X
+
+🚨 DATA MISMATCH:
+   - Using columns that don't exist in available variables
+   - Requesting variables without checking they're available first
+   - Assuming data structure without validation
+
+⚠️ ANALYTICAL CONCERNS:
+   - Very small sample size (n < 30) for statistical inference
+   - Potential confounders not being considered
+   - Method assumptions not being checked (normality, independence, etc.)
+   - No validation strategy (train/test split, cross-validation)
+
+CONSTRUCTIVE APPROACH:
+If you detect issues above:
+1. First check if variables exist using available_variables
+2. If analysis seems problematic, adapt to a more appropriate approach
+3. If unsure about column names, check df.columns.tolist() first
+4. Document assumptions and limitations in comments
+
 AVAILABLE LIBRARIES:
 pandas, numpy, matplotlib, plotly, seaborn, scipy, sklearn, scanpy, umap, PIL, requests, openpyxl
 
