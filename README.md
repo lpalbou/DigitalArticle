@@ -87,6 +87,28 @@ Then open [http://localhost:3000](http://localhost:3000)
 
 **Full setup guide**: See [Getting Started](docs/getting-started.md)
 
+### Docker Deployment (Recommended for Production)
+
+For a containerized deployment with Ollama LLM:
+
+```bash
+# Build and start all services (frontend, backend, ollama)
+docker-compose up -d
+
+# Pull LLM model (10-30 minutes for qwen3-coder:30b)
+./docker/init-ollama.sh
+
+# Access application
+open http://localhost
+```
+
+**System Requirements**:
+- 16-32GB RAM (for qwen3-coder:30b model)
+- 25GB disk space
+- Docker 20.10+ with Compose v2
+
+**Full Docker guide**: See [docker/README.md](docker/README.md)
+
 ## LLM Configuration
 
 Digital Article requires an LLM provider to generate code from prompts. The system provides flexible configuration options:
