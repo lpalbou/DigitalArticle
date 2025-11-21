@@ -9,15 +9,15 @@ echo "🚀 Starting Ollama service..."
 /bin/ollama serve &
 OLLAMA_PID=$!
 
-# Wait for Ollama to be ready
+# Wait for Ollama to be ready (using ollama cli instead of curl)
 echo "⏳ Waiting for Ollama to be ready..."
 for i in {1..30}; do
-    if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+    if ollama list > /dev/null 2>&1; then
         echo "✅ Ollama service is ready!"
         break
     fi
     if [ $i -eq 30 ]; then
-        echo "❌ Ollama failed to start"
+        echo "❌ Ollama failed to start after 60 seconds"
         exit 1
     fi
     sleep 2
@@ -45,23 +45,10 @@ except Exception as e:
     echo ""
 
     if [ "$MODEL" != "unknown" ]; then
-        # Check if model already exists
+        # Check if model already exists using ollama list
         echo "🔍 Checking if model '$MODEL' is available..."
 
-        MODEL_EXISTS=$(curl -sf http://localhost:11434/api/tags 2>/dev/null | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    models = data.get('models', [])
-    target = '$MODEL'
-    exists = any(
-        m.get('name', '').replace(':latest', '') == target.replace(':latest', '')
-        for m in models
-    )
-    print('yes' if exists else 'no')
-except:
-    print('no')
-" || echo "no")
+        MODEL_EXISTS=$(ollama list 2>/dev/null | grep -q "^${MODEL}" && echo "yes" || echo "no")
 
         if [ "$MODEL_EXISTS" = "yes" ]; then
             echo "✅ Model '$MODEL' is already available!"
