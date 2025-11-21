@@ -7,13 +7,16 @@ services:
       - "11434:11434"
     volumes:
       - ollama-models:/root/.ollama
+      - ./config.json:/config.json:ro  # Mount config for model detection
+      - ./docker/ollama-entrypoint.sh:/entrypoint.sh:ro  # Custom entrypoint
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "ollama", "list"]
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
       interval: 60s
       timeout: 10s
       retries: 3
-      start_period: 120s
+      start_period: 2400s  # 40 minutes for model download
     networks:
       - digitalarticle-network
     # Resource configuration for Ollama

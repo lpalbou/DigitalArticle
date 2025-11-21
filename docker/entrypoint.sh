@@ -88,10 +88,6 @@ if [ "$PROVIDER" = "ollama" ]; then
     done
 
     echo ""
-    echo "ℹ️  Note: Model '$MODEL' will be downloaded by Ollama on first use if not already cached"
-    echo "   First LLM request may take 15-30 minutes depending on model size"
-    echo "   To pre-download: docker exec digitalarticle-ollama ollama pull $MODEL"
-    echo ""
 fi
 
 # Display startup configuration summary

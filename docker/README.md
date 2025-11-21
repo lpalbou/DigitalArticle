@@ -52,32 +52,36 @@ open http://localhost
 
 ### Option 2: Full Deployment (with Ollama LLM)
 
-Full deployment with local LLM support. **Model downloads on first use.**
+Full deployment with local LLM support. **Model downloads automatically during startup.**
 
 ```bash
 # Build all images (5-10 minutes)
 docker-compose build
 
-# Start all services (starts in ~15 seconds)
+# Start all services - Ollama downloads model from config.json
 docker-compose up -d
 
-# Access application immediately
+# Watch Ollama download progress (optional)
+docker-compose logs -f ollama
+
+# Access application when ready
 open http://localhost
 ```
 
 **What happens:**
-- All containers start quickly (~15 seconds)
-- UI is immediately accessible
-- **First LLM request**: Ollama downloads model automatically (15-30 min wait)
-- **Subsequent requests**: Instant (model cached)
+- Ollama container starts and reads `config.json`
+- If model not cached, downloads automatically (15-30 min for qwen3-coder:30b)
+- Backend waits for Ollama to be ready (with model loaded)
+- Frontend starts when backend is healthy
+- **All containers ready with model pre-loaded**
 
-**Optional - Pre-download model (recommended for production):**
+**Progress monitoring:**
 ```bash
-# After docker-compose up -d, pre-download the model
-docker exec digitalarticle-ollama ollama pull qwen3-coder:30b
+# Watch Ollama download the model
+docker-compose logs -f ollama
 
-# Watch download progress
-docker logs -f digitalarticle-ollama
+# Check when all containers are healthy
+docker-compose ps
 ```
 
 ### Expected Output
