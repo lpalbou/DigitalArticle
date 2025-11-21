@@ -64,7 +64,7 @@ class LLMService:
             if self.provider.lower() == "ollama":
                 # Read Ollama base URL from environment (for containerized deployment)
                 ollama_url = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
-                kwargs["api_base"] = ollama_url
+                kwargs["base_url"] = ollama_url  # Fixed: OllamaProvider expects 'base_url', not 'api_base'
                 logger.info(f"🐳 Using Ollama at: {ollama_url}")
 
             self.llm = create_llm(
