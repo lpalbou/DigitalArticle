@@ -128,14 +128,45 @@ except:
         echo ""
         echo "⏳ Starting download..."
 
-        # Use docker exec to pull model (better progress display than API)
-        if docker exec digitalarticle-ollama ollama pull "$MODEL" 2>&1; then
+        # Use Ollama API to pull model (no Docker socket access needed)
+        # Stream the download with progress updates
+        curl -X POST "$OLLAMA_URL/api/pull" \
+             -H "Content-Type: application/json" \
+             -d "{\"name\": \"$MODEL\", \"stream\": true}" \
+             --no-buffer 2>&1 | while IFS= read -r line; do
+            # Parse JSON progress and show status
+            if echo "$line" | grep -q '"status"'; then
+                status=$(echo "$line" | python3 -c "import sys, json; print(json.load(sys.stdin).get('status', ''))" 2>/dev/null || echo "")
+                if [ -n "$status" ]; then
+                    echo "  $status"
+                fi
+            fi
+        done
+
+        # Verify download succeeded
+        MODEL_EXISTS_AFTER=$(curl -sf "$OLLAMA_URL/api/tags" 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    models = data.get('models', [])
+    target = '$MODEL'
+    exists = any(
+        m.get('name', '').replace(':latest', '') == target.replace(':latest', '')
+        for m in models
+    )
+    print('yes' if exists else 'no')
+except:
+    print('error')
+" || echo "error")
+
+        if [ "$MODEL_EXISTS_AFTER" = "yes" ]; then
             echo ""
             echo "✅ Model '$MODEL' downloaded successfully!"
         else
             echo ""
-            echo "⚠️  Model download failed or interrupted"
-            echo "   Backend will start anyway - Ollama will auto-download on first use"
+            echo "⚠️  Model download failed or model not found"
+            echo "   Backend will start anyway - you may need to manually pull the model"
+            echo "   Run: docker exec digitalarticle-ollama ollama pull $MODEL"
         fi
     fi
 
