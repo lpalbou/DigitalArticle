@@ -139,6 +139,67 @@ The entrypoint will automatically download the configured model.
 - **openai** - OpenAI API (requires API key in environment)
 - **anthropic** - Anthropic API (requires API key in environment)
 
+### Memory and GPU Configuration
+
+**Current resource limits** (defined in docker-compose.yml):
+
+| Service | Memory Limit | Memory Reserved | CPU Limit | GPU |
+|---------|--------------|-----------------|-----------|-----|
+| Ollama | 32GB | 8GB | 8 cores | Optional |
+| Backend | 4GB | 512MB | 2 cores | N/A |
+| Frontend | Default | Default | Default | N/A |
+
+**Adjust for your hardware:**
+
+Edit `docker-compose.yml` under each service's `deploy.resources` section:
+
+```yaml
+ollama:
+  deploy:
+    resources:
+      limits:
+        cpus: '4'      # Reduce if you have fewer cores
+        memory: 16G    # Reduce for smaller models (8G for 4b models)
+      reservations:
+        memory: 4G     # Minimum guaranteed RAM
+```
+
+**For 18GB RAM machine with qwen3-coder:4b:**
+```yaml
+ollama:
+  deploy:
+    resources:
+      limits:
+        memory: 8G     # 4b model needs ~5-6GB
+      reservations:
+        memory: 4G
+```
+
+**Enable GPU (Linux with NVIDIA GPU only):**
+
+Uncomment lines 28-32 in docker-compose.yml:
+```yaml
+ollama:
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+```
+
+**Prerequisites for GPU:**
+```bash
+# Install nvidia-docker (Linux only, macOS not supported)
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | \
+  sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+sudo apt-get update && sudo apt-get install -y nvidia-docker2
+sudo systemctl restart docker
+```
+
 ## 📦 Architecture
 
 ```

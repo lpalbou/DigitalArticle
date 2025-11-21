@@ -16,14 +16,20 @@ services:
       start_period: 120s
     networks:
       - digitalarticle-network
-    # Uncomment for GPU support (requires nvidia-docker)
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+    # Resource configuration for Ollama
+    deploy:
+      resources:
+        limits:
+          cpus: '8'       # Max CPU cores (adjust based on your system)
+          memory: 32G     # Max RAM (adjust based on model size)
+        reservations:
+          memory: 8G      # Reserved RAM (ensures availability)
+        # Uncomment for GPU support (requires nvidia-docker on Linux)
+        # reservations:
+        #   devices:
+        #     - driver: nvidia
+        #       count: all
+        #       capabilities: [gpu]
 
   # Backend API Service
   backend:
@@ -55,6 +61,14 @@ services:
       start_period: 15s
     networks:
       - digitalarticle-network
+    # Resource limits for backend
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          memory: 512M
 
   # Frontend Web Service
   frontend:
