@@ -60,9 +60,9 @@ echo "  Provider: $PROVIDER"
 echo "  Model: $MODEL"
 echo ""
 
-# If provider is Ollama, ensure model is downloaded
+# If provider is Ollama, wait for service to be ready
 if [ "$PROVIDER" = "ollama" ]; then
-    echo "🤖 Ollama provider detected - checking model availability..."
+    echo "🤖 Ollama provider detected - waiting for service..."
 
     OLLAMA_URL="${OLLAMA_BASE_URL:-http://ollama:11434}"
     echo "  Ollama URL: $OLLAMA_URL"
@@ -82,94 +82,15 @@ if [ "$PROVIDER" = "ollama" ]; then
         if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
             echo "⚠️  Ollama service not available after ${MAX_RETRIES} attempts (60 seconds)"
             echo "   Backend will start anyway (LLM features will fail until Ollama is ready)"
-            echo ""
-            # Don't block startup - graceful degradation
-            echo "🚀 Starting uvicorn..."
-            exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+            break
         fi
         sleep 2
     done
 
     echo ""
-
-    # If Ollama is ready, check/download model
-    echo "🔍 Checking if model '$MODEL' is available..."
-
-    # Check if model exists using Ollama API
-    MODEL_EXISTS=$(curl -sf "$OLLAMA_URL/api/tags" 2>/dev/null | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    models = data.get('models', [])
-    target = '$MODEL'
-    # Check for model (with or without :latest tag)
-    exists = any(
-        m.get('name', '').replace(':latest', '') == target.replace(':latest', '')
-        for m in models
-    )
-    print('yes' if exists else 'no')
-except:
-    print('error')
-" || echo "error")
-
-    if [ "$MODEL_EXISTS" = "yes" ]; then
-        echo "✅ Model '$MODEL' is already available!"
-    elif [ "$MODEL_EXISTS" = "error" ]; then
-        echo "⚠️  Could not query Ollama models (API error)"
-        echo "   Backend will start and attempt model download on first use"
-    else
-        echo "📥 Model '$MODEL' not found - downloading now..."
-        echo ""
-        echo "ℹ️  Model sizes (approximate):"
-        echo "   - qwen3-coder:4b   → 2.6GB   (~2-5 min)"
-        echo "   - qwen3-coder:8b   → 5GB     (~5-10 min)"
-        echo "   - qwen3-coder:14b  → 8.5GB   (~10-15 min)"
-        echo "   - qwen3-coder:30b  → 17GB    (~15-30 min)"
-        echo ""
-        echo "⏳ Starting download..."
-
-        # Use Ollama API to pull model (no Docker socket access needed)
-        # Stream the download with progress updates
-        curl -X POST "$OLLAMA_URL/api/pull" \
-             -H "Content-Type: application/json" \
-             -d "{\"name\": \"$MODEL\", \"stream\": true}" \
-             --no-buffer 2>&1 | while IFS= read -r line; do
-            # Parse JSON progress and show status
-            if echo "$line" | grep -q '"status"'; then
-                status=$(echo "$line" | python3 -c "import sys, json; print(json.load(sys.stdin).get('status', ''))" 2>/dev/null || echo "")
-                if [ -n "$status" ]; then
-                    echo "  $status"
-                fi
-            fi
-        done
-
-        # Verify download succeeded
-        MODEL_EXISTS_AFTER=$(curl -sf "$OLLAMA_URL/api/tags" 2>/dev/null | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    models = data.get('models', [])
-    target = '$MODEL'
-    exists = any(
-        m.get('name', '').replace(':latest', '') == target.replace(':latest', '')
-        for m in models
-    )
-    print('yes' if exists else 'no')
-except:
-    print('error')
-" || echo "error")
-
-        if [ "$MODEL_EXISTS_AFTER" = "yes" ]; then
-            echo ""
-            echo "✅ Model '$MODEL' downloaded successfully!"
-        else
-            echo ""
-            echo "⚠️  Model download failed or model not found"
-            echo "   Backend will start anyway - you may need to manually pull the model"
-            echo "   Run: docker exec digitalarticle-ollama ollama pull $MODEL"
-        fi
-    fi
-
+    echo "ℹ️  Note: Model '$MODEL' will be downloaded by Ollama on first use if not already cached"
+    echo "   First LLM request may take 15-30 minutes depending on model size"
+    echo "   To pre-download: docker exec digitalarticle-ollama ollama pull $MODEL"
     echo ""
 fi
 
