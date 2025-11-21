@@ -36,19 +36,19 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./notebooks:/app/notebooks
-      - ./data:/app/data
-      - ./sample_data:/app/sample_data
-      - ./config.json:/app/config.json
+      # Use named volumes (auto-created by Docker, no manual setup required)
+      - notebooks-data:/app/notebooks
+      - app-data:/app/data
+      - sample-data:/app/sample_data
       - backend-logs:/app/logs
+      # Config is baked into image, no mount needed
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=INFO
       - CORS_ORIGINS=*  # Allow all origins (dev/testing). For production, set to specific domain
-    depends_on:
-      ollama:
-        condition: service_healthy
+    # depends_on removed - backend can start without Ollama for testing
+    # Backend will log LLM errors if Ollama not available (graceful degradation)
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -81,8 +81,15 @@ services:
       - digitalarticle-network
 
 volumes:
+  # Named volumes (auto-created by Docker, no manual directory creation required)
   ollama-models:
     name: digitalarticle-ollama-models
+  notebooks-data:
+    name: digitalarticle-notebooks
+  app-data:
+    name: digitalarticle-data
+  sample-data:
+    name: digitalarticle-sample-data
   backend-logs:
     name: digitalarticle-logs
 

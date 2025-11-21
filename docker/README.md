@@ -31,6 +31,8 @@ newgrp docker  # Refresh group membership
 
 Test frontend and backend infrastructure only. **Recommended for first-time setup validation.**
 
+**✅ Zero manual setup required** - Docker creates all volumes automatically!
+
 ```bash
 # Build and start frontend/backend only (skip Ollama entirely)
 docker-compose build frontend backend
@@ -40,7 +42,11 @@ docker-compose up -d frontend backend
 open http://localhost
 ```
 
-**Note**: This tests the containerization works. Code generation will fail without Ollama, but you can verify UI, API, and infrastructure are healthy.
+**Key Features**:
+- ✅ All directories auto-created by Docker (notebooks, data, logs)
+- ✅ Data persists in named Docker volumes
+- ✅ No manual directory creation needed
+- ⚠️ Code generation will fail without Ollama (expected for this test)
 
 ---
 
@@ -143,11 +149,23 @@ docker-compose logs --tail=100 backend
 
 ### Stop Services
 ```bash
-# Stop all services
+# Stop all services (keeps data volumes)
 docker-compose down
 
-# Stop and remove volumes (⚠️ deletes notebooks!)
+# Stop and remove volumes (⚠️ deletes all notebooks and data!)
 docker-compose down -v
+```
+
+### Access Data in Volumes
+```bash
+# List all volumes
+docker volume ls | grep digitalarticle
+
+# Copy file from volume to host
+docker cp digitalarticle-backend:/app/notebooks/mynotebook.json ./
+
+# Inspect volume location
+docker volume inspect digitalarticle-notebooks
 ```
 
 ### Restart Services
@@ -167,6 +185,19 @@ docker-compose build backend
 # Rebuild and restart
 docker-compose up -d --build backend
 ```
+
+### Development Mode (Optional)
+```bash
+# Use bind mounts for live code editing and host file access
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+# Access notebooks directly from ./notebooks on your host
+# Changes to ./backend code trigger auto-reload
+```
+
+**When to use**:
+- Default (`docker-compose.yml`): Production, testing, clean deployment
+- Dev mode (`docker-compose.dev.yml`): Active development, need host access
 
 ## 📂 Data Persistence
 
