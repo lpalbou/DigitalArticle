@@ -1,89 +1,22 @@
 #!/bin/bash
 set -e
 
-echo "🤖 Ollama Container - Entrypoint"
-echo "=================================="
-
 # Start Ollama service in background
-echo "🚀 Starting Ollama service..."
 /bin/ollama serve &
 OLLAMA_PID=$!
 
-# Wait for Ollama to be ready (using ollama cli instead of curl)
-echo "⏳ Waiting for Ollama to be ready..."
-for i in {1..30}; do
-    if ollama list > /dev/null 2>&1; then
-        echo "✅ Ollama service is ready!"
-        break
-    fi
-    if [ $i -eq 30 ]; then
-        echo "❌ Ollama failed to start after 60 seconds"
-        exit 1
-    fi
-    sleep 2
-done
+# Give it a moment to start
+sleep 5
 
-# Read model from config.json (mounted from host)
+# Read model from config.json if it exists
 if [ -f /config.json ]; then
-    echo ""
-    echo "📝 Reading configuration from /config.json..."
+    MODEL=$(grep -oP '"model":\s*"\K[^"]+' /config.json 2>/dev/null || echo "")
 
-    MODEL=$(python3 -c "
-import json
-try:
-    with open('/config.json') as f:
-        config = json.load(f)
-        model = config.get('llm', {}).get('model', 'unknown')
-        print(model)
-except Exception as e:
-    print('unknown')
-    import sys
-    print(f'Error reading config: {e}', file=sys.stderr)
-" 2>&1)
-
-    echo "  Model: $MODEL"
-    echo ""
-
-    if [ "$MODEL" != "unknown" ]; then
-        # Check if model already exists using ollama list
-        echo "🔍 Checking if model '$MODEL' is available..."
-
-        MODEL_EXISTS=$(ollama list 2>/dev/null | grep -q "^${MODEL}" && echo "yes" || echo "no")
-
-        if [ "$MODEL_EXISTS" = "yes" ]; then
-            echo "✅ Model '$MODEL' is already available!"
-        else
-            echo "📥 Model '$MODEL' not found - downloading now..."
-            echo ""
-            echo "ℹ️  Model sizes (approximate download times):"
-            echo "   - qwen3-coder:4b   → 2.6GB   (~2-5 min)"
-            echo "   - qwen3-coder:8b   → 5GB     (~5-10 min)"
-            echo "   - qwen3-coder:14b  → 8.5GB   (~10-15 min)"
-            echo "   - qwen3-coder:30b  → 17GB    (~15-30 min)"
-            echo ""
-            echo "⏳ Downloading model (this may take a while)..."
-            echo ""
-
-            # Pull model with progress
-            ollama pull "$MODEL"
-
-            echo ""
-            echo "✅ Model '$MODEL' downloaded successfully!"
-        fi
+    if [ -n "$MODEL" ]; then
+        echo "Pulling model: $MODEL"
+        ollama pull "$MODEL"
     fi
-else
-    echo "⚠️  /config.json not found - skipping model download"
-    echo "   Models can be pulled manually: ollama pull <model>"
 fi
 
-echo ""
-echo "=================================================="
-echo "Ollama Ready"
-echo "=================================================="
-echo "  Available at: http://localhost:11434"
-echo "  Models loaded: $(ollama list | wc -l) model(s)"
-echo "=================================================="
-echo ""
-
-# Keep Ollama service running in foreground
+# Keep Ollama running
 wait $OLLAMA_PID
