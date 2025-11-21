@@ -64,8 +64,7 @@ cd digitalarticle
 # Set up Python environment
 python -m venv .venv
 source .venv/bin/activate  # On macOS/Linux
-pip install -r requirements.txt
-pip install -e .
+pip install -e .  # Installs from pyproject.toml
 
 # Set up frontend
 cd frontend
