@@ -14,9 +14,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy pyproject.toml and install Python dependencies
+# Copy pyproject.toml and package source, then install
 WORKDIR /build
-COPY backend/pyproject.toml backend/README.md* ./
+COPY backend/pyproject.toml ./
+COPY backend/app ./app
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
