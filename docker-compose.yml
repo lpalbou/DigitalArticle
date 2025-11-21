@@ -37,7 +37,6 @@ services:
       # Use named volumes (auto-created by Docker, no manual setup required)
       - notebooks-data:/app/notebooks
       - app-data:/app/data
-      - sample-data:/app/sample_data
       - backend-logs:/app/logs
       # Config is baked into image, no mount needed
     environment:
@@ -86,8 +85,6 @@ volumes:
     name: digitalarticle-notebooks
   app-data:
     name: digitalarticle-data
-  sample-data:
-    name: digitalarticle-sample-data
   backend-logs:
     name: digitalarticle-logs
 

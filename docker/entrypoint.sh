@@ -9,7 +9,7 @@ echo "========================================"
 
 # Verify directories are accessible (mounted volumes)
 echo "📁 Verifying directories..."
-for dir in /app/notebooks /app/data /app/sample_data /app/logs; do
+for dir in /app/notebooks /app/data /app/logs; do
     if [ -d "$dir" ]; then
         echo "  ✅ $dir exists"
     else

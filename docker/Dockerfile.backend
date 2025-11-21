@@ -50,7 +50,7 @@ COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Create directories for persistence (with correct ownership)
-RUN mkdir -p /app/notebooks /app/data /app/sample_data /app/logs && \
+RUN mkdir -p /app/notebooks /app/data /app/logs && \
     chown -R appuser:appuser /app
 
 # Switch to non-root user
