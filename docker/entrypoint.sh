@@ -2,7 +2,7 @@
 set -e
 
 # Entrypoint script for Digital Article backend
-# Verifies environment and starts backend
+# Reads config.json and ensures Ollama models are ready
 
 echo "🚀 Digital Article Backend - Entrypoint"
 echo "========================================"
@@ -19,31 +19,143 @@ for dir in /app/notebooks /app/data /app/logs; do
 done
 
 echo "✅ Directory check complete"
+echo ""
 
 # Check config.json exists
 if [ ! -f /app/config.json ]; then
     echo "⚠️  config.json not found, creating default..."
-    cat > /app/config.json <<EOF
+    cat > /app/config.json <<'CONFIGEOF'
 {
   "llm": {
     "provider": "ollama",
     "model": "qwen3-coder:30b"
   }
 }
-EOF
+CONFIGEOF
     echo "✅ Default config.json created"
 fi
 
-# Display startup configuration
+# Parse config.json using Python (no external dependencies needed)
+echo "📝 Reading configuration from /app/config.json..."
+
+CONFIG_JSON=$(python3 -c "
+import json
+try:
+    with open('/app/config.json') as f:
+        config = json.load(f)
+        llm = config.get('llm', {})
+        provider = llm.get('provider', 'unknown')
+        model = llm.get('model', 'unknown')
+        print(f'{provider}|{model}')
+except Exception as e:
+    print('unknown|unknown')
+    import sys
+    print(f'Error reading config: {e}', file=sys.stderr)
+")
+
+PROVIDER=$(echo "$CONFIG_JSON" | cut -d'|' -f1)
+MODEL=$(echo "$CONFIG_JSON" | cut -d'|' -f2)
+
+echo "  Provider: $PROVIDER"
+echo "  Model: $MODEL"
 echo ""
-echo "Configuration:"
-echo "  - Notebooks: /app/notebooks"
-echo "  - Data: /app/data"
-echo "  - Config: /app/config.json"
-echo "  - Ollama: ${OLLAMA_BASE_URL:-http://ollama:11434}"
-echo "  - CORS: ${CORS_ORIGINS:-*}"
+
+# If provider is Ollama, ensure model is downloaded
+if [ "$PROVIDER" = "ollama" ]; then
+    echo "🤖 Ollama provider detected - checking model availability..."
+
+    OLLAMA_URL="${OLLAMA_BASE_URL:-http://ollama:11434}"
+    echo "  Ollama URL: $OLLAMA_URL"
+    echo ""
+
+    # Wait for Ollama service to be ready (with timeout)
+    echo "⏳ Waiting for Ollama service to be ready..."
+    MAX_RETRIES=30
+    RETRY_COUNT=0
+
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        if curl -sf "$OLLAMA_URL/api/tags" > /dev/null 2>&1; then
+            echo "✅ Ollama service is ready!"
+            break
+        fi
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            echo "⚠️  Ollama service not available after ${MAX_RETRIES} attempts (60 seconds)"
+            echo "   Backend will start anyway (LLM features will fail until Ollama is ready)"
+            echo ""
+            # Don't block startup - graceful degradation
+            echo "🚀 Starting uvicorn..."
+            exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+        fi
+        sleep 2
+    done
+
+    echo ""
+
+    # If Ollama is ready, check/download model
+    echo "🔍 Checking if model '$MODEL' is available..."
+
+    # Check if model exists using Ollama API
+    MODEL_EXISTS=$(curl -sf "$OLLAMA_URL/api/tags" 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    models = data.get('models', [])
+    target = '$MODEL'
+    # Check for model (with or without :latest tag)
+    exists = any(
+        m.get('name', '').replace(':latest', '') == target.replace(':latest', '')
+        for m in models
+    )
+    print('yes' if exists else 'no')
+except:
+    print('error')
+" || echo "error")
+
+    if [ "$MODEL_EXISTS" = "yes" ]; then
+        echo "✅ Model '$MODEL' is already available!"
+    elif [ "$MODEL_EXISTS" = "error" ]; then
+        echo "⚠️  Could not query Ollama models (API error)"
+        echo "   Backend will start and attempt model download on first use"
+    else
+        echo "📥 Model '$MODEL' not found - downloading now..."
+        echo ""
+        echo "ℹ️  Model sizes (approximate):"
+        echo "   - qwen3-coder:4b   → 2.6GB   (~2-5 min)"
+        echo "   - qwen3-coder:8b   → 5GB     (~5-10 min)"
+        echo "   - qwen3-coder:14b  → 8.5GB   (~10-15 min)"
+        echo "   - qwen3-coder:30b  → 17GB    (~15-30 min)"
+        echo ""
+        echo "⏳ Starting download..."
+
+        # Use docker exec to pull model (better progress display than API)
+        if docker exec digitalarticle-ollama ollama pull "$MODEL" 2>&1; then
+            echo ""
+            echo "✅ Model '$MODEL' downloaded successfully!"
+        else
+            echo ""
+            echo "⚠️  Model download failed or interrupted"
+            echo "   Backend will start anyway - Ollama will auto-download on first use"
+        fi
+    fi
+
+    echo ""
+fi
+
+# Display startup configuration summary
+echo "=================================================="
+echo "Configuration Summary"
+echo "=================================================="
+echo "  LLM Provider: $PROVIDER"
+echo "  LLM Model: $MODEL"
+echo "  Ollama URL: ${OLLAMA_BASE_URL:-http://ollama:11434}"
+echo "  Notebooks: /app/notebooks (volume)"
+echo "  Data: /app/data (volume)"
+echo "  Logs: /app/logs (volume)"
+echo "  CORS: ${CORS_ORIGINS:-*}"
+echo "=================================================="
 echo ""
 
 # Start uvicorn
-echo "🚀 Starting uvicorn..."
+echo "🚀 Starting uvicorn on port 8000..."
 exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000

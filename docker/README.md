@@ -50,23 +50,29 @@ open http://localhost
 
 ---
 
-### Option 2: Full Deployment (with Ollama LLM) - ~30-40 minutes
+### Option 2: Full Deployment (with Ollama LLM)
 
-Full deployment with local LLM support. **Requires 16-32GB RAM and 25GB disk space.**
+Full deployment with local LLM support. **Model downloads automatically from config.json.**
 
 ```bash
 # Build all images (5-10 minutes)
 docker-compose build
 
-# Start all services (frontend, backend, Ollama)
+# Start all services - model downloads automatically
 docker-compose up -d
 
-# Pull qwen3-coder:30b model (10-30 minutes, 17GB download)
-./docker/init-ollama.sh
+# Watch backend logs to see model download progress
+docker-compose logs -f backend
 
 # Access application - full functionality including code generation
 open http://localhost
 ```
+
+**What happens:**
+- Backend reads `config.json` for provider/model
+- If Ollama model not cached, downloads it automatically
+- Progress shown in logs: `docker-compose logs -f backend`
+- Container becomes healthy after download completes
 
 ### Expected Output
 
@@ -83,6 +89,55 @@ digitalarticle-ollama       Up (healthy)    0.0.0.0:11434->11434/tcp  # Only if 
 - **Web UI**: http://localhost
 - **Backend API**: http://localhost:8000/docs (Swagger UI)
 - **Ollama API**: http://localhost:11434/api/tags (if running)
+
+## ⚙️ Configuration
+
+**Single source of truth:** `config.json` at project root
+
+```json
+{
+  "llm": {
+    "provider": "ollama",
+    "model": "qwen3-coder:30b"
+  }
+}
+```
+
+### Changing Provider/Model
+
+**Edit config.json before starting:**
+
+```json
+{
+  "llm": {
+    "provider": "ollama",
+    "model": "qwen3-coder:4b"
+  }
+}
+```
+
+**Then rebuild and restart:**
+```bash
+docker-compose build backend
+docker-compose up -d
+```
+
+The entrypoint will automatically download the configured model.
+
+### Recommended Models by RAM
+
+| RAM Available | Recommended Model | Size | Download Time |
+|--------------|-------------------|------|---------------|
+| 8GB | `qwen3-coder:4b` | 2.6GB | 2-5 min |
+| 16GB | `qwen3-coder:8b` | 5GB | 5-10 min |
+| 24GB | `qwen3-coder:14b` | 8.5GB | 10-15 min |
+| 32GB+ | `qwen3-coder:30b` | 17GB | 15-30 min |
+
+### Supported Providers
+- **ollama** - Local Ollama (auto-configures Docker networking)
+- **lmstudio** - LM Studio local server
+- **openai** - OpenAI API (requires API key in environment)
+- **anthropic** - Anthropic API (requires API key in environment)
 
 ## 📦 Architecture
 
