@@ -17,6 +17,7 @@ dependencies = [
     "uvicorn==0.38.0",
     "pydantic==2.12.3",
     "requests==2.32.5",
+    "python-multipart==0.0.9",  # Required for file uploads
 
     # LLM Integration
     "abstractcore==2.5.2",

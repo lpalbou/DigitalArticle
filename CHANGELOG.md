@@ -6,6 +6,95 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.2.0] - 2025-11-21
+
+### Added
+
+- **🐳 Docker Containerization**: Complete production-ready Docker deployment with 3-service architecture
+  - **Backend Container**: FastAPI application with automatic health checks and fail-safe startup
+  - **Frontend Container**: Nginx-served React application with optimized production build
+  - **Ollama Container**: Dedicated LLM service with automatic model download and GPU support
+  - **Named Volumes**: Zero-setup deployment with automatic directory creation for notebooks, data, and logs
+  - **Resource Management**: Configurable memory limits and CPU allocation for each service
+  - **Comprehensive Documentation**: 593-line deployment guide covering all scenarios from quick test to production
+  - Files: `docker/Dockerfile.backend`, `docker/Dockerfile.frontend`, `docker-compose.yml`, `docker-compose.dev.yml`, `docker/entrypoint.sh`, `docker/ollama-entrypoint.sh`, `docker/nginx.conf`, `docker/README.md`
+
+- **🚀 Automatic Model Setup**: Intelligent model management with zero manual intervention
+  - **Config-Driven**: Reads model name from `config.json` for consistent deployment
+  - **Automatic Download**: Ollama container downloads models during startup if not present
+  - **Health Checks**: Extended health check periods (40 minutes) to accommodate large model downloads
+  - **Graceful Startup**: Backend waits for Ollama to be ready before serving requests
+  - **Progress Tracking**: Model download progress visible in container logs
+  - Files: `docker/ollama-entrypoint.sh`, `docker/entrypoint.sh`, `config.json`
+
+- **📦 Dependency Management**: Unified dependency management using `pyproject.toml` as single source of truth
+  - **SOTA Best Practice**: Eliminated duplicate dependency definitions in `requirements.txt`
+  - **Consistent Versions**: All dependencies defined once in `pyproject.toml`
+  - **Docker Integration**: Dockerfile installs directly from `pyproject.toml`
+  - **Missing Dependencies**: Added `python-multipart` for file upload support
+  - Files: `pyproject.toml`, `docker/Dockerfile.backend`
+
+### Enhanced
+
+- **🔧 Robust Entrypoint Scripts**: Production-grade startup scripts with comprehensive error handling
+  - **Fail-Safe Backend**: Waits for Ollama health before starting, with timeout and retry logic
+  - **Clean Separation**: Each container manages its own concerns (backend=API, ollama=models, frontend=UI)
+  - **Logging**: Detailed startup logs for debugging and monitoring
+  - **Non-Blocking**: Services start independently without blocking each other
+  - Files: `docker/entrypoint.sh`, `docker/ollama-entrypoint.sh`
+
+- **⚙️ Configuration Management**: Versioned configuration with sensible defaults
+  - **Default Ollama Settings**: Pre-configured for `ollama` provider with `qwen3-coder:30b` model
+  - **No Setup Required**: Works out-of-the-box with `docker-compose up`
+  - **Customizable**: Easy to modify provider, model, and connection settings
+  - Files: `config.json`
+
+### Changed
+
+- **📁 Data Management**: Removed automatic sample data copying for cleaner deployments
+  - **User Responsibility**: Users must upload their own data or manually copy sample data
+  - **Cleaner Builds**: Reduced image size and deployment complexity
+  - **Clear Documentation**: Instructions for data management in Docker guide
+  - Files: `docker/Dockerfile.backend`, `docker/README.md`
+
+### Fixed
+
+- **🔌 Ollama Connection**: Corrected AbstractCore parameter from `api_base` to `base_url`
+  - **Root Cause**: AbstractCore uses `base_url` parameter, not `api_base`
+  - **Impact**: Ollama provider now connects correctly in Docker environment
+  - Files: `backend/app/services/llm_service.py`
+
+- **🏗️ Docker Build**: Fixed build order to copy application code before pip install
+  - **Root Cause**: Dockerfile tried to install package before copying source code
+  - **Solution**: Reorganized Dockerfile to copy `app/` directory before running `pip install`
+  - Files: `docker/Dockerfile.backend`
+
+- **🏥 Health Checks**: Removed blocking model downloads from backend health checks
+  - **Problem**: Backend downloaded 17GB models before passing health checks (15-30 min timeout)
+  - **Solution**: Moved model downloads to Ollama container startup
+  - **Result**: Backend starts in ~15 seconds, health checks pass immediately
+  - Files: `docker/entrypoint.sh`, `docker/ollama-entrypoint.sh`
+
+### Technical Details
+
+**Docker Architecture**:
+- **3-Service Design**: Frontend (Nginx) → Backend (FastAPI) → Ollama (LLM)
+- **Port Mapping**: Frontend (80), Backend (8000), Ollama (11434)
+- **Network**: Custom bridge network for inter-container communication
+- **Volumes**: Named volumes for persistence (notebooks, data, logs, ollama-models)
+- **Resource Limits**: Ollama (32GB/8 cores), Backend (4GB/2 cores), Frontend (unlimited)
+
+**Deployment Options**:
+1. **Quick Test**: Frontend + Backend only (~2 minutes, no LLM)
+2. **Full Deployment**: All services with automatic model download (~20-40 minutes first time)
+3. **Development Mode**: Hot-reload enabled with `docker-compose.dev.yml`
+4. **Production**: Optimized builds with health checks and resource limits
+
+**System Requirements**:
+- Memory: 16-32GB RAM for qwen3-coder:30b (or 8GB for qwen3-coder:4b)
+- Disk: 25GB minimum (images + models)
+- Docker: Version 20.10+ with Compose v2
+
 ## [0.0.8] - 2025-10-28
 
 ### Added

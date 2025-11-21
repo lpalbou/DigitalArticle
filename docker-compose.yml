@@ -1,0 +1,111 @@
+services:
+  # Ollama LLM Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: digitalarticle-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+      - ./config.json:/config.json:ro  # Mount config for model detection
+      - ./docker/ollama-entrypoint.sh:/entrypoint.sh:ro  # Custom entrypoint
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 2400s  # 40 minutes for model download
+    networks:
+      - digitalarticle-network
+    # Resource configuration for Ollama
+    deploy:
+      resources:
+        limits:
+          cpus: '8'       # Max CPU cores (adjust based on your system)
+          memory: 32G     # Max RAM (adjust based on model size)
+        reservations:
+          memory: 8G      # Reserved RAM (ensures availability)
+        # Uncomment for GPU support (requires nvidia-docker on Linux)
+        # reservations:
+        #   devices:
+        #     - driver: nvidia
+        #       count: all
+        #       capabilities: [gpu]
+
+  # Backend API Service
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: digitalarticle-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # Use named volumes (auto-created by Docker, no manual setup required)
+      - notebooks-data:/app/notebooks
+      - app-data:/app/data
+      - backend-logs:/app/logs
+      # Config is baked into image, no mount needed
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - CORS_ORIGINS=*  # Allow all origins (dev/testing). For production, set to specific domain
+    # depends_on removed - backend can start without Ollama for testing
+    # Backend will log LLM errors if Ollama not available (graceful degradation)
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - digitalarticle-network
+    # Resource limits for backend
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          memory: 512M
+
+  # Frontend Web Service
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: digitalarticle-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - digitalarticle-network
+
+volumes:
+  # Named volumes (auto-created by Docker, no manual directory creation required)
+  ollama-models:
+    name: digitalarticle-ollama-models
+  notebooks-data:
+    name: digitalarticle-notebooks
+  app-data:
+    name: digitalarticle-data
+  backend-logs:
+    name: digitalarticle-logs
+
+networks:
+  digitalarticle-network:
+    name: digitalarticle-network
+    driver: bridge

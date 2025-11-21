@@ -1,0 +1,27 @@
+# Docker Compose Override for Development
+#
+# This file provides bind mounts for local development, allowing you to:
+# - Edit code and see changes immediately
+# - Access notebooks/data from your host machine
+# - Debug more easily
+#
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# IMPORTANT: This file is OPTIONAL. The default docker-compose.yml works standalone.
+
+version: '3.8'
+
+services:
+  backend:
+    volumes:
+      # Bind mounts for development (overwrites named volumes)
+      - ./notebooks:/app/notebooks
+      - ./data:/app/data
+      # Hot reload for code changes (optional, uncomment to enable)
+      # - ./backend:/app/backend
+    command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Uncomment to access frontend source during development
+  # frontend:
+  #   volumes:
+  #     - ./frontend/src:/app/src

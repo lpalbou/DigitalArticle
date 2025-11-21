@@ -10,6 +10,7 @@ Token Tracking:
 """
 
 import logging
+import os
 from typing import Optional, Dict, Any, Tuple, List
 from datetime import datetime
 from abstractcore import create_llm, ProviderAPIError, ModelNotFoundError, AuthenticationError
@@ -54,11 +55,22 @@ class LLMService:
     def _initialize_llm(self):
         """Initialize the LLM client with tracing enabled for observability."""
         try:
+            # For Ollama provider, check if custom base URL is set via environment
+            kwargs = {
+                "enable_tracing": True,  # Enable full interaction tracing
+                "max_traces": 100  # Ring buffer for last 100 interactions
+            }
+
+            if self.provider.lower() == "ollama":
+                # Read Ollama base URL from environment (for containerized deployment)
+                ollama_url = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+                kwargs["base_url"] = ollama_url  # Fixed: OllamaProvider expects 'base_url', not 'api_base'
+                logger.info(f"🐳 Using Ollama at: {ollama_url}")
+
             self.llm = create_llm(
                 self.provider,
                 model=self.model,
-                enable_tracing=True,  # Enable full interaction tracing
-                max_traces=100  # Ring buffer for last 100 interactions
+                **kwargs
             )
             logger.info(f"✅ Initialized LLM with tracing: {self.provider}/{self.model}")
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
