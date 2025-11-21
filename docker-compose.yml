@@ -24,7 +24,7 @@ services:
       resources:
         limits:
           cpus: '8'       # Max CPU cores (adjust based on your system)
-          memory: 24G     # Max RAM for qwen3-coder:30b (17.7GB needed)
+          memory: 32G     # Max RAM (adjust based on model size)
         reservations:
           memory: 8G      # Reserved RAM (ensures availability)
         # Uncomment for GPU support (requires nvidia-docker on Linux)
