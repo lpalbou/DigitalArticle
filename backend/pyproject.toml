@@ -20,7 +20,7 @@ dependencies = [
     "python-multipart==0.0.9",  # Required for file uploads
 
     # LLM Integration
-    "abstractcore==2.5.2",
+    "abstractcore>=2.5.3",  # Requires 2.5.3+ for tracing support
 
     # Data Processing
     "pandas==2.3.3",
