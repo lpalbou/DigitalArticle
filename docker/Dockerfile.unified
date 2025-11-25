@@ -56,10 +56,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Ollama binary (using direct GitHub URL for reliability)
-RUN curl -fsSL https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64 -o /usr/local/bin/ollama && \
-    chmod +x /usr/local/bin/ollama && \
-    /usr/local/bin/ollama --version
+# Copy Ollama binary from official Ollama image
+COPY --from=ollama/ollama:latest /bin/ollama /usr/local/bin/ollama
 
 # Create application user
 RUN useradd -m -u 1000 appuser
