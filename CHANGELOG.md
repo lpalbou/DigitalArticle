@@ -6,6 +6,78 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.2.1] - 2025-11-25
+
+### Added
+
+- **🐳 Unified Docker Image**: Single-container deployment consolidating all services
+  - **All-in-One Container**: Backend (FastAPI) + Frontend (Nginx) + Ollama (LLM) in one image
+  - **Supervisord Process Management**: Coordinated multi-service startup with health checks
+  - **Smart Model Caching**: Models downloaded once at first run, persisted in named volume for subsequent starts
+  - **Configurable Paths**: Environment variables override config.json for notebooks, workspace, and model storage
+  - **Official Ollama Binary**: Uses binary from `ollama/ollama:latest` official Docker image for reliability
+  - **Orchestrated Startup**: 9-step entrypoint sequence ensures services start in correct order with health verification
+  - **Simplified Deployment**: Single `docker run` command vs 3-service docker-compose
+  - **Production Ready**: Complete with health checks, resource limits, and comprehensive logging
+  - Files: `docker/Dockerfile.unified`, `docker/entrypoint-unified.sh`, `docker/supervisord.conf`, `docker/nginx-unified.conf`
+
+- **📦 Dual Deployment Options**: Flexibility to choose between unified or multi-container setup
+  - **Unified Image** (recommended): Simplified deployment for most use cases with `digitalarticle:unified`
+  - **Multi-Container**: Original 3-service architecture still available for advanced scenarios
+  - **Named Volumes**: Both strategies use persistent volumes for notebooks and models
+  - **Comprehensive Guides**: Separate documentation for each deployment approach
+  - Files: `docker/readme-unified-image.md`, `docker/readme-multi-container.md`, `docs/DOCKER-DEPLOYMENT.md`
+
+- **⚙️ Backend Path Configuration**: Dynamic path configuration with ENV > config.json > default cascade
+  - **Configurable Notebooks Directory**: `NOTEBOOKS_DIR` env var or `paths.notebooks_dir` in config.json
+  - **Configurable Workspace Root**: `WORKSPACE_DIR` env var or `paths.workspace_dir` in config.json
+  - **Programmatic API**: `config.get_notebooks_dir()`, `config.get_workspace_root()`, `config.set_paths()`
+  - **Docker Integration**: Backend automatically uses paths from environment variables in containers
+  - Files: `backend/app/config.py`, `backend/app/services/shared.py`, `backend/app/services/data_manager_clean.py`
+
+### Enhanced
+
+- **📖 Comprehensive Deployment Documentation**: Three-tier documentation strategy
+  - **Quick Reference**: `docker/readme-unified-image.md` - Commands and quick start (387 lines)
+  - **Complete Guide**: `docs/DOCKER-DEPLOYMENT.md` - Step-by-step instructions with troubleshooting (552 lines)
+  - **Technical Report**: `docs/devnotes/docker-one-image.md` - Implementation details and architecture (631 lines)
+
+### Technical Details
+
+**Unified Container Architecture**:
+- **Multi-stage Build**: Frontend (Node 20 Alpine) → Backend (Python 3.12 Slim) → Runtime
+- **Process Management**: Supervisord coordinates 3 services (Ollama priority 10, Backend priority 20, Nginx priority 30)
+- **Service Communication**: Localhost networking (nginx → backend:8000, backend → ollama:11434)
+- **Volume Strategy**: Two named volumes (notebooks/workspace data, Ollama models)
+- **Startup Sequence**:
+  1. Initialize directories from ENV vars
+  2. Start supervisord
+  3. Wait for Ollama readiness (30 retries × 2s)
+  4. Check/download model (skip if cached in volume)
+  5. Start backend via supervisorctl
+  6. Wait for backend health (30 retries × 2s)
+  7. Start nginx
+  8. Display configuration summary
+  9. Hand off to supervisord foreground mode
+
+**Image Size & Performance**:
+- **Base Image**: ~2.3-2.5GB (no models included)
+- **First Startup**: 10-30 minutes (model download)
+- **Subsequent Startups**: 90-120 seconds (models cached)
+- **Resource Requirements**: 8GB RAM minimum, 32GB+ recommended for 30B models
+
+**Deployment Comparison**:
+```
+Multi-Container (0.2.0):
+  docker-compose up -d  # 3 containers
+
+Unified Image (0.2.1):
+  docker run -d -p 80:80 \
+    -v digitalarticle-data:/app/data \
+    -v digitalarticle-models:/models \
+    digitalarticle:unified
+```
+
 ## [0.2.0] - 2025-11-21
 
 ### Added
