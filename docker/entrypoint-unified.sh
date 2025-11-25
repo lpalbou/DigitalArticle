@@ -29,7 +29,8 @@ for dir in "$NOTEBOOKS_DIR" "$WORKSPACE_DIR" "$OLLAMA_MODELS" /app/logs /var/log
 done
 
 # Fix ownership (appuser for app dirs, root for ollama/supervisor)
-chown -R appuser:appuser "$NOTEBOOKS_DIR" "$WORKSPACE_DIR" /app/logs 2>/dev/null || true
+# Backend code and config must be readable by appuser
+chown -R appuser:appuser "$NOTEBOOKS_DIR" "$WORKSPACE_DIR" /app/logs /app/backend /app/config.json 2>/dev/null || true
 chown -R root:root "$OLLAMA_MODELS" /var/log/supervisor 2>/dev/null || true
 
 echo "✅ Directories initialized"
