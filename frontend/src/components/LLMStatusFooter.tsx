@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react'
-import { Settings, Activity, AlertCircle } from 'lucide-react'
+import { Activity, AlertCircle } from 'lucide-react'
 import { llmAPI } from '../services/api'
 
 interface LLMStatusFooterProps {
-  onSettingsClick?: () => void
   notebookId?: string  // Add notebook ID prop for context tracking
 }
 
-const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ onSettingsClick, notebookId }) => {
+const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ notebookId }) => {
   const [status, setStatus] = useState<{
     provider: string
     model: string
@@ -158,15 +157,12 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ onSettingsClick, note
             )}
           </div>
 
-          {/* Right: Settings Button */}
-          <button
-            onClick={onSettingsClick}
-            className="flex items-center space-x-1.5 px-3 py-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
-            title="LLM Settings"
-          >
-            <Settings className="h-3.5 w-3.5" />
-            <span>Settings</span>
-          </button>
+          {/* Right: Version & Update Info */}
+          <div className="flex items-center space-x-3 text-xs text-gray-500">
+            <span>v0.2.0</span>
+            <div className="text-gray-400">|</div>
+            <span>Updated Nov 2025</span>
+          </div>
         </div>
       </div>
     </div>
