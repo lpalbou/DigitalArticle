@@ -50,8 +50,8 @@ Digital Article inverts the traditional computational notebook paradigm. Instead
 
 ### Prerequisites
 
-- Python 3.8+
-- Node.js 16+
+- Python 3.11+
+- Node.js 18+
 - LMStudio or Ollama (for local LLM) OR OpenAI API key
 
 ### Installation
@@ -94,10 +94,10 @@ For a containerized deployment with Ollama LLM:
 # Build and start all services (frontend, backend, ollama)
 docker-compose up -d
 
-# Pull LLM model (10-30 minutes for qwen3-coder:30b)
-./docker/init-ollama.sh
+# Model downloads automatically from config.json (10-30 minutes for qwen3-coder:30b)
+# Monitor progress: docker-compose logs -f ollama
 
-# Access application
+# Access application when ready
 open http://localhost
 ```
 

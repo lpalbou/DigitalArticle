@@ -3,7 +3,7 @@
 This document outlines the planned development trajectory for Digital Article. The roadmap is organized into time-based phases with priority levels and estimated complexity.
 
 **Last Updated**: January 2025
-**Current Version**: 1.0.0 (Beta)
+**Current Version**: 0.1.0 (Alpha)
 
 ## Guiding Principles
 

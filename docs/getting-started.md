@@ -7,8 +7,8 @@ Digital Article is a computational notebook application where you write what you
 ## Prerequisites
 
 ### Required
-- **Python 3.8+** (Recommended: 3.11 or higher)
-- **Node.js 16+** and npm (for frontend)
+- **Python 3.11+**
+- **Node.js 18+** and npm (for frontend)
 - **Git** (for cloning the repository)
 
 ### Recommended
@@ -54,7 +54,8 @@ pip install -e .
 **Dependencies installed** (from `requirements.txt`):
 - `fastapi` - Backend web framework
 - `uvicorn` - ASGI server
-- `abstractcore[all]` - LLM provider abstraction (supports LMStudio, Ollama, OpenAI, etc.)
+- `abstractcore[all]` **>= 2.5.3** - LLM provider abstraction (supports LMStudio, Ollama, OpenAI, etc.)
+  - **Note**: Version 2.5.3 or higher is required for LLM tracing support
 - `pandas`, `numpy`, `matplotlib`, `plotly`, `seaborn` - Data analysis and visualization
 - `scikit-learn`, `scipy` - Machine learning and scientific computing
 - `reportlab`, `weasyprint` - PDF generation

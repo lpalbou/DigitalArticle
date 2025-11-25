@@ -326,26 +326,21 @@ digitalarticle-frontend   Up (healthy)    0.0.0.0:80->80/tcp
 digitalarticle-ollama     Up (healthy)    0.0.0.0:11434->11434/tcp
 ```
 
-**Step 5: Initialize Ollama Model**
+**Step 5: Monitor Model Download**
+
+The Ollama container automatically pulls the model configured in `config.json` via the ollama-entrypoint.sh script. Model downloads in the background (10-30 minutes for qwen3-coder:30b).
+
 ```bash
-# Pull and warm up qwen3-coder:30b (10-30 minutes)
-./docker/init-ollama.sh
+# Watch Ollama download progress
+docker-compose logs -f ollama
 ```
 
 Progress output:
 ```
-⏳ Waiting for Ollama service to be ready...
-✅ Ollama service is ready!
-📥 Pulling qwen3-coder:30b model...
-⚠️  This is a 17GB download and may take 10-30 minutes
-pulling manifest
-pulling 4039454a552d... 17.2 GB ████████████ 100%
-verifying sha256 digest
-writing manifest
-success
-✅ Model qwen3-coder:30b downloaded successfully!
-🔥 Warming up model (loading into memory)...
-🎉 Ollama initialization complete!
+digitalarticle-ollama | Starting Ollama service...
+digitalarticle-ollama | Pulling model: qwen3-coder:30b
+digitalarticle-ollama | pulling manifest
+digitalarticle-ollama | pulling 4039454a552d... 17.2 GB ██████████ 45%
 ```
 
 **Step 6: Verify Deployment**
@@ -522,20 +517,16 @@ docker-compose up -d
 4. Use search box to filter logs
 5. Click **Copy** to copy logs to clipboard
 
-**Step 5: Initialize Ollama**
+**Step 5: Monitor Ollama Model Download**
 
-Open **Terminal** in Docker Desktop or external terminal:
-```bash
-./docker/init-ollama.sh
-```
+The Ollama container automatically downloads the model from `config.json` via ollama-entrypoint.sh. Monitor progress:
 
-Or manually:
 ```bash
-# Check if model exists
+# Watch model download progress
+docker-compose logs -f ollama
+
+# Or check if model is loaded
 docker exec digitalarticle-ollama ollama list
-
-# Pull model
-docker exec digitalarticle-ollama ollama pull qwen3-coder:30b
 ```
 
 **Step 6: Access Application**
@@ -743,7 +734,7 @@ docker-compose up -d
 
 ### Issue: Model Download Slow/Timeout
 
-**Symptom**: `init-ollama.sh` hangs at 10% for 30+ minutes
+**Symptom**: Model download hangs at 10% for 30+ minutes
 
 **Cause**: Slow internet connection (17GB download)
 
@@ -755,9 +746,9 @@ docker exec digitalarticle-ollama ollama pull qwen3-coder:7b  # 4GB instead of 1
 
 **Fix Option 2**: Resume download
 ```bash
-# If interrupted, just re-run
-./docker/init-ollama.sh
-# Ollama resumes from where it left off
+# If interrupted, Ollama automatically resumes on container restart
+docker-compose restart ollama
+docker-compose logs -f ollama  # Monitor progress
 ```
 
 ---
@@ -815,7 +806,7 @@ Expected times:
 
 ### Model Warm-Up
 
-The `init-ollama.sh` script includes model warm-up:
+To pre-load the model into memory for faster first use:
 ```bash
 # Pre-loads model into memory
 docker exec digitalarticle-ollama ollama run qwen3-coder:30b "print('Hello')"
@@ -824,6 +815,8 @@ docker exec digitalarticle-ollama ollama run qwen3-coder:30b "print('Hello')"
 Benefits:
 - First code generation is fast (no 60s delay)
 - Subsequent generations are instant
+
+**Note**: The ollama-entrypoint.sh script automatically pulls the model from `config.json` on container startup.
 
 ---
 

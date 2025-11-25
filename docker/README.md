@@ -52,13 +52,13 @@ open http://localhost
 
 ### Option 2: Full Deployment (with Ollama LLM)
 
-Full deployment with local LLM support. **Model downloads automatically during startup.**
+Full deployment with local LLM support. **Model downloads automatically during startup via ollama-entrypoint.sh.**
 
 ```bash
 # Build all images (5-10 minutes)
 docker-compose build
 
-# Start all services - Ollama downloads model from config.json
+# Start all services - Ollama auto-pulls model from config.json
 docker-compose up -d
 
 # Watch Ollama download progress (optional)
@@ -69,8 +69,9 @@ open http://localhost
 ```
 
 **What happens:**
-- Ollama container starts and reads `config.json`
-- If model not cached, downloads automatically (15-30 min for qwen3-coder:30b)
+- Ollama container starts and runs `ollama-entrypoint.sh`
+- Script reads `config.json` and automatically pulls configured model
+- Model downloads in background (15-30 min for qwen3-coder:30b)
 - Backend waits for Ollama to be ready (with model loaded)
 - Frontend starts when backend is healthy
 - **All containers ready with model pre-loaded**
@@ -144,10 +145,19 @@ The entrypoint will automatically download the configured model.
 | 32GB+ | `qwen3-coder:30b` | 17GB | 15-30 min |
 
 ### Supported Providers
-- **ollama** - Local Ollama (auto-configures Docker networking)
-- **lmstudio** - LM Studio local server
-- **openai** - OpenAI API (requires API key in environment)
-- **anthropic** - Anthropic API (requires API key in environment)
+
+**Digital Article supports ALL AbstractCore providers** - the Docker deployment defaults to Ollama for simplicity, but you can configure any provider:
+
+- **ollama** - Local Ollama (auto-configured with Docker networking)
+- **lmstudio** - LM Studio local server (requires running on host)
+- **openai** - OpenAI API (requires API key)
+- **anthropic** - Anthropic Claude API (requires API key)
+- **And many more** - See full list: https://www.abstractcore.ai/llms-full.txt
+
+**Note**: The Docker setup currently includes only the Ollama container for convenience. For other providers:
+- Local providers (lmstudio): Run on host machine, configure backend to connect
+- Cloud providers (openai, anthropic): Add API keys to backend environment variables
+- Future enhancement: Multi-provider Docker architecture with flexible model management
 
 ### Memory and GPU Configuration
 
@@ -329,13 +339,20 @@ docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 ### Volumes
 
+**Production (docker-compose.yml)**:
+| Volume Name | Type | Purpose | Location |
+|-------------|------|---------|----------|
+| `digitalarticle-notebooks` | Named volume | User notebooks | Docker-managed |
+| `digitalarticle-data` | Named volume | Uploaded data | Docker-managed |
+| `digitalarticle-ollama-models` | Named volume | LLM models (~17GB) | Docker-managed |
+| `digitalarticle-logs` | Named volume | Application logs | Docker-managed |
+| `./config.json` | Bind mount (read-only) | LLM config | Project root |
+
+**Development (docker-compose.dev.yml)**:
 | Volume/Mount | Type | Purpose | Location |
 |--------------|------|---------|----------|
-| `./notebooks` | Bind mount | User notebooks | Project root |
-| `./data` | Bind mount | Uploaded data | Project root |
-| `./config.json` | Bind mount | LLM config | Project root |
-| `ollama-models` | Named volume | LLM models | Docker volume |
-| `backend-logs` | Named volume | Application logs | Docker volume |
+| `./notebooks` | Bind mount | Direct notebook access | Project root |
+| `./data` | Bind mount | Direct data access | Project root |
 
 ### Backup Data
 ```bash
