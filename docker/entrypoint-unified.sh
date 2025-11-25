@@ -28,10 +28,8 @@ for dir in "$NOTEBOOKS_DIR" "$WORKSPACE_DIR" "$OLLAMA_MODELS" /app/logs /var/log
     fi
 done
 
-# Fix ownership (appuser for app dirs, root for ollama/supervisor)
-# Give appuser full ownership of /app to create any needed directories
-chown -R appuser:appuser /app 2>/dev/null || true
-chown -R root:root "$OLLAMA_MODELS" /var/log/supervisor 2>/dev/null || true
+# Create directories if they don't exist (running as root, no chown needed)
+mkdir -p "$NOTEBOOKS_DIR" "$WORKSPACE_DIR" /app/logs "$OLLAMA_MODELS" /var/log/supervisor 2>/dev/null || true
 
 echo "✅ Directories initialized"
 echo ""

@@ -59,9 +59,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy Ollama binary from official Ollama image
 COPY --from=ollama/ollama:latest /bin/ollama /usr/local/bin/ollama
 
-# Create application user
-RUN useradd -m -u 1000 appuser
-
 # Copy Python virtual environment from builder
 COPY --from=backend-builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
@@ -87,15 +84,13 @@ COPY docker/supervisord.conf /etc/supervisor/conf.d/digitalarticle.conf
 COPY docker/entrypoint-unified.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Create directories with proper ownership
+# Create directories (all owned by root since we run as root)
 RUN mkdir -p \
     /app/data/notebooks \
     /app/data/workspace \
     /app/logs \
     /models \
-    /var/log/supervisor \
-    && chown -R appuser:appuser /app \
-    && chown -R root:root /models /var/log/supervisor
+    /var/log/supervisor
 
 # Environment variable defaults
 ENV NOTEBOOKS_DIR=/app/data/notebooks \
