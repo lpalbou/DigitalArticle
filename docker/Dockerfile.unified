@@ -94,7 +94,7 @@ RUN mkdir -p \
     /app/logs \
     /models \
     /var/log/supervisor \
-    && chown -R appuser:appuser /app/data /app/logs /app/backend /app/config.json \
+    && chown -R appuser:appuser /app \
     && chown -R root:root /models /var/log/supervisor
 
 # Environment variable defaults
