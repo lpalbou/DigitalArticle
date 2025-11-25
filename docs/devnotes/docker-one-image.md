@@ -245,8 +245,17 @@ digitalarticle-models:/models/
 
 ### Quick Start
 
+**IMPORTANT**: All docker build commands must be run from the **project root directory** (where `config.json` is located).
+
 ```bash
-# Build the unified image
+# Navigate to project root first
+cd /path/to/DigitalArticle
+
+# Verify you're in the correct directory
+ls config.json frontend/ backend/ docker/
+# Should show all these files/directories
+
+# Build the unified image FROM PROJECT ROOT
 docker build -f docker/Dockerfile.unified -t digitalarticle:unified .
 
 # Run with default configuration
@@ -259,6 +268,8 @@ docker run -d \
 
 # Access at http://localhost
 ```
+
+**For detailed deployment instructions, troubleshooting, and production setup, see**: [`docs/DOCKER-DEPLOYMENT.md`](../DOCKER-DEPLOYMENT.md)
 
 ### Docker Compose (Simplified)
 
