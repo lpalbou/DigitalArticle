@@ -6,8 +6,10 @@ across all API endpoints to prevent state isolation issues.
 """
 
 from .notebook_service import NotebookService
+from ..config import config
 
-# Shared service instances
-notebook_service = NotebookService()
+# Initialize with configured paths (ENV > config.json > default)
+notebooks_dir = config.get_notebooks_dir()
+notebook_service = NotebookService(notebooks_dir=notebooks_dir)
 
 __all__ = ["notebook_service"]

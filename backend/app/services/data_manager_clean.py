@@ -17,42 +17,54 @@ logger = logging.getLogger(__name__)
 
 class DataManager:
     """Manages data files with clean notebook-specific directory structure."""
-    
-    def __init__(self, notebook_id: Optional[str] = None):
+
+    def __init__(self, notebook_id: Optional[str] = None, workspace_root: Optional[str] = None):
         """
         Initialize data manager with structure: backend/notebook_workspace/{notebook_id}/data/
-        
+
         Args:
             notebook_id: Unique identifier for the notebook (generates UUID if None)
+            workspace_root: Custom workspace root path (defaults to config)
         """
         # Generate notebook_id if not provided
         if notebook_id is None:
             notebook_id = str(uuid.uuid4())
-            
+
         self.notebook_id = notebook_id
-        
-        # Clean structure: backend/notebook_workspace/{notebook_id}/data/
-        self.workspace_root = Path(__file__).parent.parent.parent / "notebook_workspace"
+
+        # Use provided workspace_root, or get from config, or fall back to default
+        if workspace_root is None:
+            from ..config import config
+            workspace_root = config.get_workspace_root()
+
+        # Convert to absolute path if relative
+        if not os.path.isabs(workspace_root):
+            project_root = Path(__file__).parent.parent.parent.parent
+            self.workspace_root = project_root / workspace_root
+        else:
+            self.workspace_root = Path(workspace_root)
+
         self.notebook_dir = self.workspace_root / notebook_id
         self.data_dir = self.notebook_dir / "data"
-        
+
         # Create directories
-        self.workspace_root.mkdir(exist_ok=True)
+        self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.notebook_dir.mkdir(exist_ok=True)
         self.data_dir.mkdir(exist_ok=True)
-        
+
         # Set working directory to notebook_dir so 'data/file.csv' works
         os.chdir(str(self.notebook_dir))
-        
+
         logger.info(f"✅ Clean Data Manager initialized:")
+        logger.info(f"   Workspace Root: {self.workspace_root}")
         logger.info(f"   Notebook ID: {self.notebook_id}")
         logger.info(f"   Notebook Dir: {self.notebook_dir}")
         logger.info(f"   Data Dir: {self.data_dir}")
         logger.info(f"   Working Dir: {os.getcwd()}")
-        
+
         # NOTE: Sample data is no longer automatically copied to new notebooks
         # Users must upload their own data files or manually copy sample data if needed
-        
+
         logger.info(f"   Available files: {[f['name'] for f in self.list_available_files()]}")
     
     def _copy_sample_data(self):

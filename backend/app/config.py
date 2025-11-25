@@ -6,6 +6,7 @@ Handles saving and loading project-level configuration including LLM provider se
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -65,6 +66,48 @@ class Config:
             self.data["llm"] = {}
         self.data["llm"]["provider"] = provider
         self.data["llm"]["model"] = model
+        self.save()
+
+    def get_notebooks_dir(self) -> str:
+        """Get notebooks directory path (ENV > config.json > default)."""
+        # Environment variable takes precedence
+        env_path = os.getenv('NOTEBOOKS_DIR')
+        if env_path:
+            return env_path
+
+        # Config file second
+        config_path = self.data.get('paths', {}).get('notebooks_dir')
+        if config_path:
+            return config_path
+
+        # Default last
+        return 'notebooks'
+
+    def get_workspace_root(self) -> str:
+        """Get workspace root directory (ENV > config.json > default)."""
+        # Environment variable takes precedence
+        env_path = os.getenv('WORKSPACE_DIR')
+        if env_path:
+            return env_path
+
+        # Config file second
+        config_path = self.data.get('paths', {}).get('workspace_dir')
+        if config_path:
+            return config_path
+
+        # Default last
+        return 'backend/notebook_workspace'
+
+    def set_paths(self, notebooks_dir: str = None, workspace_dir: str = None) -> None:
+        """Set custom paths in config.json."""
+        if 'paths' not in self.data:
+            self.data['paths'] = {}
+
+        if notebooks_dir:
+            self.data['paths']['notebooks_dir'] = notebooks_dir
+        if workspace_dir:
+            self.data['paths']['workspace_dir'] = workspace_dir
+
         self.save()
 
 
