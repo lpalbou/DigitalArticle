@@ -20,16 +20,8 @@ echo "  Workspace: $WORKSPACE_DIR"
 echo "  Models: $OLLAMA_MODELS"
 echo ""
 
-# Create directories (may be volume mounts)
-for dir in "$NOTEBOOKS_DIR" "$WORKSPACE_DIR" "$OLLAMA_MODELS" /app/logs /var/log/supervisor; do
-    if [ ! -d "$dir" ]; then
-        echo "  Creating: $dir"
-        mkdir -p "$dir"
-    fi
-done
-
-# Create directories if they don't exist (running as root, no chown needed)
-mkdir -p "$NOTEBOOKS_DIR" "$WORKSPACE_DIR" /app/logs "$OLLAMA_MODELS" /var/log/supervisor 2>/dev/null || true
+# Create directories (running as root, no permission issues)
+mkdir -p "$NOTEBOOKS_DIR" "$WORKSPACE_DIR" /app/logs "$OLLAMA_MODELS" /var/log/supervisor
 
 echo "✅ Directories initialized"
 echo ""
