@@ -4,7 +4,7 @@
     "model": "gemma3n:e2b"
   },
   "paths": {
-    "notebooks_dir": "/app/data/notebooks",
-    "workspace_dir": "/app/data/workspace"
+    "notebooks_dir": "data/notebooks",
+    "workspace_dir": "data/workspace"
   }
 }

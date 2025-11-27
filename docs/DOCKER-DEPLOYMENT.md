@@ -236,32 +236,40 @@ docker run -d \
 
 ### Using Different Model
 
-Edit `config.json` before building, or mount a custom config:
+Use environment variables to configure the LLM provider and model at runtime:
 
 ```bash
-# Create custom config
-cat > my-config.json <<'EOF'
-{
-  "llm": {
-    "provider": "ollama",
-    "model": "llama3.2:7b"
-  },
-  "paths": {
-    "notebooks_dir": "/app/data/notebooks",
-    "workspace_dir": "/app/data/workspace"
-  }
-}
-EOF
-
-# Run with custom config
+# Use a different Ollama model
 docker run -d \
   --name digitalarticle \
   -p 80:80 \
   -v digitalarticle-data:/app/data \
   -v digitalarticle-models:/models \
-  -v $(pwd)/my-config.json:/app/config.json \
+  -e LLM_MODEL=llama3.2:7b \
+  digitalarticle:unified
+
+# Use OpenAI instead of Ollama
+docker run -d \
+  --name digitalarticle \
+  -p 80:80 \
+  -v digitalarticle-data:/app/data \
+  -e LLM_PROVIDER=openai \
+  -e LLM_MODEL=gpt-4o \
+  -e OPENAI_API_KEY=sk-your-key-here \
+  digitalarticle:unified
+
+# Use Anthropic
+docker run -d \
+  --name digitalarticle \
+  -p 80:80 \
+  -v digitalarticle-data:/app/data \
+  -e LLM_PROVIDER=anthropic \
+  -e LLM_MODEL=claude-3-5-sonnet-latest \
+  -e ANTHROPIC_API_KEY=sk-ant-your-key-here \
   digitalarticle:unified
 ```
+
+**Note:** When using external providers (openai, anthropic), the bundled Ollama is not started, reducing resource usage.
 
 ---
 
@@ -502,15 +510,60 @@ docker run -d \
 
 ## Environment Variables Reference
 
+### LLM Configuration
+
 | Variable | Purpose | Default | Required |
 |----------|---------|---------|----------|
-| `NOTEBOOKS_DIR` | Notebook JSON storage path | `notebooks` | No |
-| `WORKSPACE_DIR` | Per-notebook workspace root | `backend/notebook_workspace` | No |
+| `LLM_PROVIDER` | LLM provider name (`ollama`, `openai`, `anthropic`, `lmstudio`, `huggingface`) | `ollama` | No |
+| `LLM_MODEL` | Model name for the selected provider | `gemma3n:e2b` | No |
+| `OPENAI_API_KEY` | API key for OpenAI provider | *(empty)* | Only if using OpenAI |
+| `ANTHROPIC_API_KEY` | API key for Anthropic provider | *(empty)* | Only if using Anthropic |
+| `HUGGINGFACE_TOKEN` | Token for HuggingFace (optional for public models) | *(empty)* | No |
+
+### Path Configuration
+
+| Variable | Purpose | Default | Required |
+|----------|---------|---------|----------|
+| `NOTEBOOKS_DIR` | Notebook JSON storage path | `/app/data/notebooks` | No |
+| `WORKSPACE_DIR` | Per-notebook workspace root | `/app/data/workspace` | No |
 | `OLLAMA_MODELS` | Ollama model storage path | `/models` | No |
-| `OLLAMA_BASE_URL` | Ollama API endpoint | `http://localhost:11434` | No |
+| `OLLAMA_BASE_URL` | Ollama API endpoint (for external Ollama) | `http://localhost:11434` | No |
+
+### Runtime Configuration
+
+| Variable | Purpose | Default | Required |
+|----------|---------|---------|----------|
 | `PYTHONUNBUFFERED` | Python unbuffered output | `1` | No |
 | `LOG_LEVEL` | Logging verbosity | `INFO` | No |
 | `CORS_ORIGINS` | CORS allowed origins | `*` | No |
+
+### Provider-Specific Examples
+
+```bash
+# Default: Ollama (bundled)
+docker run -p 80:80 -v data:/app/data digitalarticle:unified
+
+# OpenAI
+docker run -p 80:80 -v data:/app/data \
+    -e LLM_PROVIDER=openai \
+    -e LLM_MODEL=gpt-4o \
+    -e OPENAI_API_KEY=sk-... \
+    digitalarticle:unified
+
+# Anthropic
+docker run -p 80:80 -v data:/app/data \
+    -e LLM_PROVIDER=anthropic \
+    -e LLM_MODEL=claude-3-5-sonnet-latest \
+    -e ANTHROPIC_API_KEY=sk-ant-... \
+    digitalarticle:unified
+
+# External Ollama (e.g., native on Mac for Metal GPU)
+docker run -p 80:80 -v data:/app/data \
+    -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
+    digitalarticle:unified
+```
+
+**Note:** When using external providers (openai, anthropic, lmstudio, huggingface), the bundled Ollama server is not started, saving system resources.
 
 ---
 

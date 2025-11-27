@@ -6,6 +6,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.2.2] - 2025-11-27
+
+### Added
+
+- **🔧 Multi-Provider Docker Support**: Environment variable-driven LLM configuration for all AbstractCore providers
+  - **Provider Selection**: `LLM_PROVIDER` env var supports `ollama`, `openai`, `anthropic`, `lmstudio`, `huggingface`
+  - **Model Configuration**: `LLM_MODEL` env var to specify model name for any provider
+  - **API Key Support**: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `HUGGINGFACE_TOKEN` env vars for external providers
+  - **Smart Startup**: Ollama server only starts when `LLM_PROVIDER=ollama`, saving resources for external providers
+  - Files: `docker/monolithic/entrypoint.sh`, `docker/monolithic/supervisord.conf`, `docker/monolithic/Dockerfile`, `docker/monolithic/Dockerfile.nvidia`
+
+### Enhanced
+
+- **⚙️ Configuration Priority**: ENV > config.json > defaults (follows Docker/12-Factor conventions)
+  - **Environment First**: Environment variables take precedence for container deployments
+  - **Config File Second**: `config.json` used for local development when env vars not set
+  - **Sensible Defaults**: Built-in defaults (`ollama`/`gemma3n:e2b`) when neither env nor config specified
+  - Files: `backend/app/config.py`
+
+- **📁 Local Development Paths**: Updated `config.json` to use relative paths for local development
+  - **Before**: `/app/data/notebooks` (Docker absolute paths)
+  - **After**: `data/notebooks` (relative paths for local dev)
+  - **Rationale**: `config.json` is for local development; Docker uses env vars
+  - Files: `config.json`
+
+- **📖 Docker Documentation**: Comprehensive provider configuration documentation
+  - **Provider Examples**: Usage examples for all supported providers (OpenAI, Anthropic, LMStudio, HuggingFace)
+  - **Environment Reference**: Complete table of all configuration environment variables
+  - **External Ollama**: Updated docs for using native Ollama on host machine
+  - Files: `docker/monolithic/README.md`, `docker/README.md`, `docs/DOCKER-DEPLOYMENT.md`
+
+### Technical Details
+
+**Configuration Priority Chain**:
+```
+1. Environment variables (LLM_PROVIDER, LLM_MODEL, etc.)
+2. config.json file 
+3. Built-in defaults (ollama, gemma3n:e2b)
+```
+
+**Provider-Aware Startup**:
+- If `LLM_PROVIDER=ollama`: Start Ollama, wait for health, pull model
+- If `LLM_PROVIDER=openai|anthropic|lmstudio|huggingface`: Skip Ollama entirely
+
+**Example Usage**:
+```bash
+# OpenAI (no Ollama started)
+docker run -p 80:80 \
+    -e LLM_PROVIDER=openai \
+    -e LLM_MODEL=gpt-4o \
+    -e OPENAI_API_KEY=sk-... \
+    digital-article:unified
+
+# Ollama (default, with bundled server)
+docker run -p 80:80 \
+    -e LLM_MODEL=llama3.2:7b \
+    digital-article:unified
+```
+
 ## [0.2.1] - 2025-11-25
 
 ### Added

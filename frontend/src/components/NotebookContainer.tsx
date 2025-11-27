@@ -178,8 +178,8 @@ const NotebookContainer: React.FC = () => {
       const currentUser = await getCurrentUser()
 
       // Try to get global LLM config, use defaults if it fails
-      let llmProvider = 'lmstudio'
-      let llmModel = 'qwen/qwen3-next-80b'
+      let llmProvider = 'ollama'
+      let llmModel = 'gemma3n:e2b'
 
       try {
         const llmConfig = await llmAPI.getConfig()

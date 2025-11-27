@@ -2,6 +2,11 @@
 Configuration management for Digital Article.
 
 Handles saving and loading project-level configuration including LLM provider settings.
+
+Configuration priority (highest to lowest):
+1. Environment variables (for Docker/container deployments)
+2. config.json file (for local development)
+3. Built-in defaults
 """
 
 import json
@@ -15,9 +20,26 @@ logger = logging.getLogger(__name__)
 # Config file path at project root
 CONFIG_FILE = Path(__file__).parent.parent.parent / "config.json"
 
+# Default values (used when neither env var nor config.json specifies)
+DEFAULT_LLM_PROVIDER = "ollama"
+DEFAULT_LLM_MODEL = "gemma3n:e2b"
+
 
 class Config:
-    """Project-level configuration manager."""
+    """
+    Project-level configuration manager.
+    
+    Priority: ENV > config.json > defaults
+    
+    Environment variables for Docker:
+      - LLM_PROVIDER: LLM provider name (ollama, openai, anthropic, lmstudio, huggingface)
+      - LLM_MODEL: Model name for the selected provider
+      - NOTEBOOKS_DIR: Path to notebooks storage
+      - WORKSPACE_DIR: Path to workspace storage
+      - OPENAI_API_KEY: API key for OpenAI provider
+      - ANTHROPIC_API_KEY: API key for Anthropic provider
+      - HUGGINGFACE_TOKEN: Token for HuggingFace provider
+    """
 
     def __init__(self):
         self.data = self.load()
@@ -47,18 +69,38 @@ class Config:
         """Return default configuration."""
         return {
             "llm": {
-                "provider": "lmstudio",
-                "model": "qwen/qwen3-next-80b"
+                "provider": DEFAULT_LLM_PROVIDER,
+                "model": DEFAULT_LLM_MODEL
             }
         }
 
     def get_llm_provider(self) -> str:
-        """Get configured LLM provider."""
-        return self.data.get("llm", {}).get("provider", "lmstudio")
+        """
+        Get configured LLM provider.
+        
+        Priority: LLM_PROVIDER env var > config.json > default
+        """
+        # Environment variable takes precedence (Docker/container deployments)
+        env_provider = os.getenv('LLM_PROVIDER')
+        if env_provider:
+            return env_provider
+        
+        # Config file second (local development)
+        return self.data.get("llm", {}).get("provider", DEFAULT_LLM_PROVIDER)
 
     def get_llm_model(self) -> str:
-        """Get configured LLM model."""
-        return self.data.get("llm", {}).get("model", "qwen/qwen3-next-80b")
+        """
+        Get configured LLM model.
+        
+        Priority: LLM_MODEL env var > config.json > default
+        """
+        # Environment variable takes precedence (Docker/container deployments)
+        env_model = os.getenv('LLM_MODEL')
+        if env_model:
+            return env_model
+        
+        # Config file second (local development)
+        return self.data.get("llm", {}).get("model", DEFAULT_LLM_MODEL)
 
     def set_llm_config(self, provider: str, model: str) -> None:
         """Set LLM provider and model."""

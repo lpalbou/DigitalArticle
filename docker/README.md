@@ -46,6 +46,45 @@ cd /path/to/digital-article/docker
 docker build -f monolithic/Dockerfile .
 ```
 
+## 🤖 LLM Provider Configuration
+
+The Docker containers support multiple LLM providers. Configuration is done via environment variables (following Docker conventions).
+
+### Supported Providers
+
+| Provider | Type | Notes |
+|----------|------|-------|
+| `ollama` | Local | Default. Bundled in container. |
+| `openai` | External API | Requires `OPENAI_API_KEY` |
+| `anthropic` | External API | Requires `ANTHROPIC_API_KEY` |
+| `lmstudio` | External Server | Runs on your host machine |
+| `huggingface` | External API | Optional `HUGGINGFACE_TOKEN` |
+
+### Quick Examples
+
+```bash
+# Default: Ollama (bundled)
+docker run -p 80:80 -v data:/app/data digital-article:unified
+
+# OpenAI
+docker run -p 80:80 -v data:/app/data \
+    -e LLM_PROVIDER=openai \
+    -e LLM_MODEL=gpt-4o \
+    -e OPENAI_API_KEY=sk-... \
+    digital-article:unified
+
+# Anthropic
+docker run -p 80:80 -v data:/app/data \
+    -e LLM_PROVIDER=anthropic \
+    -e LLM_MODEL=claude-3-5-sonnet-latest \
+    -e ANTHROPIC_API_KEY=sk-ant-... \
+    digital-article:unified
+```
+
+**Note:** When using external providers (openai, anthropic, lmstudio, huggingface), the bundled Ollama server is not started, saving system resources.
+
+See [monolithic/README.md](./monolithic/README.md) for complete configuration options.
+
 ## 🔗 External Ollama (Remote GPU)
 
 By default, the monolithic images include Ollama running inside the container. However, you can point the container to an **external Ollama instance** for better performance or to leverage a remote GPU server.

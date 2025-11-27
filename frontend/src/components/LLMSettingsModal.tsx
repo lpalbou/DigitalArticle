@@ -43,24 +43,26 @@ const LLMSettingsModal: React.FC<LLMSettingsModalProps> = ({ isOpen, onClose, cu
       setProviders(response.data)
 
       // Smart cascading fallback logic for provider/model selection
+      // Priority: ollama > lmstudio > first available
       let selectedProv = null
       let selectedMod = null
 
+      const ollama = response.data.find(p => p.name === 'ollama')
       const lmstudio = response.data.find(p => p.name === 'lmstudio')
 
-      if (lmstudio?.available) {
-        selectedProv = lmstudio.name
-
+      if (ollama?.available && ollama.models.length > 0) {
+        selectedProv = ollama.name
         // Try preferred models in order
-        if (lmstudio.models.includes('qwen/qwen3-next-80b')) {
-          selectedMod = 'qwen/qwen3-next-80b'
-        } else if (lmstudio.models.includes('qwen/qwen3-coder-30b')) {
-          selectedMod = 'qwen/qwen3-coder-30b'
-        } else if (lmstudio.models.length > 0) {
-          selectedMod = lmstudio.models[0]
+        if (ollama.models.includes('gemma3n:e2b')) {
+          selectedMod = 'gemma3n:e2b'
+        } else {
+          selectedMod = ollama.models[0]
         }
+      } else if (lmstudio?.available && lmstudio.models.length > 0) {
+        selectedProv = lmstudio.name
+        selectedMod = lmstudio.models[0]
       } else {
-        // LMStudio not available - use first available provider with first model
+        // Neither ollama nor lmstudio available - use first available provider
         const firstAvailable = response.data.find(p => p.available && p.models.length > 0)
         if (firstAvailable) {
           selectedProv = firstAvailable.name

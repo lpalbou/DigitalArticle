@@ -28,7 +28,7 @@ if [ ! -f /app/config.json ]; then
 {
   "llm": {
     "provider": "ollama",
-    "model": "qwen3-coder:30b"
+    "model": "gemma3n:e2b"
   }
 }
 CONFIGEOF

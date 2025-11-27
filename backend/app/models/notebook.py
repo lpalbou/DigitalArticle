@@ -135,8 +135,8 @@ class Notebook(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     
     # Configuration
-    llm_model: str = "qwen/qwen3-next-80b"
-    llm_provider: str = "lmstudio"
+    llm_model: str = "gemma3n:e2b"
+    llm_provider: str = "ollama"
     custom_seed: Optional[int] = None  # User-defined seed for reproducibility
 
     # Token tracking
@@ -246,8 +246,8 @@ class NotebookCreateRequest(BaseModel):
     title: str = "Untitled Digital Article"
     description: str = ""
     author: str = ""
-    llm_model: str = "qwen/qwen3-next-80b"
-    llm_provider: str = "lmstudio"
+    llm_model: str = "gemma3n:e2b"
+    llm_provider: str = "ollama"
 
 
 class NotebookUpdateRequest(BaseModel):

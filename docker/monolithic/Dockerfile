@@ -93,7 +93,12 @@ RUN mkdir -p \
     /var/log/supervisor
 
 # Environment variable defaults
-ENV NOTEBOOKS_DIR=/app/data/notebooks \
+# LLM Configuration (can be overridden at runtime with -e)
+# Note: API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, HUGGINGFACE_TOKEN) 
+# should be passed at runtime via -e, not baked into image
+ENV LLM_PROVIDER=ollama \
+    LLM_MODEL=gemma3n:e2b \
+    NOTEBOOKS_DIR=/app/data/notebooks \
     WORKSPACE_DIR=/app/data/workspace \
     OLLAMA_MODELS=/models \
     OLLAMA_BASE_URL=http://localhost:11434 \

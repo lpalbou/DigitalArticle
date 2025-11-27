@@ -90,7 +90,7 @@ Then open [http://localhost:3000](http://localhost:3000)
 When running locally, the `config.json` at the root should use relative paths:
 ```json
 {
-  "llm": { "provider": "ollama", "model": "qwen3-coder:30b" },
+  "llm": { "provider": "ollama", "model": "gemma3n:e2b" },
   "paths": {
     "notebooks_dir": "data/notebooks",
     "workspace_dir": "data/workspace"
