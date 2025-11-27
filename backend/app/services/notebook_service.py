@@ -54,7 +54,14 @@ class NotebookService:
             else:
                 self.notebooks_dir = Path(notebooks_dir)
                 
-            self.notebooks_dir.mkdir(exist_ok=True)
+            try:
+                self.notebooks_dir.mkdir(exist_ok=True, parents=True)
+            except PermissionError:
+                # In Docker, the directory might be a volume owned by root
+                # but mounted correctly. If it exists, we proceed.
+                if not self.notebooks_dir.exists():
+                    raise
+            
             logger.info(f"✅ Notebook service using directory: {self.notebooks_dir}")
             
             # Initialize services
