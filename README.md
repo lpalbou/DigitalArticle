@@ -72,7 +72,9 @@ npm install
 cd ..
 ```
 
-### Start the Application
+### Start the Application (Local)
+
+To run the application locally (e.g., on your Mac/PC):
 
 ```bash
 # Terminal 1: Backend
@@ -84,27 +86,54 @@ da-frontend
 
 Then open [http://localhost:3000](http://localhost:3000)
 
-**Full setup guide**: See [Getting Started](docs/getting-started.md)
-
-### Docker Deployment (Recommended for Production)
-
-For a containerized deployment with Ollama LLM:
-
-```bash
-# Build and start all services (frontend, backend, ollama)
-docker-compose up -d
-
-# Model downloads automatically from config.json (10-30 minutes for qwen3-coder:30b)
-# Monitor progress: docker-compose logs -f ollama
-
-# Access application when ready
-open http://localhost
+#### Configuration (`config.json`)
+When running locally, the `config.json` at the root should use relative paths:
+```json
+{
+  "llm": { "provider": "ollama", "model": "qwen3-coder:30b" },
+  "paths": {
+    "notebooks_dir": "data/notebooks",
+    "workspace_dir": "data/workspace"
+  }
+}
 ```
 
-**System Requirements**:
-- 16-32GB RAM (for qwen3-coder:30b model)
-- 25GB disk space
-- Docker 20.10+ with Compose v2
+**Full setup guide**: See [Getting Started](docs/getting-started.md)
+
+### Docker Deployment
+
+We provide **Monolithic** (single container) and **3-Tier** (microservices) deployment options.
+
+#### Option A: Monolithic (Simplest)
+Best for quick deployment or platforms that accept a single Dockerfile (Render, Railway).
+
+1. **Copy the appropriate Dockerfile to root:**
+   ```bash
+   # For Apple Silicon (Mac M1/M2/M3)
+   cp docker/monolithic/Dockerfile.apple Dockerfile
+   
+   # For Standard CPU (Linux/Intel)
+   cp docker/monolithic/Dockerfile Dockerfile
+   
+   # For NVIDIA GPU
+   cp docker/monolithic/Dockerfile.nvidia Dockerfile
+   ```
+
+2. **Build and Run:**
+   ```bash
+   docker build -t digital-article .
+   docker run -p 80:80 -v ./data:/app/data digital-article
+   ```
+
+#### Option B: 3-Tier (Docker Compose)
+Best for development and production flexibility.
+
+```bash
+docker compose up -d
+```
+
+**Note on Docker Paths:**
+When running in Docker, the container uses environment variables to override paths, so they point to absolute paths inside the container (e.g., `/app/data/notebooks`). You do not need to change `config.json` manually for Docker; the image handles it.
 
 **Full Docker guide**: See [docker/README.md](docker/README.md)
 
