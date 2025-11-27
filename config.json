@@ -1,7 +1,7 @@
 {
   "llm": {
     "provider": "ollama",
-    "model": "qwen3:4b"
+    "model": "gemma3n:e2b"
   },
   "paths": {
     "notebooks_dir": "/app/data/notebooks",

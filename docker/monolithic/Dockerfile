@@ -76,12 +76,12 @@ COPY backend/ ./backend/
 COPY config.json ./config.json
 
 # Copy configuration files
-COPY docker/nginx-unified.conf /etc/nginx/conf.d/default.conf
+COPY docker/monolithic/nginx.conf /etc/nginx/conf.d/default.conf
 RUN rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default 2>/dev/null || true
 
-COPY docker/supervisord.conf /etc/supervisor/conf.d/digitalarticle.conf
+COPY docker/monolithic/supervisord.conf /etc/supervisor/conf.d/digitalarticle.conf
 
-COPY docker/entrypoint-unified.sh /entrypoint.sh
+COPY docker/monolithic/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Create directories (all owned by root since we run as root)
@@ -98,7 +98,8 @@ ENV NOTEBOOKS_DIR=/app/data/notebooks \
     OLLAMA_MODELS=/models \
     OLLAMA_BASE_URL=http://localhost:11434 \
     PYTHONUNBUFFERED=1 \
-    LOG_LEVEL=INFO
+    LOG_LEVEL=INFO \
+    DIGITAL_ARTICLE_VARIANT="Standard (CPU)"
 
 # Expose port
 EXPOSE 80

@@ -1,12 +1,9 @@
 # ============================================
-# Dockerfile for Apple Silicon (ARM64)
+# Dockerfile for CPU-Only
 # ============================================
-# Optimized for: Apple M1/M2/M3 chips
-# Note: Docker on macOS runs in a Linux VM.
-# It uses the CPU (ARM64) natively but cannot access 
-# the Neural Engine or GPU (Metal) directly.
-# This image is identical to the CPU image but
-# validated for ARM64 architecture.
+# Optimized for: Standard x86_64 CPUs (Intel/AMD)
+# Usage: Best for servers without GPUs or local
+# machines without dedicated graphics.
 # ============================================
 
 # ============================================
@@ -15,12 +12,8 @@
 FROM node:20-alpine AS frontend-builder
 
 WORKDIR /build
-
-# Install dependencies
 COPY frontend/package*.json ./
 RUN npm ci
-
-# Build production bundle
 COPY frontend/ .
 RUN npm run build
 
@@ -29,16 +22,13 @@ RUN npm run build
 # ============================================
 FROM python:3.12-slim AS backend-builder
 
-# Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc g++ libpq-dev git \
     && rm -rf /var/lib/apt/lists/*
 
-# Create virtual environment
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install Python dependencies
 WORKDIR /build
 COPY backend/pyproject.toml ./
 COPY backend/app ./app
@@ -50,10 +40,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # ============================================
 FROM python:3.12-slim
 
-LABEL org.opencontainers.image.title="Digital Article - Apple Silicon"
-LABEL org.opencontainers.image.description="Optimized for ARM64 CPU execution"
+LABEL org.opencontainers.image.title="Digital Article - CPU"
+LABEL org.opencontainers.image.description="Standard CPU-only execution"
 
-# Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     nginx \
@@ -61,17 +50,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Ollama binary (Multi-arch: pulls arm64 binary on Apple Silicon)
 COPY --from=ollama/ollama:latest /bin/ollama /usr/local/bin/ollama
 
-# Copy Python virtual environment
 COPY --from=backend-builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy frontend build
 COPY --from=frontend-builder /build/dist /usr/share/nginx/html
 
-# Application Setup
 WORKDIR /app
 COPY backend/ ./backend/
 COPY config.json ./config.json
@@ -81,17 +66,15 @@ COPY docker/monolithic/supervisord.conf /etc/supervisor/conf.d/digitalarticle.co
 COPY docker/monolithic/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Create directories
 RUN mkdir -p /app/data/notebooks /app/data/workspace /app/logs /models /var/log/supervisor
 
-# Environment
 ENV NOTEBOOKS_DIR=/app/data/notebooks \
     WORKSPACE_DIR=/app/data/workspace \
     OLLAMA_MODELS=/models \
     OLLAMA_BASE_URL=http://localhost:11434 \
     PYTHONUNBUFFERED=1 \
     LOG_LEVEL=INFO \
-    DIGITAL_ARTICLE_VARIANT="Apple Silicon (ARM64)"
+    DIGITAL_ARTICLE_VARIANT="Standard (CPU)"
 
 EXPOSE 80
 

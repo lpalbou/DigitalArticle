@@ -8,7 +8,7 @@ services:
     volumes:
       - ollama-models:/root/.ollama
       - ./config.json:/config.json:ro  # Mount config for model detection
-      - ./docker/ollama-entrypoint.sh:/entrypoint.sh:ro  # Custom entrypoint
+      - ./docker/3-tiers/entrypoint.ollama.sh:/entrypoint.sh:ro  # Custom entrypoint
     entrypoint: ["/bin/bash", "/entrypoint.sh"]
     restart: unless-stopped
     healthcheck:
@@ -38,7 +38,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: docker/Dockerfile.backend
+      dockerfile: docker/3-tiers/Dockerfile.backend
     container_name: digitalarticle-backend
     ports:
       - "8000:8000"
@@ -77,7 +77,7 @@ services:
   frontend:
     build:
       context: .
-      dockerfile: docker/Dockerfile.frontend
+      dockerfile: docker/3-tiers/Dockerfile.frontend
     container_name: digitalarticle-frontend
     ports:
       - "80:80"
