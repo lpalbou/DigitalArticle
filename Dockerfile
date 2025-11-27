@@ -1,12 +1,11 @@
 # ============================================
-# Dockerfile for Apple Silicon (ARM64)
+# Dockerfile for NVIDIA GPU (CUDA)
 # ============================================
-# Optimized for: Apple M1/M2/M3 chips
-# Note: Docker on macOS runs in a Linux VM.
-# It uses the CPU (ARM64) natively but cannot access 
-# the Neural Engine or GPU (Metal) directly.
-# This image is identical to the CPU image but
-# validated for ARM64 architecture.
+# Optimized for: Systems with NVIDIA GPUs
+# Base: nvidia/cuda:12.2.2-runtime-ubuntu22.04
+# Requirements: Host must have NVIDIA Drivers
+# and NVIDIA Container Toolkit installed.
+# Run with: --gpus all
 # ============================================
 
 # ============================================
@@ -15,27 +14,31 @@
 FROM node:20-alpine AS frontend-builder
 
 WORKDIR /build
-
-# Install dependencies
 COPY frontend/package*.json ./
 RUN npm ci
-
-# Build production bundle
 COPY frontend/ .
 RUN npm run build
 
 # ============================================
-# Stage 2: Backend Build
+# Stage 2: Backend Build (Ubuntu-based)
 # ============================================
-FROM python:3.12-slim AS backend-builder
+# We use the same base OS (Ubuntu 22.04) for building to ensure
+# C-extensions (like pandas/numpy) are compatible with runtime.
+FROM ubuntu:22.04 AS backend-builder
 
-# Install build dependencies
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies and Python 3.12
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ libpq-dev git \
+    software-properties-common \
+    gcc g++ libpq-dev git curl \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y python3.12 python3.12-venv python3.12-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Create virtual environment
-RUN python -m venv /opt/venv
+RUN python3.12 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Install Python dependencies
@@ -46,25 +49,35 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
 # ============================================
-# Stage 3: Runtime Image
+# Stage 3: Runtime Image (NVIDIA CUDA)
 # ============================================
-FROM python:3.12-slim
+FROM nvidia/cuda:12.2.2-runtime-ubuntu22.04
 
-LABEL org.opencontainers.image.title="Digital Article - Apple Silicon"
-LABEL org.opencontainers.image.description="Optimized for ARM64 CPU execution"
+LABEL org.opencontainers.image.title="Digital Article - NVIDIA CUDA"
+LABEL org.opencontainers.image.description="GPU-accelerated execution with NVIDIA CUDA"
 
-# Install runtime dependencies
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install runtime dependencies & Python 3.12
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
     libpq-dev \
     nginx \
     supervisor \
     curl ca-certificates \
+    # Install Python 3.12
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y python3.12 python3.12-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Ollama binary (Multi-arch: pulls arm64 binary on Apple Silicon)
+# Set python (not python3) to point to python3.12 to avoid breaking system tools
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
+
+# Copy Ollama binary
 COPY --from=ollama/ollama:latest /bin/ollama /usr/local/bin/ollama
 
-# Copy Python virtual environment
+# Copy Python virtual environment from backend-builder
 COPY --from=backend-builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
@@ -91,7 +104,10 @@ ENV NOTEBOOKS_DIR=/app/data/notebooks \
     OLLAMA_BASE_URL=http://localhost:11434 \
     PYTHONUNBUFFERED=1 \
     LOG_LEVEL=INFO \
-    DIGITAL_ARTICLE_VARIANT="Apple Silicon (ARM64)"
+    DIGITAL_ARTICLE_VARIANT="NVIDIA CUDA (GPU)" \
+    # NVIDIA specific
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 EXPOSE 80
 
