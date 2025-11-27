@@ -8,7 +8,6 @@ This directory contains Docker configurations for deploying Digital Article. We 
 docker/
 ├── monolithic/       # All-in-One Images (Best for simple deployment)
 │   ├── Dockerfile          # Standard/CPU Image
-│   ├── Dockerfile.apple    # Optimized for Apple Silicon
 │   └── Dockerfile.nvidia   # Optimized for NVIDIA GPU
 │
 └── 3-tiers/          # Multi-Container Setup (Best for Dev/Prod)
@@ -46,4 +45,35 @@ docker build -f docker/monolithic/Dockerfile .
 cd /path/to/digital-article/docker
 docker build -f monolithic/Dockerfile .
 ```
+
+## 🔗 External Ollama (Remote GPU)
+
+By default, the monolithic images include Ollama running inside the container. However, you can point the container to an **external Ollama instance** for better performance or to leverage a remote GPU server.
+
+Use the `OLLAMA_BASE_URL` environment variable:
+
+```bash
+# Use native Ollama on your Mac (recommended for Apple Silicon)
+docker run -d --name digital-article -p 80:80 \
+    -v digital-article-data:/app/data \
+    -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
+    digital-article:latest
+
+# Use a remote GPU server
+docker run -d --name digital-article -p 80:80 \
+    -v digital-article-data:/app/data \
+    -e OLLAMA_BASE_URL=http://192.168.1.100:11434 \
+    digital-article:latest
+
+# Use a cloud-hosted Ollama instance
+docker run -d --name digital-article -p 80:80 \
+    -v digital-article-data:/app/data \
+    -e OLLAMA_BASE_URL=http://ollama.mycompany.com:11434 \
+    digital-article:latest
+```
+
+**Notes:**
+- `host.docker.internal` is Docker Desktop's special DNS to reach the host machine from inside a container.
+- For remote servers, ensure Ollama is bound to `0.0.0.0` (not `127.0.0.1`) and the port is accessible through firewalls.
+- This pattern allows running the lightweight frontend/backend anywhere while offloading GPU inference to a dedicated machine.
 

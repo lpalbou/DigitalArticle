@@ -1,11 +1,9 @@
 # ============================================
-# Dockerfile for NVIDIA GPU (CUDA)
+# Dockerfile for CPU-Only
 # ============================================
-# Optimized for: Systems with NVIDIA GPUs
-# Base: nvidia/cuda:12.2.2-runtime-ubuntu22.04
-# Requirements: Host must have NVIDIA Drivers
-# and NVIDIA Container Toolkit installed.
-# Run with: --gpus all
+# Optimized for: Standard x86_64 CPUs (Intel/AMD)
+# Usage: Best for servers without GPUs or local
+# machines without dedicated graphics.
 # ============================================
 
 # ============================================
@@ -20,28 +18,17 @@ COPY frontend/ .
 RUN npm run build
 
 # ============================================
-# Stage 2: Backend Build (Ubuntu-based)
+# Stage 2: Backend Build
 # ============================================
-# We use the same base OS (Ubuntu 22.04) for building to ensure
-# C-extensions (like pandas/numpy) are compatible with runtime.
-FROM ubuntu:22.04 AS backend-builder
+FROM python:3.12-slim AS backend-builder
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install build dependencies and Python 3.12
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
-    gcc g++ libpq-dev git curl \
-    && add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get update \
-    && apt-get install -y python3.12 python3.12-venv python3.12-dev \
+    gcc g++ libpq-dev git \
     && rm -rf /var/lib/apt/lists/*
 
-# Create virtual environment
-RUN python3.12 -m venv /opt/venv
+RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install Python dependencies
 WORKDIR /build
 COPY backend/pyproject.toml ./
 COPY backend/app ./app
@@ -49,42 +36,27 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
 # ============================================
-# Stage 3: Runtime Image (NVIDIA CUDA)
+# Stage 3: Runtime Image
 # ============================================
-FROM nvidia/cuda:12.2.2-runtime-ubuntu22.04
+FROM python:3.12-slim
 
-LABEL org.opencontainers.image.title="Digital Article - NVIDIA CUDA"
-LABEL org.opencontainers.image.description="GPU-accelerated execution with NVIDIA CUDA"
+LABEL org.opencontainers.image.title="Digital Article - CPU"
+LABEL org.opencontainers.image.description="Standard CPU-only execution"
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install runtime dependencies & Python 3.12
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
     libpq-dev \
     nginx \
     supervisor \
     curl ca-certificates \
-    # Install Python 3.12
-    && add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get update \
-    && apt-get install -y python3.12 python3.12-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# Set python (not python3) to point to python3.12 to avoid breaking system tools
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
-
-# Copy Ollama binary
 COPY --from=ollama/ollama:latest /bin/ollama /usr/local/bin/ollama
 
-# Copy Python virtual environment from backend-builder
 COPY --from=backend-builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy frontend build
 COPY --from=frontend-builder /build/dist /usr/share/nginx/html
 
-# Application Setup
 WORKDIR /app
 COPY backend/ ./backend/
 COPY config.json ./config.json
@@ -94,20 +66,15 @@ COPY docker/monolithic/supervisord.conf /etc/supervisor/conf.d/digitalarticle.co
 COPY docker/monolithic/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Create directories
 RUN mkdir -p /app/data/notebooks /app/data/workspace /app/logs /models /var/log/supervisor
 
-# Environment
 ENV NOTEBOOKS_DIR=/app/data/notebooks \
     WORKSPACE_DIR=/app/data/workspace \
     OLLAMA_MODELS=/models \
     OLLAMA_BASE_URL=http://localhost:11434 \
     PYTHONUNBUFFERED=1 \
     LOG_LEVEL=INFO \
-    DIGITAL_ARTICLE_VARIANT="NVIDIA CUDA (GPU)" \
-    # NVIDIA specific
-    NVIDIA_VISIBLE_DEVICES=all \
-    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    DIGITAL_ARTICLE_VARIANT="Standard (CPU)"
 
 EXPOSE 80
 
