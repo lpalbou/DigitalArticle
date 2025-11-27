@@ -1,0 +1,111 @@
+# ============================================
+# Multi-stage Dockerfile for Digital Article
+# Unified container with Ollama + Backend + Frontend
+# ============================================
+
+# ============================================
+# Stage 1: Frontend Build
+# ============================================
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /build
+
+# Install dependencies
+COPY frontend/package*.json ./
+RUN npm ci
+
+# Build production bundle
+COPY frontend/ .
+RUN npm run build
+
+# ============================================
+# Stage 2: Backend Build
+# ============================================
+FROM python:3.12-slim AS backend-builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ libpq-dev git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install Python dependencies
+WORKDIR /build
+COPY backend/pyproject.toml ./
+COPY backend/app ./app
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir .
+
+# ============================================
+# Stage 3: Runtime Image
+# ============================================
+FROM python:3.12-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Python runtime
+    libpq-dev \
+    # Nginx
+    nginx \
+    # Supervisor
+    supervisor \
+    # Utils
+    curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Ollama binary from official Ollama image
+COPY --from=ollama/ollama:latest /bin/ollama /usr/local/bin/ollama
+
+# Copy Python virtual environment from builder
+COPY --from=backend-builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy frontend build from builder
+COPY --from=frontend-builder /build/dist /usr/share/nginx/html
+
+# Set up application directory
+WORKDIR /app
+
+# Copy backend application
+COPY backend/ ./backend/
+
+# Copy default configuration
+COPY config.json ./config.json
+
+# Copy configuration files
+COPY docker/nginx-unified.conf /etc/nginx/conf.d/default.conf
+RUN rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default 2>/dev/null || true
+
+COPY docker/supervisord.conf /etc/supervisor/conf.d/digitalarticle.conf
+
+COPY docker/entrypoint-unified.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Create directories (all owned by root since we run as root)
+RUN mkdir -p \
+    /app/data/notebooks \
+    /app/data/workspace \
+    /app/logs \
+    /models \
+    /var/log/supervisor
+
+# Environment variable defaults
+ENV NOTEBOOKS_DIR=/app/data/notebooks \
+    WORKSPACE_DIR=/app/data/workspace \
+    OLLAMA_MODELS=/models \
+    OLLAMA_BASE_URL=http://localhost:11434 \
+    PYTHONUNBUFFERED=1 \
+    LOG_LEVEL=INFO
+
+# Expose port
+EXPOSE 80
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:80/health || exit 1
+
+# Run entrypoint script
+ENTRYPOINT ["/entrypoint.sh"]
