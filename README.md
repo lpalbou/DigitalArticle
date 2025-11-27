@@ -109,9 +109,6 @@ Best for quick deployment or platforms that accept a single Dockerfile (Render, 
 
 1. **Copy the appropriate Dockerfile to root:**
    ```bash
-   # For Apple Silicon (Mac M1/M2/M3)
-   cp docker/monolithic/Dockerfile.apple Dockerfile
-   
    # For Standard CPU (Linux/Intel)
    cp docker/monolithic/Dockerfile Dockerfile
    
@@ -124,6 +121,31 @@ Best for quick deployment or platforms that accept a single Dockerfile (Render, 
    docker build -t digital-article .
    docker run -p 80:80 -v ./data:/app/data digital-article
    ```
+
+#### ⚡ Performance on Apple Silicon (M1/M2/M3)
+
+Docker on macOS runs in a Linux VM and **cannot access the Neural Engine or GPU directly** due to architectural limitations of the Apple Virtualization Framework. This causes the built-in Ollama to run on CPU emulation, which is significantly slower (e.g., 34s vs 7s for generation).
+
+**To get native performance (7s) with Docker:**
+1. Run Ollama natively on your Mac (installs globally):
+   ```bash
+   ollama serve
+   ```
+2. Run the **Standard CPU** container but point it to your host's Ollama:
+   ```bash
+   # 1. Copy the generic CPU Dockerfile
+   cp docker/monolithic/Dockerfile Dockerfile
+   
+   # 2. Build
+   docker build -t digital-article .
+   
+   # 3. Run with host.docker.internal
+   docker run -p 80:80 \
+     -v ./data:/app/data \
+     -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
+     digital-article
+   ```
+   *Note: This "Hybrid Approach" gives you container isolation for the app while leveraging your Mac's full hardware acceleration for AI.*
 
 #### Option B: 3-Tier (Docker Compose)
 Best for development and production flexibility.
