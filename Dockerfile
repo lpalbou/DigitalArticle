@@ -2,6 +2,14 @@
 # Multi-stage Dockerfile for Digital Article
 # Unified container with Ollama + Backend + Frontend
 # ============================================
+#
+# NOTE: This file is a copy of docker/monolithic/Dockerfile
+# placed at root for PaaS platforms (Railway, Render, etc.)
+# that require Dockerfile at repo root.
+#
+# The canonical source is docker/monolithic/Dockerfile.
+# Keep both files in sync when making changes.
+# ============================================
 
 # ============================================
 # Stage 1: Frontend Build
@@ -89,7 +97,8 @@ RUN mkdir -p \
     /app/data/notebooks \
     /app/data/workspace \
     /app/logs \
-    /models \
+    /models/ollama \
+    /models/huggingface \
     /var/log/supervisor
 
 # Environment variable defaults
@@ -100,8 +109,10 @@ ENV LLM_PROVIDER=ollama \
     LLM_MODEL=gemma3n:e2b \
     NOTEBOOKS_DIR=/app/data/notebooks \
     WORKSPACE_DIR=/app/data/workspace \
-    OLLAMA_MODELS=/models \
+    OLLAMA_MODELS=/models/ollama \
+    HF_HOME=/models/huggingface \
     OLLAMA_BASE_URL=http://localhost:11434 \
+    LMSTUDIO_BASE_URL=http://localhost:1234/v1 \
     PYTHONUNBUFFERED=1 \
     LOG_LEVEL=INFO \
     DIGITAL_ARTICLE_VARIANT="Standard (CPU)"

@@ -65,6 +65,19 @@ To enable GPU support for Ollama in the 3-tier setup, uncomment the GPU section 
 *   `entrypoint.ollama.sh`: Custom entrypoint for Ollama container.
 *   `nginx.conf`: Nginx configuration for the Frontend container.
 
+## Volumes
+
+The 3-tier setup uses named volumes for persistence:
+
+| Volume | Mount Point | Purpose |
+|--------|-------------|---------|
+| `notebooks-data` | `/app/notebooks` | Notebook files |
+| `app-data` | `/app/data` | Workspace and user data |
+| `ollama-models` | `/root/.ollama` | Ollama model cache |
+| `huggingface-models` | `/models/huggingface` | HuggingFace model cache (`HF_HOME`) |
+
+Models are cached in volumes to avoid re-downloading on container restart.
+
 ## Development
 
 This setup is ideal for development because:

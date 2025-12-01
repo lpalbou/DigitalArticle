@@ -87,6 +87,8 @@ docker run -p 80:80 \
     digital-article:unified
 ```
 
+> **Volume Note:** The `/models` directory contains subdirectories for each provider (`/models/ollama`, `/models/huggingface`). Using a single volume for both ensures persistent model caching.
+
 By default, the container:
 - Starts the bundled Ollama server
 - Pulls the configured model (default: `gemma3n:e2b`)
@@ -139,13 +141,14 @@ docker run -p 80:80 \
 ```bash
 docker run -p 80:80 \
     -v digital-article-data:/app/data \
+    -v digital-article-models:/models \
     -e LLM_PROVIDER=huggingface \
     -e LLM_MODEL=Qwen/Qwen2.5-Coder-32B-Instruct \
     -e HUGGINGFACE_TOKEN=hf_your_token \
     digital-article:unified
 ```
 
-**Note:** HuggingFace runs models locally inside the container. Ensure sufficient RAM/VRAM for your chosen model.
+**Note:** HuggingFace runs models locally inside the container. Models are cached in `/models/huggingface` (set via `HF_HOME`). Ensure sufficient RAM/VRAM for your chosen model. Models can be downloaded via the Settings UI or will be auto-downloaded on first use.
 
 ### Using External Ollama (e.g., Native on Mac)
 
@@ -175,7 +178,8 @@ docker run -p 80:80 \
 | **Path Configuration** | | |
 | `NOTEBOOKS_DIR` | Path to notebooks storage | `/app/data/notebooks` |
 | `WORKSPACE_DIR` | Path to workspace storage | `/app/data/workspace` |
-| `OLLAMA_MODELS` | Path to Ollama model storage | `/models` |
+| `OLLAMA_MODELS` | Path to Ollama model storage | `/models/ollama` |
+| `HF_HOME` | Path to HuggingFace model cache | `/models/huggingface` |
 | `OLLAMA_BASE_URL` | Ollama API endpoint (for external Ollama) | `http://localhost:11434` |
 | `LMSTUDIO_BASE_URL` | LMStudio API endpoint (for external LMStudio) | `http://localhost:1234/v1` |
 | **Runtime** | | |
@@ -190,7 +194,8 @@ The monolithic container uses `supervisord` to manage multiple processes:
 
 Data is persisted in volumes:
 - `/app/data`: Notebooks and workspace files.
-- `/models`: Large LLM model files (cached, only used with Ollama).
+- `/models/ollama`: Ollama model files (cached).
+- `/models/huggingface`: HuggingFace model cache (via `HF_HOME`).
 
 ## Configuration Priority
 

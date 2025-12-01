@@ -47,11 +47,22 @@ services:
       - notebooks-data:/app/notebooks
       - app-data:/app/data
       - backend-logs:/app/logs
+      - huggingface-models:/models/huggingface  # HuggingFace model cache
       # Config is baked into image, no mount needed
     environment:
+      # LLM Configuration (override with: docker compose up -e LLM_PROVIDER=openai ...)
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_MODEL=${LLM_MODEL:-gemma3n:e2b}
       - OLLAMA_BASE_URL=http://ollama:11434
+      - LMSTUDIO_BASE_URL=${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
+      - HF_HOME=/models/huggingface
+      # API Keys (pass at runtime: docker compose up -e OPENAI_API_KEY=sk-...)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN:-}
+      # Runtime
       - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=INFO
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - CORS_ORIGINS=*  # Allow all origins (dev/testing). For production, set to specific domain
     # depends_on removed - backend can start without Ollama for testing
     # Backend will log LLM errors if Ollama not available (graceful degradation)
@@ -98,6 +109,8 @@ volumes:
   # Named volumes (auto-created by Docker, no manual directory creation required)
   ollama-models:
     name: digitalarticle-ollama-models
+  huggingface-models:
+    name: digitalarticle-huggingface-models
   notebooks-data:
     name: digitalarticle-notebooks
   app-data:

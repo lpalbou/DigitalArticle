@@ -13,7 +13,7 @@ import logging
 import os
 from pathlib import Path
 
-from .api import cells, notebooks, llm, files, system, ai_code_fix, chat
+from .api import cells, notebooks, llm, files, system, ai_code_fix, chat, settings, models
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +79,8 @@ app.include_router(files.router, prefix="/api/files", tags=["files"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
 app.include_router(ai_code_fix.router, prefix="/api/cells", tags=["ai-code-fix"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(settings.router, prefix="/api", tags=["settings"])
+app.include_router(models.router, prefix="/api", tags=["models"])
 
 @app.get("/")
 async def root():

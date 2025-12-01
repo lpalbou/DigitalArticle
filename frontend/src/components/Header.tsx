@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BookOpen, Plus, Save, Download, AlertTriangle, ChevronDown, Settings } from 'lucide-react'
-import LLMSettingsModal from './LLMSettingsModal'
+import SettingsModal from './SettingsModal'
 import ArticleQuickAccess from './ArticleQuickAccess'
 import ArticleBrowserModal from './ArticleBrowserModal'
 
@@ -76,11 +76,10 @@ const Header: React.FC<HeaderProps> = ({
             <div className="flex items-center space-x-3">
               <button
                 onClick={() => setShowSettingsModal(true)}
-                className="btn btn-secondary flex items-center space-x-2"
-                title="LLM Provider Settings"
+                className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Settings"
               >
-                <Settings className="h-4 w-4" />
-                <span>Settings</span>
+                <Settings className="h-5 w-5" />
               </button>
 
               <button
@@ -207,10 +206,9 @@ const Header: React.FC<HeaderProps> = ({
 
       {/* Settings Modal */}
       {showSettingsModal && (
-        <LLMSettingsModal
+        <SettingsModal
           isOpen={showSettingsModal}
           onClose={() => setShowSettingsModal(false)}
-          currentNotebookId={currentNotebookId}
         />
       )}
 

@@ -51,8 +51,11 @@ COPY docker/3-tiers/entrypoint.backend.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Create directories for persistence (with correct ownership)
-RUN mkdir -p /app/notebooks /app/data /app/logs && \
-    chown -R appuser:appuser /app
+RUN mkdir -p /app/notebooks /app/data /app/logs /models/huggingface && \
+    chown -R appuser:appuser /app /models
+
+# Environment variables
+ENV HF_HOME=/models/huggingface
 
 # Switch to non-root user
 USER appuser

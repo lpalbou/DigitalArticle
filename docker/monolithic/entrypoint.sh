@@ -15,7 +15,8 @@ export LLM_PROVIDER="${LLM_PROVIDER:-ollama}"
 export LLM_MODEL="${LLM_MODEL:-gemma3n:e2b}"
 export NOTEBOOKS_DIR="${NOTEBOOKS_DIR:-/app/data/notebooks}"
 export WORKSPACE_DIR="${WORKSPACE_DIR:-/app/data/workspace}"
-export OLLAMA_MODELS="${OLLAMA_MODELS:-/models}"
+export OLLAMA_MODELS="${OLLAMA_MODELS:-/models/ollama}"
+export HF_HOME="${HF_HOME:-/models/huggingface}"
 
 # API keys - default to empty if not provided (for supervisord compatibility)
 export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
