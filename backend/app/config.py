@@ -36,6 +36,8 @@ class Config:
       - LLM_MODEL: Model name for the selected provider
       - NOTEBOOKS_DIR: Path to notebooks storage
       - WORKSPACE_DIR: Path to workspace storage
+      - OLLAMA_BASE_URL: Base URL for Ollama server (default: http://localhost:11434)
+      - LMSTUDIO_BASE_URL: Base URL for LMStudio server (default: http://localhost:1234/v1)
       - OPENAI_API_KEY: API key for OpenAI provider
       - ANTHROPIC_API_KEY: API key for Anthropic provider
       - HUGGINGFACE_TOKEN: Token for HuggingFace provider

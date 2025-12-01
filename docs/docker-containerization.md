@@ -1,6 +1,11 @@
 # Digital Article - Docker Containerization Guide
 
-This guide explains how Digital Article is containerized, how the architecture is organized, and how to deploy it using both Docker CLI and Docker Desktop.
+> **📋 Looking for deployment instructions?** See:
+> - [`docker/README.md`](../docker/README.md) - Overview and which option to choose
+> - [`docker/monolithic/README.md`](../docker/monolithic/README.md) - Single container deployment
+> - [`docker/3-tiers/README.md`](../docker/3-tiers/README.md) - Multi-container deployment
+
+This document explains the **architecture and design decisions** behind Digital Article's containerization. It's intended for developers who want to understand the system internals, not for end-user deployment.
 
 ## 📐 Architecture Overview
 

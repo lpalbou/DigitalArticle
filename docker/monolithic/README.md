@@ -68,6 +68,16 @@ Some deployment platforms (like Railway, Render, or specific CI/CD pipelines) ex
 
 The container supports multiple LLM providers via environment variables. This follows Docker conventions (env vars over config files).
 
+### Supported Providers
+
+| Provider | Type | Support | Notes |
+|----------|------|---------|-------|
+| **Ollama** | Local (bundled) | ✅ Full | Binary bundled in image, default |
+| **OpenAI** | Cloud API | ✅ Full | Requires `OPENAI_API_KEY` |
+| **Anthropic** | Cloud API | ✅ Full | Requires `ANTHROPIC_API_KEY` |
+| **LMStudio** | External server | ✅ Full | Desktop app on host, container connects to it |
+| **HuggingFace** | Local inference | ✅ Full | Includes torch, transformers |
+
 ### Default: Ollama (Local Inference)
 
 ```bash
@@ -108,15 +118,21 @@ docker run -p 80:80 \
 
 ### Using LMStudio (External Server)
 
+LMStudio is a **desktop GUI application** that cannot run inside Docker. You must run it on your host machine and point the container to it.
+
 ```bash
+# 1. On your host: Start LMStudio and load a model
+
+# 2. Run container pointing to host's LMStudio
 docker run -p 80:80 \
     -v digital-article-data:/app/data \
     -e LLM_PROVIDER=lmstudio \
     -e LLM_MODEL=qwen/qwen3-32b \
+    -e LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1 \
     digital-article:unified
 ```
 
-**Note:** LMStudio must be running on your host machine. The backend will connect to `http://localhost:1234` by default.
+**Note:** Use `LMSTUDIO_BASE_URL` to specify the LMStudio server address. On Docker Desktop, use `http://host.docker.internal:1234/v1`. For Linux, you may need `--network host` or an explicit IP.
 
 ### Using HuggingFace
 
@@ -128,6 +144,8 @@ docker run -p 80:80 \
     -e HUGGINGFACE_TOKEN=hf_your_token \
     digital-article:unified
 ```
+
+**Note:** HuggingFace runs models locally inside the container. Ensure sufficient RAM/VRAM for your chosen model.
 
 ### Using External Ollama (e.g., Native on Mac)
 
@@ -159,6 +177,7 @@ docker run -p 80:80 \
 | `WORKSPACE_DIR` | Path to workspace storage | `/app/data/workspace` |
 | `OLLAMA_MODELS` | Path to Ollama model storage | `/models` |
 | `OLLAMA_BASE_URL` | Ollama API endpoint (for external Ollama) | `http://localhost:11434` |
+| `LMSTUDIO_BASE_URL` | LMStudio API endpoint (for external LMStudio) | `http://localhost:1234/v1` |
 | **Runtime** | | |
 | `LOG_LEVEL` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) | `INFO` |
 

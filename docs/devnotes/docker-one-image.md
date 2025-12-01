@@ -269,7 +269,7 @@ docker run -d \
 # Access at http://localhost
 ```
 
-**For detailed deployment instructions, troubleshooting, and production setup, see**: [`docs/DOCKER-DEPLOYMENT.md`](../DOCKER-DEPLOYMENT.md)
+**For detailed deployment instructions, see**: [`docker/monolithic/README.md`](../../docker/monolithic/README.md)
 
 ### Docker Compose (Simplified)
 

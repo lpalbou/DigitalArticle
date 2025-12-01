@@ -35,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Provider Examples**: Usage examples for all supported providers (OpenAI, Anthropic, LMStudio, HuggingFace)
   - **Environment Reference**: Complete table of all configuration environment variables
   - **External Ollama**: Updated docs for using native Ollama on host machine
-  - Files: `docker/monolithic/README.md`, `docker/README.md`, `docs/DOCKER-DEPLOYMENT.md`
+  - Files: `docker/monolithic/README.md`, `docker/README.md`
 
 ### Technical Details
 
@@ -85,7 +85,7 @@ docker run -p 80:80 \
   - **Multi-Container**: Original 3-service architecture still available for advanced scenarios
   - **Named Volumes**: Both strategies use persistent volumes for notebooks and models
   - **Comprehensive Guides**: Separate documentation for each deployment approach
-  - Files: `docker/readme-unified-image.md`, `docker/readme-multi-container.md`, `docs/DOCKER-DEPLOYMENT.md`
+  - Files: `docker/monolithic/README.md`, `docker/3-tiers/README.md`
 
 - **⚙️ Backend Path Configuration**: Dynamic path configuration with ENV > config.json > default cascade
   - **Configurable Notebooks Directory**: `NOTEBOOKS_DIR` env var or `paths.notebooks_dir` in config.json
@@ -96,10 +96,11 @@ docker run -p 80:80 \
 
 ### Enhanced
 
-- **📖 Comprehensive Deployment Documentation**: Three-tier documentation strategy
-  - **Quick Reference**: `docker/readme-unified-image.md` - Commands and quick start (387 lines)
-  - **Complete Guide**: `docs/DOCKER-DEPLOYMENT.md` - Step-by-step instructions with troubleshooting (552 lines)
-  - **Technical Report**: `docs/devnotes/docker-one-image.md` - Implementation details and architecture (631 lines)
+- **📖 Comprehensive Deployment Documentation**
+  - **Main Docs**: `docker/README.md` - Overview and decision tree
+  - **Monolithic Guide**: `docker/monolithic/README.md` - Single container deployment
+  - **3-Tier Guide**: `docker/3-tiers/README.md` - Multi-container deployment
+  - **Technical Report**: `docs/devnotes/docker-one-image.md` - Implementation details
 
 ### Technical Details
 

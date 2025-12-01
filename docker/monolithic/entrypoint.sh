@@ -22,6 +22,9 @@ export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 export HUGGINGFACE_TOKEN="${HUGGINGFACE_TOKEN:-}"
 
+# Provider base URLs (for external servers)
+export LMSTUDIO_BASE_URL="${LMSTUDIO_BASE_URL:-http://localhost:1234/v1}"
+
 echo "📁 Initializing directories..."
 echo "  Notebooks: $NOTEBOOKS_DIR"
 echo "  Workspace: $WORKSPACE_DIR"

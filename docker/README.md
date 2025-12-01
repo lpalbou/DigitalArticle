@@ -52,13 +52,13 @@ The Docker containers support multiple LLM providers. Configuration is done via 
 
 ### Supported Providers
 
-| Provider | Type | Notes |
-|----------|------|-------|
-| `ollama` | Local | Default. Bundled in container. |
-| `openai` | External API | Requires `OPENAI_API_KEY` |
-| `anthropic` | External API | Requires `ANTHROPIC_API_KEY` |
-| `lmstudio` | External Server | Runs on your host machine |
-| `huggingface` | External API | Optional `HUGGINGFACE_TOKEN` |
+| Provider | Type | Status | Notes |
+|----------|------|--------|-------|
+| `ollama` | Local (bundled) | ✅ Included | Default. Binary bundled in container. |
+| `openai` | Cloud API | ✅ Included | Requires `OPENAI_API_KEY` |
+| `anthropic` | Cloud API | ✅ Included | Requires `ANTHROPIC_API_KEY` |
+| `lmstudio` | External server | ✅ Included | Desktop app on host, use `LMSTUDIO_BASE_URL` |
+| `huggingface` | Local inference | ✅ Included | Runs models locally with torch/transformers |
 
 ### Quick Examples
 
@@ -78,6 +78,13 @@ docker run -p 80:80 -v data:/app/data \
     -e LLM_PROVIDER=anthropic \
     -e LLM_MODEL=claude-3-5-sonnet-latest \
     -e ANTHROPIC_API_KEY=sk-ant-... \
+    digital-article:unified
+
+# LMStudio (external server on host)
+docker run -p 80:80 -v data:/app/data \
+    -e LLM_PROVIDER=lmstudio \
+    -e LLM_MODEL=qwen/qwen3-32b \
+    -e LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1 \
     digital-article:unified
 ```
 
