@@ -22,7 +22,7 @@ dependencies = [
     # LLM Integration - all providers except MLX (Apple Silicon only)
     # Includes: openai, anthropic, ollama, lmstudio, huggingface, embeddings
     # Note: HuggingFace includes torch (~2GB), image will be larger
-    "abstractcore[all-providers-non-mlx]>=2.5.3",  # Requires 2.5.3+ for tracing support
+    "abstractcore[all-providers-non-mlx]>=2.6.0",  # Requires 2.6.0+ for download_model API
 
     # Data Processing
     "pandas==2.3.3",

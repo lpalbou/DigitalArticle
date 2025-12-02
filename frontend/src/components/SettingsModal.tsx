@@ -86,6 +86,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [modelToDownload, setModelToDownload] = useState('')
   const [hfModelToDownload, setHfModelToDownload] = useState('')
   const [hfAuthToken, setHfAuthToken] = useState('')
+  const [mlxModelToDownload, setMlxModelToDownload] = useState('')
   
   // Reproducibility
   const [useLlmSeed, setUseLlmSeed] = useState(true)
@@ -99,6 +100,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
       loadData()
     }
   }, [isOpen])
+
+  // Listen for model download completion to refresh provider list
+  useEffect(() => {
+    const handleModelDownloadComplete = () => {
+      // Refresh provider list to show newly downloaded model
+      loadData()
+    }
+
+    window.addEventListener('model-download-complete', handleModelDownloadComplete)
+    return () => {
+      window.removeEventListener('model-download-complete', handleModelDownloadComplete)
+    }
+  }, [])
 
   const loadData = async () => {
     setLoading(true)
@@ -229,6 +243,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     startDownload('huggingface', hfModelToDownload, hfAuthToken || undefined)
   }
 
+  const handleStartMlxDownload = () => {
+    if (!mlxModelToDownload) return
+    startDownload('mlx', mlxModelToDownload)
+  }
+
   const currentProvider = providers.find(p => p.name === selectedProvider)
   const availableProviders = providers.filter(p => p.available)
   const hasNoAvailableProviders = !loading && availableProviders.length === 0
@@ -292,9 +311,65 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                 <Loader className="h-8 w-8 animate-spin text-blue-600" />
                 <span className="ml-3 text-gray-600">Loading settings...</span>
               </div>
-            ) : activeTab === 'provider' ? (
-              /* Provider & Model Tab */
-              <div className="space-y-6">
+            ) : (
+              <>
+                {/* Active Download Section - Shown regardless of selected tab/provider */}
+                {downloadProgress.status !== 'idle' && downloadProgress.model && (
+                  <div className="mb-6 bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex items-center space-x-2">
+                        <Download className="h-5 w-5 text-blue-600" />
+                        <div>
+                          <h4 className="text-sm font-semibold text-blue-900">
+                            Active Download
+                          </h4>
+                          <p className="text-xs text-blue-700 mt-0.5">
+                            {downloadProgress.provider}: {downloadProgress.model}
+                          </p>
+                        </div>
+                      </div>
+                      {isDownloading && (
+                        <button
+                          onClick={cancelDownload}
+                          className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="mt-3">
+                      <div className="flex justify-between text-xs text-blue-700 mb-1">
+                        <span>{downloadProgress.message || 'Downloading...'}</span>
+                        {downloadProgress.progress > 0 && (
+                          <span>{downloadProgress.progress}%</span>
+                        )}
+                      </div>
+                      <div className="w-full bg-blue-100 rounded-full h-2.5">
+                        <div
+                          className={`h-2.5 rounded-full transition-all ${
+                            downloadProgress.status === 'error' ? 'bg-red-600' :
+                            downloadProgress.status === 'complete' ? 'bg-green-600' : 'bg-blue-600'
+                          }`}
+                          style={{ width: `${downloadProgress.progress}%` }}
+                        />
+                      </div>
+                      {downloadProgress.currentSize && downloadProgress.totalSize && (
+                        <div className="text-xs text-blue-600 mt-1">
+                          {downloadProgress.currentSize} / {downloadProgress.totalSize}
+                        </div>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-blue-600 mt-3">
+                      💡 You can close this window - download continues in background
+                    </p>
+                  </div>
+                )}
+
+                {activeTab === 'provider' ? (
+                  /* Provider & Model Tab */
+                  <div className="space-y-6">
                 {hasNoAvailableProviders ? (
                   <div className="bg-red-50 border border-red-200 rounded-lg p-6">
                     <div className="flex items-start">
@@ -389,49 +464,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                         className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
                         disabled={isDownloading}
                       />
-                      {isDownloading ? (
-                        <button
-                          onClick={cancelDownload}
-                          className="px-4 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
-                        >
-                          Cancel
-                        </button>
-                      ) : (
-                        <button
-                          onClick={handleStartDownload}
-                          disabled={!modelToDownload}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
-                        >
-                          Download
-                        </button>
-                      )}
+                      <button
+                        onClick={handleStartDownload}
+                        disabled={!modelToDownload || isDownloading}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isDownloading ? 'Downloading...' : 'Download'}
+                      </button>
                     </div>
-                    
-                    {/* Download Progress */}
-                    {downloadProgress.status !== 'idle' && (
-                      <div className="mt-3">
-                        <div className="flex justify-between text-xs text-gray-600 mb-1">
-                          <span>{downloadProgress.message || 'Downloading...'}</span>
-                          {downloadProgress.progress > 0 && (
-                            <span>{downloadProgress.progress}%</span>
-                          )}
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div
-                            className={`h-2 rounded-full transition-all ${
-                              downloadProgress.status === 'error' ? 'bg-red-600' :
-                              downloadProgress.status === 'complete' ? 'bg-green-600' : 'bg-blue-600'
-                            }`}
-                            style={{ width: `${downloadProgress.progress}%` }}
-                          />
-                        </div>
-                        {downloadProgress.currentSize && downloadProgress.totalSize && (
-                          <div className="text-xs text-gray-500 mt-1">
-                            {downloadProgress.currentSize} / {downloadProgress.totalSize}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    <p className="text-xs text-gray-500 mt-2">
+                      Examples: llama3.2, qwen3:4b, gemma3:1b
+                    </p>
                   </div>
                 )}
 
@@ -452,24 +495,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                           className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
                           disabled={isDownloading}
                         />
-                        {isDownloading ? (
-                          <button
-                            onClick={cancelDownload}
-                            className="px-4 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
-                          >
-                            Cancel
-                          </button>
-                        ) : (
-                          <button
-                            onClick={handleStartHfDownload}
-                            disabled={!hfModelToDownload}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
-                          >
-                            Download
-                          </button>
-                        )}
+                        <button
+                          onClick={handleStartHfDownload}
+                          disabled={!hfModelToDownload || isDownloading}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isDownloading ? 'Downloading...' : 'Download'}
+                        </button>
                       </div>
-                      
+
                       {/* Optional auth token for gated models */}
                       <div>
                         <label className="block text-xs text-gray-500 mb-1">
@@ -485,30 +519,40 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                         />
                       </div>
                     </div>
-                    
-                    {/* Download Progress */}
-                    {downloadProgress.status !== 'idle' && (
-                      <div className="mt-3">
-                        <div className="flex justify-between text-xs text-gray-600 mb-1">
-                          <span>{downloadProgress.message || 'Downloading...'}</span>
-                          {downloadProgress.progress > 0 && (
-                            <span>{downloadProgress.progress}%</span>
-                          )}
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div
-                            className={`h-2 rounded-full transition-all ${
-                              downloadProgress.status === 'error' ? 'bg-red-600' :
-                              downloadProgress.status === 'complete' ? 'bg-green-600' : 'bg-blue-600'
-                            }`}
-                            style={{ width: `${downloadProgress.progress}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                    
+
                     <p className="text-xs text-gray-500 mt-3">
-                      Downloads are cached in the persistent volume and run in background.
+                      Downloads are cached in persistent volume. Progress shown above.
+                    </p>
+                  </div>
+                )}
+
+                {/* Model Download (MLX - Apple Silicon only) */}
+                {selectedProvider === 'mlx' && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
+                      <Download className="h-4 w-4 mr-2" />
+                      Download MLX Model
+                    </h4>
+                    <div className="flex space-x-2">
+                      <input
+                        type="text"
+                        value={mlxModelToDownload}
+                        onChange={(e) => setMlxModelToDownload(e.target.value)}
+                        placeholder="e.g., mlx-community/Qwen3-4B-4bit"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        disabled={isDownloading}
+                      />
+                      <button
+                        onClick={handleStartMlxDownload}
+                        disabled={!mlxModelToDownload || isDownloading}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isDownloading ? 'Downloading...' : 'Download'}
+                      </button>
+                    </div>
+
+                    <p className="text-xs text-gray-500 mt-3">
+                      MLX models optimized for Apple Silicon. Not available in Docker. Progress shown above.
                     </p>
                   </div>
                 )}
@@ -712,6 +756,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                   </ul>
                 </div>
               </div>
+                )}
+              </>
             )}
           </div>
 

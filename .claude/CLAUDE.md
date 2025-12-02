@@ -6,6 +6,63 @@ Digital Article is a computational notebook application that inverts the traditi
 
 ## Recent Investigations
 
+### Task: Async Model Download with Persistent Progress Tracking (2025-12-01)
+
+**Description**: Implemented unified async model download system using AbstractCore 2.6.0's `download_model()` API with persistent progress visibility across modal close/reopen, addressing UX gap where download progress disappeared when switching providers.
+
+**Problem Identified**:
+- Backend already correctly used AbstractCore 2.6.0 for streaming downloads via SSE
+- Context already managed state at App level (state persisted on modal close)
+- **Critical UX Gap**: Download progress only visible when specific provider was selected
+- **Broken Scenario**: Start Ollama download → close modal → reopen and select HuggingFace → Ollama download invisible
+
+**Root Cause**: Progress UI was inside provider-specific conditional sections (`{selectedProvider === 'ollama' && ...}`), so switching providers hid the active download.
+
+**Solution Implemented**:
+
+**1. Global "Active Download" Section** (frontend/src/components/SettingsModal.tsx):
+- Added persistent status section at top of modal (always visible when download active)
+- Shows provider, model name, progress bar, bytes downloaded, cancel button
+- Includes user guidance: "💡 You can close this window - download continues in background"
+- Visible regardless of selected provider/tab
+
+**2. Simplified Provider Sections**:
+- Removed duplicate progress bars from Ollama/HuggingFace/MLX sections
+- Provider sections now: input field + download button + helpful text
+- Single source of truth for download status
+
+**Architecture Benefits**:
+- ✅ **Minimal changes**: ~100 lines in SettingsModal.tsx only
+- ✅ **No backend changes**: Already perfect
+- ✅ **No context changes**: Already perfect
+- ✅ **Clean UX**: Progress always visible, no duplication
+- ✅ **No over-engineering**: Simple, surgical fix
+
+**Results**:
+- ✅ Download progress visible regardless of provider/tab selection
+- ✅ Survives modal close/reopen (context at App level)
+- ✅ Toast notifications when download completes
+- ✅ Works for Ollama, HuggingFace, and MLX models
+- ✅ Cancel functionality accessible from anywhere
+- ✅ **Auto-refresh provider list**: Downloaded model appears in dropdown immediately
+
+**Files Modified**:
+- `frontend/src/components/SettingsModal.tsx` (~110 lines): Added global status section, simplified provider sections, auto-refresh on download complete
+- `frontend/src/contexts/ModelDownloadContext.tsx` (~10 lines): Dispatch event on download complete
+- `docs/getting-started.md`: Added "Downloading Models" section with user guide
+- `docs/architecture.md`: Added ModelDownloadContext documentation
+
+**Files Verified (No Changes Needed)**:
+- `backend/app/api/models.py`: Already using AbstractCore 2.6.0 correctly
+- `backend/app/api/llm.py`: Uses `get_all_providers_with_models()` which calls `list_available_models()` for live model lists
+- `backend/pyproject.toml`: Already requires abstractcore>=2.6.0
+
+**Testing**: Manual test scenarios documented in getting-started.md covering basic download, modal close/reopen, provider switching, tab switching, cancellation, and error handling.
+
+**Issues/Concerns**: None. Clean, simple implementation following SOTA UX patterns (progressive disclosure, single source of truth). The previous engineer built excellent infrastructure - this fixes the one UX gap.
+
+---
+
 ### Task: Publication-Ready Methodology Generation - Rich Execution Insights (2025-11-19)
 
 **Description**: Fixed critical issue where methodology generation for cells producing visualizations (dashboards, plots) only received minimal context ("Figure(2000x1600)"), resulting in generic methodology text that didn't describe the actual analysis, reference specific tables/figures, or include quantitative results. Implemented a comprehensive solution that extracts rich insights from execution results, includes previous cell context for narrative continuity, and generates publication-quality methodology text matching Nature/Science standards.

@@ -1,12 +1,14 @@
 import React, { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react'
+import { useToaster } from './ToasterContext'
 
 interface DownloadProgress {
-  status: 'idle' | 'downloading' | 'complete' | 'error'
+  status: 'idle' | 'starting' | 'downloading' | 'verifying' | 'complete' | 'error'
   progress: number  // 0-100
   currentSize?: string
   totalSize?: string
   message?: string
   model?: string
+  provider?: string
 }
 
 interface ModelDownloadContextValue {
@@ -37,6 +39,7 @@ export const ModelDownloadProvider: React.FC<ModelDownloadProviderProps> = ({ ch
   })
   
   const abortControllerRef = useRef<AbortController | null>(null)
+  const toaster = useToaster()
 
   const startDownload = useCallback((provider: string, model: string, authToken?: string) => {
     // Cancel any existing download
@@ -49,10 +52,11 @@ export const ModelDownloadProvider: React.FC<ModelDownloadProviderProps> = ({ ch
 
     // Set initial state
     setDownloadProgress({
-      status: 'downloading',
+      status: 'starting',
       progress: 0,
       message: `Starting download of ${model}...`,
       model,
+      provider,
     })
 
     // Start SSE connection
@@ -73,7 +77,8 @@ export const ModelDownloadProvider: React.FC<ModelDownloadProviderProps> = ({ ch
         })
 
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`)
+          const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}` }))
+          throw new Error(errorData.detail || `HTTP ${response.status}`)
         }
 
         const reader = response.body?.getReader()
@@ -100,6 +105,7 @@ export const ModelDownloadProvider: React.FC<ModelDownloadProviderProps> = ({ ch
               try {
                 const data = JSON.parse(line.slice(6))
                 
+                // Update progress state
                 setDownloadProgress({
                   status: data.status || 'downloading',
                   progress: data.progress || 0,
@@ -107,9 +113,22 @@ export const ModelDownloadProvider: React.FC<ModelDownloadProviderProps> = ({ ch
                   totalSize: data.total_size,
                   message: data.message,
                   model,
+                  provider,
                 })
 
-                if (data.status === 'complete' || data.status === 'error') {
+                // Show toaster notification on completion or error
+                if (data.status === 'complete') {
+                  toaster.success(`Model ${model} is ready to use`)
+                  abortControllerRef.current = null
+
+                  // Trigger provider list refresh so new model appears in dropdown
+                  window.dispatchEvent(new CustomEvent('model-download-complete', {
+                    detail: { provider, model }
+                  }))
+
+                  return
+                } else if (data.status === 'error') {
+                  toaster.error(data.message || `Failed to download ${model}`)
                   abortControllerRef.current = null
                   return
                 }
@@ -126,6 +145,7 @@ export const ModelDownloadProvider: React.FC<ModelDownloadProviderProps> = ({ ch
             progress: 0,
             message: 'Download cancelled',
             model,
+            provider,
           })
         } else {
           setDownloadProgress({
@@ -133,13 +153,15 @@ export const ModelDownloadProvider: React.FC<ModelDownloadProviderProps> = ({ ch
             progress: 0,
             message: error.message || 'Download failed',
             model,
+            provider,
           })
+          toaster.error(error.message || `Failed to download ${model}`)
         }
       }
     }
 
     fetchDownload()
-  }, [])
+  }, [toaster])
 
   const cancelDownload = useCallback(() => {
     if (abortControllerRef.current) {
@@ -150,9 +172,12 @@ export const ModelDownloadProvider: React.FC<ModelDownloadProviderProps> = ({ ch
       status: 'idle',
       progress: 0,
     })
-  }, [])
+    toaster.info('Download cancelled')
+  }, [toaster])
 
-  const isDownloading = downloadProgress.status === 'downloading'
+  const isDownloading = downloadProgress.status === 'downloading' || 
+                        downloadProgress.status === 'starting' || 
+                        downloadProgress.status === 'verifying'
 
   return (
     <ModelDownloadContext.Provider value={{ downloadProgress, isDownloading, startDownload, cancelDownload }}>
@@ -162,4 +187,3 @@ export const ModelDownloadProvider: React.FC<ModelDownloadProviderProps> = ({ ch
 }
 
 export default ModelDownloadContext
-

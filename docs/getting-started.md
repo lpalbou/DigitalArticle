@@ -255,6 +255,84 @@ Each notebook stores its own LLM configuration, which it inherits from the globa
 
 **Why this matters**: You can run heavy analyses with a powerful model, then create new notebooks with a faster model for simpler tasks.
 
+### Downloading Models
+
+Digital Article v2.6.0+ includes a unified model download system that works with Ollama, HuggingFace, and MLX providers directly from the settings UI.
+
+#### How model downloads work
+
+The download system uses AbstractCore 2.6.0's `download_model()` API to provide:
+- **Non-blocking downloads**: Downloads run in background, UI remains responsive
+- **Real-time progress**: See download status, percent complete, and bytes transferred
+- **Persistent tracking**: Close the settings modal anytime - download continues
+- **Toast notifications**: Get notified when download completes
+- **Cancel anytime**: Stop downloads with one click
+
+#### Downloading Ollama models
+
+1. Open **Settings → Provider & Model**
+2. Select **Ollama** provider
+3. In the "Download Ollama Model" section:
+   - Enter model name (e.g., `llama3.2`, `qwen3:4b`, `gemma3:1b`)
+   - Click **Download**
+4. The "Active Download" section appears at top showing progress
+5. **You can now close the settings modal** - download continues in background
+6. When complete, you'll see a toast notification: "Model X is ready to use"
+
+**Example models**:
+- `llama3.2` - Meta's Llama 3.2 (various sizes)
+- `qwen3:4b` - Qwen 3 4B (fast, good for testing)
+- `gemma3:1b` - Google Gemma 3 1B (very fast)
+- `deepseek-coder:6.7b` - DeepSeek Coder (excellent for code generation)
+
+#### Downloading HuggingFace models
+
+1. Open **Settings → Provider & Model**
+2. Select **HuggingFace** provider
+3. In the "Download HuggingFace Model" section:
+   - Enter model path (e.g., `meta-llama/Llama-2-7b-hf`)
+   - For gated models, enter your HuggingFace auth token
+   - Click **Download**
+4. Progress tracked in "Active Download" section at top
+5. Downloads are cached in persistent volume
+
+**Note**: HuggingFace models are cached in `~/.cache/huggingface/` and shared with MLX.
+
+#### Downloading MLX models (Apple Silicon only)
+
+1. Open **Settings → Provider & Model**
+2. Select **MLX** provider
+3. In the "Download MLX Model" section:
+   - Enter model path (e.g., `mlx-community/Qwen3-4B-4bit`)
+   - Click **Download**
+4. Progress tracked in "Active Download" section at top
+
+**Note**: MLX models are optimized for Apple Silicon and not available in Docker deployments.
+
+#### Download progress visibility
+
+The "Active Download" section at the top of settings shows:
+- **Provider and model name**: e.g., "ollama: llama3:8b"
+- **Status message**: Current operation (e.g., "pulling manifest", "downloading layer")
+- **Progress bar**: Visual progress with percentage
+- **Download size**: Bytes downloaded / total size (when available)
+- **Cancel button**: Stop the download anytime
+
+**Key feature**: The download status is **always visible** regardless of which provider or tab you're viewing. Start an Ollama download, switch to HuggingFace to browse models, and you'll still see the Ollama progress at the top.
+
+#### Checking downloaded models
+
+After downloading, the model **automatically appears** in the model dropdown:
+1. The provider list refreshes automatically when download completes
+2. Select the provider (e.g., Ollama)
+3. Open the **Model** dropdown
+4. Your downloaded model will be listed
+5. Select it and click **Save Settings**
+
+**Auto-refresh**: The settings modal automatically refreshes the provider list when a download completes, so your new model appears immediately without needing to close and reopen settings.
+
+**Note for LMStudio**: LMStudio does not have a REST API for downloading models. You must download models using the LMStudio GUI or the `lms get` CLI command on your host machine.
+
 ### Remote Access Configuration
 
 Digital Article fully supports remote access. When accessing from a remote machine (e.g., `http://192.168.1.100:3000`):

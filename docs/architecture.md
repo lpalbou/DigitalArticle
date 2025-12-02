@@ -167,6 +167,36 @@ Digital Article is a full-stack web application that transforms conventional com
 - Bottom padding added to main content to prevent overlap
 - Settings button callback opens LLMSettingsModal
 
+##### ModelDownloadContext (`frontend/src/contexts/ModelDownloadContext.tsx`)
+**Responsibility**: Global state management for async model downloads
+
+**Features**:
+- Non-blocking SSE-based download streaming
+- Real-time progress tracking (status, percent, bytes)
+- Persistent state at App level (survives modal close/reopen)
+- Toast notifications on completion/error
+- Download cancellation via AbortController
+
+**State**:
+```typescript
+{
+  status: 'idle' | 'starting' | 'downloading' | 'verifying' | 'complete' | 'error'
+  progress: number  // 0-100
+  currentSize?: string
+  totalSize?: string
+  message?: string
+  model?: string
+  provider?: string
+}
+```
+
+**API Integration**:
+- Connects to `POST /api/models/pull` (SSE stream)
+- Streams progress updates in real-time
+- Used by SettingsModal for Ollama, HuggingFace, and MLX downloads
+
+**Why App-level context**: Ensures download state persists when settings modal closes, enabling true background downloads
+
 #### API Client (`frontend/src/services/api.ts`)
 
 **Design**: Modular API client with separated concerns
