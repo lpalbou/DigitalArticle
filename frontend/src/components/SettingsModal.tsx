@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { 
-  X, AlertCircle, CheckCircle, Loader, HelpCircle, Shuffle, 
-  Download, Settings2, Beaker, ChevronDown, ChevronUp, Eye, EyeOff
+import {
+  X, AlertCircle, CheckCircle, Loader, HelpCircle, Shuffle,
+  Download, Settings2, Beaker, ChevronDown, ChevronUp, Eye, EyeOff,
+  Users, ClipboardCheck
 } from 'lucide-react'
 import axios from 'axios'
 import { useToaster } from '../contexts/ToasterContext'
 import { useModelDownload } from '../contexts/ModelDownloadContext'
+import PersonaTab from './PersonaTab'
 
 interface Provider {
   name: string
@@ -39,7 +41,7 @@ interface SettingsModalProps {
   notebookId?: string  // Current notebook ID, if any
 }
 
-type TabId = 'provider' | 'reproducibility'
+type TabId = 'personas' | 'provider' | 'reproducibility' | 'review'
 
 const DEFAULT_BASE_URLS: Record<string, string> = {
   ollama: 'http://localhost:11434',
@@ -52,7 +54,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
   const toaster = useToaster()
   const { downloadProgress, isDownloading, startDownload, cancelDownload } = useModelDownload()
   
-  const [activeTab, setActiveTab] = useState<TabId>('provider')
+  const [activeTab, setActiveTab] = useState<TabId>('personas')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   
@@ -393,6 +395,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
           <div className="border-b border-gray-200">
             <nav className="flex -mb-px">
               <button
+                onClick={() => setActiveTab('personas')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center space-x-2 ${
+                  activeTab === 'personas'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Users className="h-4 w-4" />
+                <span>Persona</span>
+              </button>
+              <button
                 onClick={() => setActiveTab('provider')}
                 className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center space-x-2 ${
                   activeTab === 'provider'
@@ -413,6 +426,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
               >
                 <Beaker className="h-4 w-4" />
                 <span>Reproducibility</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('review')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center space-x-2 ${
+                  activeTab === 'review'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <ClipboardCheck className="h-4 w-4" />
+                <span>Review</span>
               </button>
             </nav>
           </div>
@@ -480,8 +504,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
                   </div>
                 )}
 
-                {activeTab === 'provider' ? (
-                  /* Provider & Model Tab */
+                {/* Persona Tab */}
+                {activeTab === 'personas' && (
+                  <PersonaTab notebookId={notebookId} />
+                )}
+
+                {/* Provider & Model Tab */}
+                {activeTab === 'provider' && (
                   <div className="space-y-6">
                 {hasNoAvailableProviders ? (
                   <div className="bg-red-50 border border-red-200 rounded-lg p-6">
@@ -794,8 +823,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
                   )}
                 </div>
               </div>
-            ) : (
-              /* Reproducibility Tab */
+            )}
+
+                {/* Reproducibility Tab */}
+                {activeTab === 'reproducibility' && (
               <div className="space-y-6">
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <p className="text-sm text-blue-800">
@@ -894,6 +925,26 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
                   </ul>
                 </div>
               </div>
+                )}
+
+                {/* Review Tab */}
+                {activeTab === 'review' && (
+                  <div className="space-y-6">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <p className="text-sm text-blue-800">
+                        <strong>Auto-review settings</strong> enable automatic scientific review of your analyses.
+                        The Reviewer persona will check code quality, methodology rigor, and result interpretation.
+                      </p>
+                    </div>
+
+                    <div className="text-center text-gray-500 py-8">
+                      <ClipboardCheck className="h-12 w-12 mx-auto mb-3 text-gray-400" />
+                      <p className="text-sm">Review settings UI coming in next steps...</p>
+                      <p className="text-xs text-gray-400 mt-2">
+                        Will include: Auto-review toggle, phase selection, severity filtering
+                      </p>
+                    </div>
+                  </div>
                 )}
               </>
             )}
