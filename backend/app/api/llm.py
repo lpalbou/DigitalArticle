@@ -106,16 +106,36 @@ class ProviderSelectionRequest(BaseModel):
 @router.get("/providers", response_model=List[ProviderInfo])
 async def get_available_providers():
     """
-    Get list of available LLM providers with their models.
-    Uses AbstractCore's provider registry.
+    Get list of available LLM providers (without models for speed).
+    Use /providers/{provider}/models to get models for a specific provider.
+
+    ALWAYS queries AbstractCore fresh - no caching.
+    Sets API keys from settings as environment variables so AbstractCore sees them.
     """
     logger.info("🔍 Detecting available LLM providers...")
 
-    # Use AbstractCore's provider registry - it handles all provider detection
+    # Get saved API keys and set as environment variables
+    # This allows AbstractCore to see them when checking provider availability
+    from ..services.user_settings_service import get_user_settings_service
+    import os
+
+    settings_service = get_user_settings_service()
+    settings = settings_service.get_settings()
+
+    # Set API keys in environment if they exist
+    if settings.llm.api_keys.get('openai'):
+        os.environ['OPENAI_API_KEY'] = settings.llm.api_keys['openai']
+    if settings.llm.api_keys.get('anthropic'):
+        os.environ['ANTHROPIC_API_KEY'] = settings.llm.api_keys['anthropic']
+    if settings.llm.api_keys.get('huggingface'):
+        os.environ['HUGGINGFACE_TOKEN'] = settings.llm.api_keys['huggingface']
+
+    # Use AbstractCore's provider registry - get metadata only (no models)
+    # This will now see the API keys we just set
     loop = asyncio.get_event_loop()
 
     def _get_providers():
-        return get_all_providers_with_models()
+        return get_all_providers_with_models(include_models=False)
 
     # Run in thread pool to avoid blocking
     providers = await loop.run_in_executor(None, _get_providers)
@@ -126,11 +146,11 @@ async def get_available_providers():
             name=p['name'],
             display_name=p['display_name'],
             available=True,
-            default_model=p['models'][0] if p.get('models') else '',
-            models=p.get('models', [])
+            default_model='',
+            models=[]  # Models fetched separately via /providers/{provider}/models
         )
         for p in providers
-        if p.get('status') == 'available' and p.get('models')
+        if p.get('status') == 'available'
     ]
 
     if results:
@@ -139,6 +159,56 @@ async def get_available_providers():
         logger.warning("⚠️ No LLM providers found")
 
     return results
+
+
+@router.get("/providers/{provider}/models")
+async def get_provider_models(provider: str, base_url: Optional[str] = None):
+    """
+    Get available models for a specific provider by calling list_available_models().
+    Always fetches fresh list - no caching.
+
+    Args:
+        provider: Provider name (ollama, lmstudio, huggingface, etc.)
+        base_url: Optional custom base URL for local providers
+    """
+    logger.info(f"🔍 Fetching models for {provider}...")
+
+    try:
+        from abstractcore import create_llm
+
+        # Create LLM instance for this provider
+        loop = asyncio.get_event_loop()
+
+        def _get_models():
+            kwargs = {}
+            if base_url:
+                kwargs['base_url'] = base_url
+
+            # Create temporary LLM instance
+            llm = create_llm(provider, model="dummy", **kwargs)
+
+            # Call list_available_models() - always fresh, no cache
+            return llm.list_available_models()
+
+        # Run in thread pool to avoid blocking
+        models = await loop.run_in_executor(None, _get_models)
+
+        logger.info(f"🏁 Found {len(models)} models for {provider}")
+
+        return {
+            "provider": provider,
+            "models": models,
+            "count": len(models)
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Failed to get models for {provider}: {e}")
+        return {
+            "provider": provider,
+            "models": [],
+            "count": 0,
+            "error": str(e)
+        }
 
 
 @router.post("/providers/select")

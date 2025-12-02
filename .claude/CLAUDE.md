@@ -26,17 +26,32 @@ Digital Article is a computational notebook application that inverts the traditi
 - Includes user guidance: "💡 You can close this window - download continues in background"
 - Visible regardless of selected provider/tab
 
-**2. Simplified Provider Sections**:
-- Removed duplicate progress bars from Ollama/HuggingFace/MLX sections
-- Provider sections now: input field + download button + helpful text
-- Single source of truth for download status
+**2. On-Demand Model Fetching** (backend/app/api/llm.py + frontend):
+- New endpoint: `GET /api/llm/providers/{provider}/models` - calls `list_available_models()` directly
+- **No caching** - always fetches fresh model list from provider
+- Fetches models only when needed (selected provider, base URL change, download complete)
+- Fast provider list loading (metadata only, no models)
+
+**3. Dynamic Provider Discovery** (backend/app/api/llm.py):
+- Sets API keys from settings as environment variables before calling AbstractCore
+- `get_all_providers_with_models()` now sees saved API keys
+- **No caching** - provider list always fetched fresh
+- New providers appear immediately when API keys added or URLs connect
+
+**4. Base URL Update Buttons**:
+- Blue "Update" button next to Ollama/LMStudio base URL fields
+- Click → refreshes provider list + fetches models with new URL
+- Tests connection and updates provider availability
+- Shows loading spinner during refresh
+- Only visible for currently selected local provider
 
 **Architecture Benefits**:
-- ✅ **Minimal changes**: ~100 lines in SettingsModal.tsx only
-- ✅ **No backend changes**: Already perfect
-- ✅ **No context changes**: Already perfect
-- ✅ **Clean UX**: Progress always visible, no duplication
-- ✅ **No over-engineering**: Simple, surgical fix
+- ✅ **Zero caching**: Every call queries AbstractCore fresh - always current data
+- ✅ **Dynamic discovery**: New providers appear when API keys added or URLs connect
+- ✅ **Efficient**: Only fetches models for selected provider
+- ✅ **User control**: Explicit refresh buttons test connections and update lists
+- ✅ **Proper integration**: API keys set as env vars so AbstractCore sees them
+- ✅ **No over-engineering**: Simple, direct API calls to AbstractCore methods
 
 **Results**:
 - ✅ Download progress visible regardless of provider/tab selection
@@ -47,14 +62,18 @@ Digital Article is a computational notebook application that inverts the traditi
 - ✅ **Auto-refresh provider list**: Downloaded model appears in dropdown immediately
 
 **Files Modified**:
-- `frontend/src/components/SettingsModal.tsx` (~110 lines): Added global status section, simplified provider sections, auto-refresh on download complete
+- `backend/app/api/llm.py` (~90 lines): New `/providers/{provider}/models` endpoint, fast provider list (no models)
+- `frontend/src/components/SettingsModal.tsx` (~150 lines):
+  - Global status section
+  - On-demand model fetching with `fetchModelsForProvider()`
+  - Base URL update buttons with loading states
+  - Model dropdown uses `currentProviderModels` state
 - `frontend/src/contexts/ModelDownloadContext.tsx` (~10 lines): Dispatch event on download complete
 - `docs/getting-started.md`: Added "Downloading Models" section with user guide
 - `docs/architecture.md`: Added ModelDownloadContext documentation
 
 **Files Verified (No Changes Needed)**:
 - `backend/app/api/models.py`: Already using AbstractCore 2.6.0 correctly
-- `backend/app/api/llm.py`: Uses `get_all_providers_with_models()` which calls `list_available_models()` for live model lists
 - `backend/pyproject.toml`: Already requires abstractcore>=2.6.0
 
 **Testing**: Manual test scenarios documented in getting-started.md covering basic download, modal close/reopen, provider switching, tab switching, cancellation, and error handling.

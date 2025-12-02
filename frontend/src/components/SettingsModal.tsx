@@ -87,6 +87,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [hfModelToDownload, setHfModelToDownload] = useState('')
   const [hfAuthToken, setHfAuthToken] = useState('')
   const [mlxModelToDownload, setMlxModelToDownload] = useState('')
+
+  // Model list loading
+  const [loadingModels, setLoadingModels] = useState(false)
+  const [currentProviderModels, setCurrentProviderModels] = useState<string[]>([])
   
   // Reproducibility
   const [useLlmSeed, setUseLlmSeed] = useState(true)
@@ -101,49 +105,104 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     }
   }, [isOpen])
 
-  // Listen for model download completion to refresh provider list
+  // Fetch models when provider changes
   useEffect(() => {
-    const handleModelDownloadComplete = () => {
-      // Refresh provider list to show newly downloaded model
-      loadData()
+    if (selectedProvider && isOpen) {
+      fetchModelsForProvider(selectedProvider, baseUrls[selectedProvider])
+    }
+  }, [selectedProvider, isOpen])
+  // Note: baseUrls not in deps - use Update button to refresh with new URL
+
+  // Listen for model download completion to refresh model list
+  useEffect(() => {
+    const handleModelDownloadComplete = (e: any) => {
+      const { provider } = e.detail
+      // Refresh only if it's for the currently selected provider
+      if (provider === selectedProvider) {
+        fetchModelsForProvider(provider, baseUrls[provider])
+      }
     }
 
     window.addEventListener('model-download-complete', handleModelDownloadComplete)
     return () => {
       window.removeEventListener('model-download-complete', handleModelDownloadComplete)
     }
-  }, [])
+  }, [selectedProvider, baseUrls])
+
+  const refreshProviders = async () => {
+    try {
+      // Re-fetch provider list (no cache - AbstractCore queries fresh)
+      const providersRes = await axios.get<Provider[]>('/api/llm/providers')
+      setProviders(providersRes.data)
+
+      // If selected provider is no longer available, clear selection
+      if (selectedProvider && !providersRes.data.find(p => p.name === selectedProvider)) {
+        setSelectedProvider('')
+        setSelectedModel('')
+        setCurrentProviderModels([])
+      }
+    } catch (error) {
+      console.error('Failed to refresh providers:', error)
+    }
+  }
+
+  const fetchModelsForProvider = async (provider: string, baseUrl?: string) => {
+    setLoadingModels(true)
+    try {
+      const params = new URLSearchParams()
+      if (baseUrl) {
+        params.append('base_url', baseUrl)
+      }
+
+      const url = `/api/llm/providers/${provider}/models${params.toString() ? '?' + params.toString() : ''}`
+      const response = await axios.get(url)
+
+      setCurrentProviderModels(response.data.models || [])
+
+      // Auto-select first model if none selected
+      if (response.data.models && response.data.models.length > 0 && !selectedModel) {
+        setSelectedModel(response.data.models[0])
+      }
+    } catch (error) {
+      console.error(`Failed to fetch models for ${provider}:`, error)
+      setCurrentProviderModels([])
+    } finally {
+      setLoadingModels(false)
+    }
+  }
 
   const loadData = async () => {
     setLoading(true)
     try {
-      // Load providers and settings in parallel
+      // Load providers and settings in parallel (providers without models - fast)
       const [providersRes, settingsRes] = await Promise.all([
         axios.get<Provider[]>('/api/llm/providers'),
         axios.get<UserSettings>('/api/settings'),
       ])
 
       setProviders(providersRes.data)
-      
+
       const settings = settingsRes.data
       setSelectedProvider(settings.llm.provider)
       setSelectedModel(settings.llm.model)
       setTemperature(settings.llm.temperature)
       setBaseUrls({ ...DEFAULT_BASE_URLS, ...settings.llm.base_urls })
-      
+
       // Check which API keys are set
       setApiKeySet({
         openai: settings.llm.api_keys.openai === '***SET***',
         anthropic: settings.llm.api_keys.anthropic === '***SET***',
         huggingface: settings.llm.api_keys.huggingface === '***SET***',
       })
-      
+
       // Reproducibility
       setUseLlmSeed(settings.reproducibility.use_llm_seed)
       setLlmSeed(settings.reproducibility.llm_seed?.toString() || '')
       setUseCodeSeed(settings.reproducibility.use_code_seed)
       setCodeSeed(settings.reproducibility.code_seed?.toString() || '')
-      
+
+      // Models will be fetched by useEffect when provider is set
+
     } catch (error) {
       console.error('Failed to load settings:', error)
       toaster.error('Failed to load settings')
@@ -212,11 +271,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
         provider,
         api_key: key,
       })
-      
+
       setApiKeySet(prev => ({ ...prev, [provider]: true }))
       setNewApiKey(prev => ({ ...prev, [provider]: '' }))
       toaster.success(`${provider} API key saved`)
-      
+
+      // Refresh provider list - the provider might now be available
+      await refreshProviders()
+
+      // If this is the selected provider, fetch its models
+      if (provider === selectedProvider) {
+        await fetchModelsForProvider(provider, baseUrls[provider])
+      }
+
     } catch (error: any) {
       toaster.error(error.response?.data?.detail || `Failed to save ${provider} API key`)
     }
@@ -227,6 +294,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
       await axios.delete(`/api/settings/api-key/${provider}`)
       setApiKeySet(prev => ({ ...prev, [provider]: false }))
       toaster.info(`${provider} API key removed`)
+
+      // Refresh provider list - the provider might disappear
+      await refreshProviders()
+
+      // If this was the selected provider, clear selection
+      if (provider === selectedProvider) {
+        setSelectedProvider('')
+        setSelectedModel('')
+        setCurrentProviderModels([])
+      }
     } catch (error: any) {
       toaster.error(`Failed to remove ${provider} API key`)
     }
@@ -406,18 +483,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                     </div>
 
                     {/* Model Selection */}
-                    {selectedProvider && currentProvider && (
+                    {selectedProvider && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Model
+                          Model {loadingModels && <span className="text-gray-500 text-xs ml-2">(loading...)</span>}
                         </label>
                         <select
                           value={selectedModel}
                           onChange={(e) => setSelectedModel(e.target.value)}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          disabled={loadingModels}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
                         >
-                          <option value="">Select a model...</option>
-                          {currentProvider.models.map((model) => (
+                          <option value="">{loadingModels ? 'Loading models...' : 'Select a model...'}</option>
+                          {currentProviderModels.map((model) => (
                             <option key={model} value={model}>
                               {model}
                             </option>
@@ -591,13 +669,35 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                             <label className="block text-xs text-gray-500 mb-1 capitalize">
                               {provider} {provider === 'openai' || provider === 'anthropic' ? '(for Portkey/proxy)' : ''}
                             </label>
-                            <input
-                              type="text"
-                              value={baseUrls[provider] || ''}
-                              onChange={(e) => setBaseUrls(prev => ({ ...prev, [provider]: e.target.value }))}
-                              placeholder={DEFAULT_BASE_URLS[provider] || 'Leave empty for default'}
-                              className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
-                            />
+                            <div className="flex space-x-2">
+                              <input
+                                type="text"
+                                value={baseUrls[provider] || ''}
+                                onChange={(e) => setBaseUrls(prev => ({ ...prev, [provider]: e.target.value }))}
+                                placeholder={DEFAULT_BASE_URLS[provider] || 'Leave empty for default'}
+                                className="flex-1 px-3 py-1.5 border border-gray-300 rounded text-sm"
+                              />
+                              {(provider === 'ollama' || provider === 'lmstudio') && provider === selectedProvider && (
+                                <button
+                                  onClick={async () => {
+                                    // Refresh providers first (in case URL now connects)
+                                    await refreshProviders()
+                                    // Then fetch models with new URL
+                                    await fetchModelsForProvider(provider, baseUrls[provider])
+                                  }}
+                                  disabled={loadingModels}
+                                  className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-1"
+                                  title="Test connection and refresh model list"
+                                >
+                                  {loadingModels ? (
+                                    <Loader className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <CheckCircle className="h-3 w-3" />
+                                  )}
+                                  <span>Update</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>
