@@ -150,13 +150,55 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
   const fetchModelsForProvider = async (provider: string, baseUrl?: string) => {
     setLoadingModels(true)
     try {
+      // ============ DEBUG START - REMOVE AFTER TESTING ============
+      console.log('🔍 [DEBUG] fetchModelsForProvider called:', {
+        provider,
+        baseUrl,
+        baseUrlType: typeof baseUrl,
+        baseUrlLength: baseUrl?.length,
+        baseUrlTrimmed: baseUrl?.trim(),
+        timestamp: new Date().toISOString()
+      })
+      // ============ DEBUG END ============
+
       const params = new URLSearchParams()
       if (baseUrl) {
         params.append('base_url', baseUrl)
       }
 
       const url = `/api/llm/providers/${provider}/models${params.toString() ? '?' + params.toString() : ''}`
+
+      // ============ DEBUG START - REMOVE AFTER TESTING ============
+      console.log('🌐 [DEBUG] API request:', {
+        fullUrl: url,
+        paramsString: params.toString(),
+        decodedParams: decodeURIComponent(params.toString()),
+        timestamp: new Date().toISOString()
+      })
+      // ============ DEBUG END ============
+
       const response = await axios.get(url)
+
+      // ============ DEBUG START - REMOVE AFTER TESTING ============
+      console.log('✅ [DEBUG] API response:', {
+        provider,
+        available: response.data.available,
+        count: response.data.count,
+        modelsLength: response.data.models?.length || 0,
+        firstFiveModels: response.data.models?.slice(0, 5),
+        rawResponse: response.data,
+        timestamp: new Date().toISOString()
+      })
+
+      // CRITICAL CHECK: If available=true but 0 models, something is wrong!
+      if (response.data.available === true && response.data.count === 0) {
+        console.error('🚨 [DEBUG] CRITICAL: available=true but 0 models returned!', {
+          provider,
+          baseUrl,
+          response: response.data
+        })
+      }
+      // ============ DEBUG END ============
 
       console.log(`[fetchModels] ${provider}:`, {
         available: response.data.available,
@@ -716,6 +758,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
                               {(provider === 'ollama' || provider === 'lmstudio') && (
                                 <button
                                   onClick={async () => {
+                                    // ============ DEBUG START - REMOVE AFTER TESTING ============
+                                    console.log('🔵 [DEBUG] Update button clicked:', {
+                                      provider,
+                                      baseUrl: baseUrls[provider],
+                                      selectedProvider,
+                                      willFetchModels: provider === selectedProvider,
+                                      timestamp: new Date().toISOString()
+                                    })
+                                    // ============ DEBUG END ============
+
                                     // Refresh providers first (in case URL now connects)
                                     await refreshProviders()
                                     // Then fetch models with new URL (only if this is the selected provider)

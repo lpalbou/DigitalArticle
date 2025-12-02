@@ -179,6 +179,15 @@ async def get_provider_models(provider: str, base_url: Optional[str] = None):
         provider: Provider name (ollama, lmstudio, huggingface, etc.)
         base_url: Optional custom base URL for local providers (for testing connectivity)
     """
+    # ============ DEBUG START - REMOVE AFTER TESTING ============
+    logger.info(f"🔍 === get_provider_models ENTRY POINT ===")
+    logger.info(f"   provider={provider} (type: {type(provider)})")
+    logger.info(f"   base_url={base_url} (type: {type(base_url)})")
+    if base_url:
+        logger.info(f"   base_url length: {len(base_url)}")
+        logger.info(f"   base_url stripped: '{base_url.strip()}'")
+    # ============ DEBUG END ============
+
     logger.info(f"🔍 Fetching models for {provider}...")
 
     try:
@@ -199,20 +208,43 @@ async def get_provider_models(provider: str, base_url: Optional[str] = None):
             # Get base URL from settings (unless overridden by parameter)
             url_to_use = base_url if base_url else settings.llm.base_urls.get(provider)
 
+            logger.info(f"🔍 get_provider_models: provider={provider}, base_url_param={base_url}, url_from_settings={settings.llm.base_urls.get(provider)}, url_to_use={url_to_use}")
+
             if url_to_use and url_to_use.strip():
                 configure_provider(provider, base_url=url_to_use)
-                logger.debug(f"📍 Configured {provider} with base_url: {url_to_use}")
+                logger.info(f"📍 Configured {provider} with base_url: {url_to_use}")
+            else:
+                logger.warning(f"⚠️ No base_url configured for {provider}")
 
             # Try to create LLM and get models
             # Some providers (like LMStudio) raise ModelNotFoundError for invalid model names
             # but the error message contains the list of available models
             try:
+                logger.info(f"🔨 Creating LLM instance: provider={provider}, model='dummy'")
                 llm = create_llm(provider, model="dummy")
-                return llm.list_available_models()
+                logger.info(f"✅ LLM created. base_url={getattr(llm, 'base_url', 'unknown')}")
+
+                logger.info(f"📞 Calling llm.list_available_models()...")
+                models = llm.list_available_models()
+                logger.info(f"✅ list_available_models() returned {len(models)} models")
+
+                if len(models) == 0:
+                    logger.warning(f"⚠️ ZERO MODELS RETURNED! This is the bug!")
+                    logger.warning(f"   provider={provider}, base_url={getattr(llm, 'base_url', 'unknown')}")
+                    # Try direct base_url parameter as fallback
+                    if url_to_use:
+                        logger.info(f"🔄 Retrying with direct base_url parameter...")
+                        llm2 = create_llm(provider, model="dummy", base_url=url_to_use)
+                        models2 = llm2.list_available_models()
+                        logger.info(f"✅ Retry with base_url param returned {len(models2)} models")
+                        return models2
+
+                return models
             except ModelNotFoundError as e:
                 # Parse available models from error message
                 # Format: "Available models (N):\n  • model1\n  • model2\n..."
                 error_msg = str(e)
+                logger.info(f"⚠️ ModelNotFoundError: {error_msg[:200]}")
                 if "Available models" in error_msg:
                     import re
                     # Extract models from bullet points
@@ -228,11 +260,18 @@ async def get_provider_models(provider: str, base_url: Optional[str] = None):
 
         logger.info(f"🏁 Found {len(models)} models for {provider}")
 
+        # ============ DEBUG START - REMOVE AFTER TESTING ============
+        # FIX: If 0 models returned, mark as unavailable (connection likely failed)
+        is_available = len(models) > 0
+        if not is_available:
+            logger.warning(f"⚠️ Marking provider as unavailable (0 models found)")
+        # ============ DEBUG END ============
+
         return {
             "provider": provider,
             "models": models,
             "count": len(models),
-            "available": True  # Connection successful
+            "available": is_available  # True only if models were found
         }
 
     except Exception as e:
@@ -396,3 +435,105 @@ async def get_llm_status(notebook_id: Optional[str] = None):
             "max_output_tokens": None,
             "active_context_tokens": None
         }
+
+
+@router.get("/debug/connection")
+async def debug_ollama_connection(base_url: str):
+    """
+    Debug endpoint to test Ollama connection from backend.
+    This helps diagnose issues with external Ollama instances in Docker deployments.
+
+    Usage: GET /api/llm/debug/connection?base_url=http://172.20.10.2:11434
+    """
+    import socket
+    import requests
+    from urllib.parse import urlparse
+    from abstractcore import create_llm
+    from abstractcore.config import configure_provider
+
+    results = {
+        "base_url": base_url,
+        "tests": {}
+    }
+
+    # Test 1: Network connectivity (TCP socket)
+    try:
+        parsed = urlparse(base_url)
+        host = parsed.hostname
+        port = parsed.port or 11434
+
+        sock = socket.create_connection((host, port), timeout=3)
+        sock.close()
+
+        results["tests"]["tcp_connection"] = {
+            "status": "success",
+            "message": f"TCP connection to {host}:{port} successful"
+        }
+    except Exception as e:
+        results["tests"]["tcp_connection"] = {
+            "status": "failed",
+            "error": str(e)
+        }
+
+    # Test 2: Direct HTTP request to Ollama API
+    try:
+        response = requests.get(f"{base_url}/api/tags", timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        model_count = len(data.get('models', []))
+
+        results["tests"]["direct_api_call"] = {
+            "status": "success",
+            "model_count": model_count,
+            "first_5_models": [m['name'] for m in data.get('models', [])[:5]]
+        }
+    except Exception as e:
+        results["tests"]["direct_api_call"] = {
+            "status": "failed",
+            "error": str(e)
+        }
+
+    # Test 3: AbstractCore with configure_provider()
+    try:
+        configure_provider('ollama', base_url=base_url)
+        llm = create_llm('ollama', model='dummy')
+        models = llm.list_available_models()
+
+        results["tests"]["abstractcore_configured"] = {
+            "status": "success",
+            "model_count": len(models),
+            "first_5_models": models[:5] if models else [],
+            "llm_base_url": getattr(llm, 'base_url', 'unknown')
+        }
+    except Exception as e:
+        results["tests"]["abstractcore_configured"] = {
+            "status": "failed",
+            "error": str(e)
+        }
+
+    # Test 4: AbstractCore with direct base_url parameter
+    try:
+        llm = create_llm('ollama', model='dummy', base_url=base_url)
+        models = llm.list_available_models()
+
+        results["tests"]["abstractcore_direct"] = {
+            "status": "success",
+            "model_count": len(models),
+            "first_5_models": models[:5] if models else [],
+            "llm_base_url": getattr(llm, 'base_url', 'unknown')
+        }
+    except Exception as e:
+        results["tests"]["abstractcore_direct"] = {
+            "status": "failed",
+            "error": str(e)
+        }
+
+    # Summary
+    test_results = [t["status"] for t in results["tests"].values()]
+    results["summary"] = {
+        "total_tests": len(test_results),
+        "passed": test_results.count("success"),
+        "failed": test_results.count("failed")
+    }
+
+    return results
