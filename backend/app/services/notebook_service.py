@@ -183,6 +183,7 @@ class NotebookService:
         Build comprehensive execution context for LLM code generation.
 
         Includes:
+        - Persona combination (if persona selected for notebook)
         - Available variables in execution context
         - Previous cells (prompts and code) for context awareness
         - Data files available
@@ -194,7 +195,7 @@ class NotebookService:
             current_cell: Cell being executed
 
         Returns:
-            Context dictionary for LLM with previous cell history
+            Context dictionary for LLM with previous cell history and persona guidance
         """
         context = {}
 
@@ -206,6 +207,26 @@ class NotebookService:
             # Add IDs for token tracking (AbstractCore integration)
             context['notebook_id'] = str(notebook.id)
             context['cell_id'] = str(current_cell.id)
+
+            # Load and combine personas if selected for notebook
+            try:
+                from ..services.persona_service import PersonaService
+                from ..models.persona import PersonaSelection
+
+                if 'personas' in notebook.metadata and notebook.metadata['personas']:
+                    persona_data = notebook.metadata['personas']
+                    persona_selection = PersonaSelection(**persona_data)
+
+                    persona_service = PersonaService()
+                    persona_combination = persona_service.combine_personas(
+                        persona_selection,
+                        username=None  # Will use only system personas for now
+                    )
+
+                    context['persona_combination'] = persona_combination
+                    logger.info(f"Loaded persona combination: {persona_combination.source_personas}")
+            except Exception as e:
+                logger.warning(f"Could not load persona combination: {e}")
 
             # Add information about available data files
             try:

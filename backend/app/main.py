@@ -12,7 +12,7 @@ import traceback
 import logging
 import os
 
-from .api import cells, notebooks, llm, files, system, ai_code_fix, chat, settings, models
+from .api import cells, notebooks, llm, files, system, ai_code_fix, chat, settings, models, personas
 from ._version import __version__
 
 logger = logging.getLogger(__name__)
@@ -81,6 +81,7 @@ app.include_router(ai_code_fix.router, prefix="/api/cells", tags=["ai-code-fix"]
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(settings.router, prefix="/api", tags=["settings"])
 app.include_router(models.router, prefix="/api", tags=["models"])
+app.include_router(personas.router)  # Already has /api/personas prefix
 
 @app.get("/")
 async def root():

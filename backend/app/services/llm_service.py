@@ -293,8 +293,28 @@ class LLMService:
             raise LLMError(f"Failed to generate code: {e}")
     
     def _build_system_prompt(self, context: Optional[Dict[str, Any]] = None) -> str:
-        """Build the system prompt for code generation."""
-        
+        """Build the system prompt for code generation.
+
+        Args:
+            context: Optional context including:
+                - persona_combination: PersonaCombination for specialized guidance
+                - available_variables: Dict of variables in namespace
+                - data_info: Information about data files
+        """
+
+        # Extract persona combination if present
+        persona_guidance = ""
+        if context and 'persona_combination' in context:
+            from ..services.persona_service import PersonaService
+            from ..models.persona import PersonaScope
+
+            persona_service = PersonaService()
+            persona_combination = context['persona_combination']
+            persona_guidance = persona_service.build_system_prompt_addition(
+                persona_combination,
+                PersonaScope.CODE_GENERATION
+            )
+
         base_prompt = """You are a data analysis assistant that converts natural language requests into Python code.
 
 DATA FILES:
@@ -408,13 +428,20 @@ HELPERS (pre-loaded):
 - Type conversion: safe_timedelta(), safe_int(), safe_float(), to_python_type()
 - Article display: display(obj, label=None) - marks results for article with auto-labeling"""
 
+        # Inject persona-specific guidance
+        if persona_guidance:
+            base_prompt += "\n\n" + "="*80 + "\n"
+            base_prompt += "SPECIALIZED PERSONA GUIDANCE:\n"
+            base_prompt += "="*80 + "\n"
+            base_prompt += persona_guidance
+
         # Add context-specific information
         if context:
             if 'available_variables' in context:
                 base_prompt += f"\n\nAVAILABLE VARIABLES:\n{context['available_variables']}"
             if 'data_info' in context:
                 base_prompt += f"\n\nDATA INFO:\n{context['data_info']}"
-        
+
         return base_prompt
     
     def _build_user_prompt(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> str:
