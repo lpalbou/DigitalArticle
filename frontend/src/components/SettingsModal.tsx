@@ -36,6 +36,7 @@ interface UserSettings {
 interface SettingsModalProps {
   isOpen: boolean
   onClose: () => void
+  notebookId?: string  // Current notebook ID, if any
 }
 
 type TabId = 'provider' | 'reproducibility'
@@ -47,7 +48,7 @@ const DEFAULT_BASE_URLS: Record<string, string> = {
   anthropic: '',
 }
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebookId }) => {
   const toaster = useToaster()
   const { downloadProgress, isDownloading, startDownload, cancelDownload } = useModelDownload()
   
@@ -277,9 +278,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
       })
 
       // Also update the global LLM provider selection
+      // If we have a notebookId, also update that notebook's config
       await axios.post('/api/llm/providers/select', {
         provider: selectedProvider,
         model: selectedModel,
+        notebook_id: notebookId,  // Update current notebook if open
       })
 
       // Trigger footer refresh

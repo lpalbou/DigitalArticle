@@ -209,6 +209,7 @@ const Header: React.FC<HeaderProps> = ({
         <SettingsModal
           isOpen={showSettingsModal}
           onClose={() => setShowSettingsModal(false)}
+          notebookId={currentNotebookId}
         />
       )}
 

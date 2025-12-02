@@ -1,7 +1,7 @@
 {
   "llm": {
     "provider": "lmstudio",
-    "model": "qwen/qwen3-next-80b"
+    "model": "openai/gpt-oss-20b"
   },
   "paths": {
     "notebooks_dir": "data/notebooks",

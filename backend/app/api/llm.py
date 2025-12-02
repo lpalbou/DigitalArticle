@@ -101,6 +101,7 @@ class ProviderSelectionRequest(BaseModel):
     """Request to set provider and model."""
     provider: str
     model: str
+    notebook_id: Optional[str] = None  # If provided, also update this specific notebook
 
 
 @router.get("/providers", response_model=List[ProviderInfo])
@@ -250,6 +251,7 @@ async def select_provider(request: ProviderSelectionRequest):
     """
     Select a provider and model for code generation.
     Updates global configuration and reinitializes the LLM.
+    If notebook_id is provided, also updates that specific notebook's config.
     """
     try:
         # Save to project configuration
@@ -261,6 +263,19 @@ async def select_provider(request: ProviderSelectionRequest):
         notebook_service.llm_service._initialize_llm()
 
         logger.info(f"✅ LLM configured: {request.provider}/{request.model}")
+
+        # If notebook_id provided, update that notebook's config too
+        if request.notebook_id:
+            try:
+                notebook = notebook_service.get_notebook(request.notebook_id)
+                if notebook:
+                    notebook.llm_provider = request.provider
+                    notebook.llm_model = request.model
+                    notebook_service._save_notebook(notebook)
+                    logger.info(f"✅ Updated notebook {request.notebook_id} config: {request.provider}/{request.model}")
+            except Exception as nb_error:
+                logger.warning(f"⚠️ Failed to update notebook config (non-critical): {nb_error}")
+                # Don't fail the entire request if notebook update fails
 
         return {
             "success": True,

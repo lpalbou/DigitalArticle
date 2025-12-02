@@ -11,7 +11,8 @@
 # ============================================
 # Stage 1: Frontend Build
 # ============================================
-FROM node:20-alpine AS frontend-builder
+# Using AWS ECR Public Gallery (no rate limits) instead of Docker Hub
+FROM public.ecr.aws/docker/library/node:20-alpine AS frontend-builder
 
 WORKDIR /build
 
@@ -26,7 +27,8 @@ RUN npm run build
 # ============================================
 # Stage 2: Backend Build
 # ============================================
-FROM python:3.12-slim AS backend-builder
+# Using AWS ECR Public Gallery (no rate limits) instead of Docker Hub
+FROM public.ecr.aws/docker/library/python:3.12-slim AS backend-builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -47,7 +49,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # ============================================
 # Stage 3: Runtime Image
 # ============================================
-FROM python:3.12-slim
+# Using AWS ECR Public Gallery (no rate limits) instead of Docker Hub
+FROM public.ecr.aws/docker/library/python:3.12-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -77,7 +80,7 @@ WORKDIR /app
 # Copy backend application
 COPY backend/ ./backend/
 
-# Copy digitalarticle package (for version import)
+# Copy version module (single source of truth)
 COPY digitalarticle/ ./digitalarticle/
 
 # Copy default configuration
