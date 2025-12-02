@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "digital-article-backend"
-version = "0.2.1"
+# Note: Keep in sync with /digitalarticle/_version.py
+version = "0.2.3"
 description = "Backend API for Digital Article - computational notebooks with natural language"
 authors = [
     {name = "Digital Article Team"}

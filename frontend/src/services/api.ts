@@ -279,6 +279,15 @@ export const filesAPI = {
   },
 }
 
+// System API
+export const systemAPI = {
+  // Get backend version
+  getVersion: async (): Promise<{ version: string }> => {
+    const response = await api.get('/system/version')
+    return response.data
+  },
+}
+
 // Error types for better error handling
 export class APIError extends Error {
   constructor(

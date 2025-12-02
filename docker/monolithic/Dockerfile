@@ -77,6 +77,9 @@ WORKDIR /app
 # Copy backend application
 COPY backend/ ./backend/
 
+# Copy digitalarticle package (for version import)
+COPY digitalarticle/ ./digitalarticle/
+
 # Copy default configuration
 COPY config.json ./config.json
 

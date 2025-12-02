@@ -11,16 +11,16 @@ from fastapi.responses import JSONResponse
 import traceback
 import logging
 import os
-from pathlib import Path
 
 from .api import cells, notebooks, llm, files, system, ai_code_fix, chat, settings, models
+from ._version import __version__
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Digital Article API",
     description="API for managing analytics notebooks with natural language prompts",
-    version="0.2.0"
+    version=__version__
 )
 
 # Add request logging middleware
@@ -84,13 +84,13 @@ app.include_router(models.router, prefix="/api", tags=["models"])
 
 @app.get("/")
 async def root():
-    """Health check endpoint."""
-    return {"message": "Digital Article API", "status": "running"}
+    """Health check endpoint with version info."""
+    return {"message": "Digital Article API", "status": "running", "version": __version__}
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint for monitoring."""
-    return {"status": "healthy"}
+    return {"status": "healthy", "version": __version__}
 
 if __name__ == "__main__":
     import uvicorn

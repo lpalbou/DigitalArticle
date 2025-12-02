@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Activity, AlertCircle } from 'lucide-react'
-import { llmAPI } from '../services/api'
+import { llmAPI, systemAPI } from '../services/api'
 
 interface LLMStatusFooterProps {
   notebookId?: string  // Add notebook ID prop for context tracking
@@ -18,6 +18,7 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ notebookId }) => {
     active_context_tokens?: number | null
   } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [version, setVersion] = useState<string>('...')
 
   const fetchStatus = async () => {
     try {
@@ -40,8 +41,19 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ notebookId }) => {
     }
   }
 
+  const fetchVersion = async () => {
+    try {
+      const data = await systemAPI.getVersion()
+      setVersion(data.version)
+    } catch (error) {
+      console.error('Failed to fetch version:', error)
+      setVersion('?')
+    }
+  }
+
   useEffect(() => {
     fetchStatus()
+    fetchVersion()  // Fetch version once on mount
 
     // Refresh status every 60 seconds (reasonable for health checks)
     const interval = setInterval(fetchStatus, 60000)
@@ -159,9 +171,9 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ notebookId }) => {
 
           {/* Right: Version & Update Info */}
           <div className="flex items-center space-x-3 text-xs text-gray-500">
-            <span>v0.2.0</span>
+            <span>v{version}</span>
             <div className="text-gray-400">|</div>
-            <span>Updated Nov 2025</span>
+            <span>Updated Dec 2025</span>
           </div>
         </div>
       </div>
