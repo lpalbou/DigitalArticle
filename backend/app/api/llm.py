@@ -110,19 +110,19 @@ async def get_available_providers():
     Use /providers/{provider}/models to get models for a specific provider.
 
     ALWAYS queries AbstractCore fresh - no caching.
-    Sets API keys from settings as environment variables so AbstractCore sees them.
+    Sets API keys and base URLs using AbstractCore v2.6.2 programmatic configuration.
     """
     logger.info("🔍 Detecting available LLM providers...")
 
-    # Get saved API keys and set as environment variables
-    # This allows AbstractCore to see them when checking provider availability
+    # Get saved settings
     from ..services.user_settings_service import get_user_settings_service
+    from abstractcore.config import configure_provider
     import os
 
     settings_service = get_user_settings_service()
     settings = settings_service.get_settings()
 
-    # Set API keys in environment if they exist
+    # Set API keys in environment if they exist (for cloud providers)
     if settings.llm.api_keys.get('openai'):
         os.environ['OPENAI_API_KEY'] = settings.llm.api_keys['openai']
     if settings.llm.api_keys.get('anthropic'):
@@ -130,8 +130,15 @@ async def get_available_providers():
     if settings.llm.api_keys.get('huggingface'):
         os.environ['HUGGINGFACE_TOKEN'] = settings.llm.api_keys['huggingface']
 
+    # Configure base URLs programmatically (AbstractCore v2.6.2)
+    # This makes all subsequent create_llm() calls use these URLs automatically
+    for provider, base_url in settings.llm.base_urls.items():
+        if base_url and base_url.strip():  # Only configure if URL is set
+            configure_provider(provider, base_url=base_url)
+            logger.debug(f"📍 Configured {provider} base_url: {base_url}")
+
     # Use AbstractCore's provider registry - get metadata only (no models)
-    # This will now see the API keys we just set
+    # This will now see the API keys and configured base URLs
     loop = asyncio.get_event_loop()
 
     def _get_providers():
@@ -169,26 +176,51 @@ async def get_provider_models(provider: str, base_url: Optional[str] = None):
 
     Args:
         provider: Provider name (ollama, lmstudio, huggingface, etc.)
-        base_url: Optional custom base URL for local providers
+        base_url: Optional custom base URL for local providers (for testing connectivity)
     """
     logger.info(f"🔍 Fetching models for {provider}...")
 
     try:
         from abstractcore import create_llm
+        from abstractcore.config import configure_provider
+        from abstractcore.exceptions import ModelNotFoundError
+        from ..services.user_settings_service import get_user_settings_service
 
         # Create LLM instance for this provider
         loop = asyncio.get_event_loop()
 
         def _get_models():
-            kwargs = {}
-            if base_url:
-                kwargs['base_url'] = base_url
+            # Always configure from user settings first
+            # This ensures we use the saved base URL for the provider
+            settings_service = get_user_settings_service()
+            settings = settings_service.get_settings()
 
-            # Create temporary LLM instance
-            llm = create_llm(provider, model="dummy", **kwargs)
+            # Get base URL from settings (unless overridden by parameter)
+            url_to_use = base_url if base_url else settings.llm.base_urls.get(provider)
 
-            # Call list_available_models() - always fresh, no cache
-            return llm.list_available_models()
+            if url_to_use and url_to_use.strip():
+                configure_provider(provider, base_url=url_to_use)
+                logger.debug(f"📍 Configured {provider} with base_url: {url_to_use}")
+
+            # Try to create LLM and get models
+            # Some providers (like LMStudio) raise ModelNotFoundError for invalid model names
+            # but the error message contains the list of available models
+            try:
+                llm = create_llm(provider, model="dummy")
+                return llm.list_available_models()
+            except ModelNotFoundError as e:
+                # Parse available models from error message
+                # Format: "Available models (N):\n  • model1\n  • model2\n..."
+                error_msg = str(e)
+                if "Available models" in error_msg:
+                    import re
+                    # Extract models from bullet points
+                    models = re.findall(r'  • (.+)', error_msg)
+                    if models:
+                        logger.info(f"✅ Parsed {len(models)} models from ModelNotFoundError")
+                        return models
+                # If we can't parse models, raise the error
+                raise
 
         # Run in thread pool to avoid blocking
         models = await loop.run_in_executor(None, _get_models)
@@ -198,7 +230,8 @@ async def get_provider_models(provider: str, base_url: Optional[str] = None):
         return {
             "provider": provider,
             "models": models,
-            "count": len(models)
+            "count": len(models),
+            "available": True  # Connection successful
         }
 
     except Exception as e:
@@ -207,6 +240,7 @@ async def get_provider_models(provider: str, base_url: Optional[str] = None):
             "provider": provider,
             "models": [],
             "count": 0,
+            "available": False,  # Connection failed
             "error": str(e)
         }
 

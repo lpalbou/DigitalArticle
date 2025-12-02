@@ -6,6 +6,80 @@ Digital Article is a computational notebook application that inverts the traditi
 
 ## Recent Investigations
 
+### Task: AbstractCore v2.6.2 Upgrade - Programmatic Base URL Configuration (2025-12-02)
+
+**Description**: Upgraded to AbstractCore v2.6.2 which implements our feature request for custom base URL support. The new programmatic configuration API (`configure_provider()`) provides a cleaner, more maintainable solution than environment variables or manual parameter passing.
+
+**Feature Request Outcome**:
+- Submitted feature request for base URL environment variable support
+- AbstractCore team implemented **TWO solutions** in v2.6.1 and v2.6.2:
+  - v2.6.1: Environment variable support (`OLLAMA_BASE_URL`, `LMSTUDIO_BASE_URL`)
+  - v2.6.2: Programmatic configuration API (`configure_provider()`) ⭐ **We use this**
+
+**Why Programmatic Config > Environment Variables**:
+- ✅ **Clean Architecture**: No env var pollution, clear separation of concerns
+- ✅ **Runtime Updates**: User changes URL → immediate effect, no restart
+- ✅ **State Management**: Settings in `user_settings.json` → applied via `configure_provider()`
+- ✅ **No Race Conditions**: Env vars are process-global, programmatic is scoped
+- ✅ **Better for Web UI**: Can set/query/clear configs per-provider
+- ✅ **Testability**: Easy to mock and test
+
+**Implementation**:
+
+**Before (v2.5.3 - manual workaround)**:
+```python
+# Had to pass base_url to EVERY create_llm() call
+llm = create_llm('ollama', model='test', base_url=base_url)
+models = llm.list_available_models()
+```
+
+**After (v2.6.2 - clean solution)**:
+```python
+from abstractcore.config import configure_provider
+
+# Configure ONCE from user settings
+configure_provider('ollama', base_url=base_url)
+
+# All subsequent calls automatically use configured URL
+llm = create_llm('ollama', model='test')  # ✅ Uses configured URL
+models = llm.list_available_models()  # ✅ Uses configured URL
+```
+
+**Backend Changes** (backend/app/api/llm.py):
+- Import `configure_provider` from abstractcore.config
+- Configure base URLs from user settings in `get_available_providers()`
+- Simplified `get_provider_models()` - no manual base_url parameter needed
+- All AbstractCore calls automatically use configured URLs
+
+**Key Benefits**:
+- ✅ **Single source of truth**: User settings → automatic AbstractCore configuration
+- ✅ **No parameter passing**: Configure once, use everywhere
+- ✅ **Provider discovery works**: `get_all_providers_with_models()` tests configured URLs
+- ✅ **Dynamic updates**: Blue "Update" button tests new URLs instantly
+- ✅ **Remote server support**: Ollama on GPU server, access from laptop
+- ✅ **Docker-friendly**: Different hosts/ports just work
+
+**Testing**: Comprehensive test suite (8/8 tests passing):
+- `tests/abstractcore_v262/test_programmatic_configuration.py`
+- Tests API availability, base_url configuration, create_llm() integration
+- Tests invalid URL handling, dynamic updates, settings integration
+
+**Results**:
+- ✅ **Cleaner code**: ~20 lines changed, removed manual base_url parameter passing
+- ✅ **Better architecture**: Programmatic config vs env var pollution
+- ✅ **All tests pass**: 8/8 integration tests passing
+- ✅ **Zero breaking changes**: Existing functionality preserved
+- ✅ **Production ready**: Ready to deploy
+
+**Files Modified**:
+- `backend/app/api/llm.py` (~20 lines): Use programmatic configuration
+- `tests/abstractcore_v262/test_programmatic_configuration.py` (180 lines): Comprehensive tests
+- `docs/devnotes/abstractcore-v262-upgrade.md`: Full documentation
+
+**Issues/Concerns**: None. The programmatic configuration API is exactly what we needed - clean, maintainable, and follows best practices for web applications.
+
+---
+
 ### Task: Async Model Download with Persistent Progress Tracking (2025-12-01)
 
 **Description**: Implemented unified async model download system using AbstractCore 2.6.0's `download_model()` API with persistent progress visibility across modal close/reopen, addressing UX gap where download progress disappeared when switching providers.

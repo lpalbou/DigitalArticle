@@ -157,7 +157,39 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
       const url = `/api/llm/providers/${provider}/models${params.toString() ? '?' + params.toString() : ''}`
       const response = await axios.get(url)
 
+      console.log(`[fetchModels] ${provider}:`, {
+        available: response.data.available,
+        count: response.data.count,
+        models: response.data.models?.length || 0,
+        firstModel: response.data.models?.[0]
+      })
+
       setCurrentProviderModels(response.data.models || [])
+      console.log('[fetchModels] State updated, currentProviderModels length:', response.data.models?.length || 0)
+
+      // If connection failed (custom base URL), update provider availability
+      if (response.data.available === false) {
+        // Remove provider from list if connection failed with custom URL
+        if (baseUrl) {
+          setProviders(prev => prev.filter(p => p.name !== provider))
+          toaster.error(`Cannot connect to ${provider} at ${baseUrl}`)
+        }
+      } else if (response.data.available === true && baseUrl) {
+        // Connection succeeded with custom URL - ensure provider is in list
+        const providerExists = providers.find(p => p.name === provider)
+        if (!providerExists) {
+          // Add provider to list (connection now works)
+          const newProvider = {
+            name: provider,
+            display_name: provider.charAt(0).toUpperCase() + provider.slice(1),
+            available: true,
+            default_model: response.data.models[0] || '',
+            models: []
+          }
+          setProviders(prev => [...prev, newProvider])
+          toaster.success(`Connected to ${provider} at ${baseUrl}`)
+        }
+      }
 
       // Auto-select first model if none selected
       if (response.data.models && response.data.models.length > 0 && !selectedModel) {
@@ -166,6 +198,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     } catch (error) {
       console.error(`Failed to fetch models for ${provider}:`, error)
       setCurrentProviderModels([])
+      toaster.error(`Connection failed: ${error}`)
     } finally {
       setLoadingModels(false)
     }
@@ -494,7 +527,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                           disabled={loadingModels}
                           className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
                         >
-                          <option value="">{loadingModels ? 'Loading models...' : 'Select a model...'}</option>
+                          <option value="">{loadingModels ? 'Loading models...' : `Select a model... (${currentProviderModels.length} available)`}</option>
                           {currentProviderModels.map((model) => (
                             <option key={model} value={model}>
                               {model}
@@ -667,27 +700,29 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                         {['ollama', 'lmstudio', 'openai', 'anthropic'].map((provider) => (
                           <div key={provider}>
                             <label className="block text-xs text-gray-500 mb-1 capitalize">
-                              {provider} {provider === 'openai' || provider === 'anthropic' ? '(for Portkey/proxy)' : ''}
+                              {provider} {provider === 'openai' || provider === 'anthropic' ? '(for Portkey/proxy)' : provider === 'lmstudio' ? '(e.g., http://localhost:1234/v1)' : ''}
                             </label>
                             <div className="flex space-x-2">
                               <input
                                 type="text"
                                 value={baseUrls[provider] || ''}
                                 onChange={(e) => setBaseUrls(prev => ({ ...prev, [provider]: e.target.value }))}
-                                placeholder={DEFAULT_BASE_URLS[provider] || 'Leave empty for default'}
+                                placeholder={provider === 'lmstudio' ? 'http://localhost:1234/v1' : DEFAULT_BASE_URLS[provider] || 'Leave empty for default'}
                                 className="flex-1 px-3 py-1.5 border border-gray-300 rounded text-sm"
                               />
-                              {(provider === 'ollama' || provider === 'lmstudio') && provider === selectedProvider && (
+                              {(provider === 'ollama' || provider === 'lmstudio') && (
                                 <button
                                   onClick={async () => {
                                     // Refresh providers first (in case URL now connects)
                                     await refreshProviders()
-                                    // Then fetch models with new URL
-                                    await fetchModelsForProvider(provider, baseUrls[provider])
+                                    // Then fetch models with new URL (only if this is the selected provider)
+                                    if (provider === selectedProvider) {
+                                      await fetchModelsForProvider(provider, baseUrls[provider])
+                                    }
                                   }}
                                   disabled={loadingModels}
                                   className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-1"
-                                  title="Test connection and refresh model list"
+                                  title="Test connection and refresh provider list"
                                 >
                                   {loadingModels ? (
                                     <Loader className="h-3 w-3 animate-spin" />
