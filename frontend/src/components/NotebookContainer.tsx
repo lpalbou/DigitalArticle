@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Plus, AlertCircle, Edit2, Check, X, FileText, Loader2 } from 'lucide-react'
+import { Plus, AlertCircle, Edit2, Check, X, FileText, Loader2, ClipboardCheck, User } from 'lucide-react'
+import axios from 'axios'
 import Header from './Header'
 import FileContextPanel from './FileContextPanel'
 import NotebookCell from './NotebookCell'
 import PDFGenerationModal from './PDFGenerationModal'
+import ArticleReviewModal from './ArticleReviewModal'
 import SemanticExtractionModal from './SemanticExtractionModal'
 import ExecutionDetailsModal from './ExecutionDetailsModal'
 import ChatFloatingButton from './ChatFloatingButton'
 import ArticleChatPanel from './ArticleChatPanel'
 import LLMStatusFooter from './LLMStatusFooter'
-import LLMSettingsModal from './LLMSettingsModal'
+import SettingsModal from './SettingsModal'
 import DependencyModal from './DependencyModal'
 import Toast, { ToastType } from './Toast'
 import { notebookAPI, cellAPI, llmAPI, handleAPIError, downloadFile, getCurrentUser } from '../services/api'
@@ -58,7 +60,12 @@ const NotebookContainer: React.FC = () => {
   const [tempDescription, setTempDescription] = useState('')
   const [abstract, setAbstract] = useState<string>('')
   const [isGeneratingAbstract, setIsGeneratingAbstract] = useState(false)
-  
+
+  // Article review state
+  const [articleReview, setArticleReview] = useState<any>(null)
+  const [isReviewingArticle, setIsReviewingArticle] = useState(false)
+  const [showArticleReviewModal, setShowArticleReviewModal] = useState(false)
+
   // PDF generation state
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
   const [pdfGenerationStage, setPdfGenerationStage] = useState<'analyzing' | 'regenerating_abstract' | 'planning_article' | 'writing_introduction' | 'writing_methodology' | 'writing_results' | 'writing_discussion' | 'writing_conclusions' | 'creating_pdf' | 'complete'>('analyzing')
@@ -101,17 +108,6 @@ const NotebookContainer: React.FC = () => {
       }
     }
   }, [notebookId]) // Only depend on notebookId to prevent infinite loops
-
-  // Auto-save functionality
-  useEffect(() => {
-    if (hasUnsavedChanges && notebook) {
-      const timeoutId = setTimeout(() => {
-        saveNotebook()
-      }, 2000) // Auto-save after 2 seconds of inactivity
-
-      return () => clearTimeout(timeoutId)
-    }
-  }, [notebook, hasUnsavedChanges])
 
   // Keyboard shortcut for chat (Cmd/Ctrl+K)
   useEffect(() => {
@@ -218,6 +214,16 @@ const NotebookContainer: React.FC = () => {
   const saveNotebook = useCallback(async () => {
     if (!notebook) return
 
+    // Don't save if notebook is essentially empty (no cells, default title)
+    const isEmpty = notebook.cells.length === 0 &&
+                   notebook.title === 'Untitled Digital Article' &&
+                   !notebook.description
+
+    if (isEmpty) {
+      console.log('Skipping save - notebook is empty')
+      return
+    }
+
     try {
       // Update notebook metadata if needed
       await notebookAPI.update(notebook.id, {
@@ -225,7 +231,7 @@ const NotebookContainer: React.FC = () => {
         description: notebook.description,
         author: notebook.author
       })
-      
+
       setHasUnsavedChanges(false)
       console.log('Digital Article saved successfully')
 
@@ -863,6 +869,104 @@ const NotebookContainer: React.FC = () => {
     }
   }, [notebook?.id])
 
+  const reviewArticle = useCallback(async () => {
+    if (!notebook?.id) {
+      setError('No notebook selected')
+      return
+    }
+
+    setIsReviewingArticle(true)
+    setError(null)
+
+    try {
+      const response = await axios.post(`/api/review/article/${notebook.id}`)
+      setArticleReview(response.data)
+      setShowArticleReviewModal(true)
+      setToast({
+        message: 'Article review completed',
+        type: 'success'
+      })
+    } catch (err) {
+      const apiError = handleAPIError(err)
+      setError(`Failed to review article: ${apiError.message}`)
+    } finally {
+      setIsReviewingArticle(false)
+    }
+  }, [notebook?.id])
+
+  // ===== PERSONA BADGE - COMPLETELY REWRITTEN =====
+  const [activePersonas, setActivePersonas] = useState<string[]>(['Generic'])
+
+  // Fetch personas from backend
+  const fetchPersonas = useCallback(async () => {
+    if (!notebook?.id) {
+      setActivePersonas(['Generic'])
+      return
+    }
+
+    try {
+      const response = await axios.get(`/api/personas/notebooks/${notebook.id}/personas`)
+      const data = response.data
+
+      // Build display array
+      const parts: string[] = []
+      if (data?.base_persona) {
+        parts.push(data.base_persona.charAt(0).toUpperCase() + data.base_persona.slice(1))
+      }
+      if (data?.domain_personas?.length > 0) {
+        parts.push(...data.domain_personas.map((d: string) =>
+          d.charAt(0).toUpperCase() + d.slice(1)
+        ))
+      }
+
+      setActivePersonas(parts.length > 0 ? parts : ['Generic'])
+    } catch (error) {
+      console.error('Failed to fetch personas:', error)
+      setActivePersonas(['Generic'])
+    }
+  }, [notebook?.id])
+
+  // Load on mount and when notebook changes
+  useEffect(() => {
+    fetchPersonas()
+  }, [fetchPersonas])
+
+  // Listen for persona updates (fired by SettingsModal after save)
+  useEffect(() => {
+    const handlePersonaUpdate = () => {
+      console.log('Persona update event received, refreshing badge...')
+      fetchPersonas()
+    }
+
+    window.addEventListener('persona-updated', handlePersonaUpdate)
+    return () => window.removeEventListener('persona-updated', handlePersonaUpdate)
+  }, [fetchPersonas])
+
+  // Handle badge click - open settings
+  const handlePersonaBadgeClick = useCallback(() => {
+    setShowSettingsModal(true)
+  }, [])
+
+  // Auto-save functionality - ONLY triggers when hasUnsavedChanges flag changes
+  useEffect(() => {
+    // Only save if there are actual unsaved changes
+    if (!hasUnsavedChanges) return
+    if (!notebook) return
+
+    console.log('Auto-save scheduled due to unsaved changes')
+
+    const timeoutId = setTimeout(() => {
+      console.log('Auto-save executing...')
+      saveNotebook()
+    }, 2000) // Auto-save after 2 seconds of inactivity
+
+    return () => {
+      console.log('Auto-save cancelled (new changes detected)')
+      clearTimeout(timeoutId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasUnsavedChanges]) // CRITICAL: Only hasUnsavedChanges - saveNotebook is stable via useCallback
+
   // Memoized values
   const hasCells = useMemo(() => notebook?.cells && notebook.cells.length > 0, [notebook])
 
@@ -917,7 +1021,9 @@ const NotebookContainer: React.FC = () => {
         onExportPDF={exportNotebookPDF}
         onSelectNotebook={selectNotebook}
         onDeleteNotebook={deleteNotebook}
+        onReviewArticle={reviewArticle}
         isGeneratingPDF={isGeneratingPDF}
+        isReviewingArticle={isReviewingArticle}
         currentNotebookId={notebook?.id}
         currentNotebookTitle={notebook?.title}
       />
@@ -943,6 +1049,13 @@ const NotebookContainer: React.FC = () => {
         traces={cellTraces}
         executionResult={cellExecutionResult}
         onClose={() => setIsViewingTraces(false)}
+      />
+
+      {/* Article Review Modal */}
+      <ArticleReviewModal
+        isVisible={showArticleReviewModal}
+        review={articleReview}
+        onClose={() => setShowArticleReviewModal(false)}
       />
 
       {/* Content with top padding for header and bottom padding for footer */}
@@ -1024,14 +1137,12 @@ const NotebookContainer: React.FC = () => {
                 onClick={handleTitleEdit}
                 title="Click to edit title"
               >
-                <div className="flex items-center space-x-2">
-                  <h1 className="text-2xl font-bold flex-1 text-gray-900 group-hover:text-gray-700 transition-colors editable-field">
-                    {notebook.title}
-                  </h1>
-                  <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-70 transition-all duration-300">
-                    <Edit2 className="h-4 w-4 text-gray-500" />
-                    <span className="text-xs text-gray-500 font-medium">Click to edit</span>
-                  </div>
+                <h1 className="text-2xl font-bold text-gray-900 group-hover:text-gray-700 transition-colors editable-field">
+                  {notebook.title}
+                </h1>
+                <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-70 transition-all duration-300 mt-1">
+                  <Edit2 className="h-4 w-4 text-gray-500" />
+                  <span className="text-xs text-gray-500 font-medium">Click to edit</span>
                 </div>
               </div>
               
@@ -1120,8 +1231,23 @@ const NotebookContainer: React.FC = () => {
           </div>
         )}
 
-        <div className="flex items-center justify-between text-sm text-gray-500">
-          <span>Author: {notebook.author}</span>
+        <div className="flex items-start justify-between text-sm text-gray-500">
+          <div className="space-y-1">
+            <div>Author: {notebook.author}</div>
+            <div className="flex items-center gap-2">
+              <span>AI Assistant:</span>
+              <button
+                onClick={handlePersonaBadgeClick}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors cursor-pointer border border-blue-200"
+                title="Click to change AI assistant persona"
+              >
+                <User className="h-3.5 w-3.5 text-blue-600" />
+                <span className="text-xs text-blue-700 font-medium">
+                  {activePersonas.join(' + ')}
+                </span>
+              </button>
+            </div>
+          </div>
           <span>
             {hasUnsavedChanges && <span className="text-orange-600 mr-2">• Unsaved changes</span>}
             Last updated: {new Date(notebook.updated_at).toLocaleDateString()}
@@ -1179,11 +1305,12 @@ const NotebookContainer: React.FC = () => {
         notebookId={notebook?.id}
       />
 
-      {/* LLM Settings Modal */}
+      {/* Settings Modal */}
       {showSettingsModal && (
-        <LLMSettingsModal
+        <SettingsModal
           isOpen={showSettingsModal}
           onClose={() => setShowSettingsModal(false)}
+          notebookId={notebook?.id}
         />
       )}
 

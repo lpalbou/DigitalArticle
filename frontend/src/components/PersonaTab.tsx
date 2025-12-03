@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { AlertCircle, Loader, Info } from 'lucide-react'
+import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react'
+import { AlertCircle, Loader, Info, ChevronDown, ChevronRight } from 'lucide-react'
 import axios from 'axios'
 import { Persona, PersonaSelection } from '../types/persona'
 import PersonaCard from './PersonaCard'
@@ -7,6 +7,10 @@ import { useToaster } from '../contexts/ToasterContext'
 
 interface PersonaTabProps {
   notebookId?: string  // Optional notebook ID for per-notebook selection
+}
+
+export interface PersonaTabRef {
+  save: () => Promise<void>
 }
 
 /**
@@ -23,8 +27,13 @@ interface PersonaTabProps {
  * - Maintains local selection state
  * - Saves to notebook metadata on Save click
  */
-const PersonaTab: React.FC<PersonaTabProps> = ({ notebookId }) => {
+const PersonaTab = forwardRef<PersonaTabRef, PersonaTabProps>(({ notebookId }, ref) => {
   const toaster = useToaster()
+
+  // Expose save function to parent via ref
+  useImperativeHandle(ref, () => ({
+    save: handleSave
+  }))
 
   // State
   const [loading, setLoading] = useState(true)
@@ -36,6 +45,9 @@ const PersonaTab: React.FC<PersonaTabProps> = ({ notebookId }) => {
     role_modifier: null,
     custom_overrides: {},
   })
+  const [expandedPersona, setExpandedPersona] = useState<string | null>(null)
+  const [combinedPreview, setCombinedPreview] = useState<any>(null)
+  const [loadingPreview, setLoadingPreview] = useState(false)
 
   // Load personas from API
   useEffect(() => {
@@ -74,14 +86,12 @@ const PersonaTab: React.FC<PersonaTabProps> = ({ notebookId }) => {
 
   const handleSave = async () => {
     if (!notebookId) {
-      toaster.info('No notebook open - persona will be saved when you open a notebook')
       return
     }
 
     try {
       setSaving(true)
       await axios.put(`/api/personas/notebooks/${notebookId}/personas`, selection)
-      toaster.success('Persona selection saved!')
     } catch (error) {
       console.error('Error saving persona selection:', error)
       toaster.error('Failed to save persona selection')
@@ -90,11 +100,44 @@ const PersonaTab: React.FC<PersonaTabProps> = ({ notebookId }) => {
     }
   }
 
+  // Fetch combined persona preview when selection changes
+  useEffect(() => {
+    const fetchCombined = async () => {
+      if (!selection.base_persona) return
+
+      setLoadingPreview(true)
+      try {
+        const response = await axios.post('/api/personas/combine', selection)
+        setCombinedPreview(response.data)
+      } catch (error) {
+        console.error('Failed to fetch combined preview:', error)
+        setCombinedPreview(null)
+      } finally {
+        setLoadingPreview(false)
+      }
+    }
+
+    // Debounce to avoid too many API calls
+    const timeoutId = setTimeout(fetchCombined, 300)
+    return () => clearTimeout(timeoutId)
+  }, [selection])
+
   // Group personas by category
   const basePersonas = personas.filter(p => p.category === 'base')
   const domainPersonas = personas.filter(p => p.category === 'domain')
   const rolePersonas = personas.filter(p => p.category === 'role')
   const customPersonas = personas.filter(p => p.category === 'custom')
+
+  // Toggle domain persona selection
+  const toggleDomainPersona = (slug: string) => {
+    const isSelected = selection.domain_personas.includes(slug)
+    setSelection({
+      ...selection,
+      domain_personas: isSelected
+        ? selection.domain_personas.filter(s => s !== slug)
+        : [...selection.domain_personas, slug]
+    })
+  }
 
   if (loading) {
     return (
@@ -123,6 +166,45 @@ const PersonaTab: React.FC<PersonaTabProps> = ({ notebookId }) => {
     )
   }
 
+  // Persona details component (inline)
+  const PersonaDetails: React.FC<{ persona: Persona }> = ({ persona }) => (
+    <div className="mt-3 p-4 bg-gray-50 rounded-lg border border-gray-200 text-sm">
+      {persona.expertise_description && (
+        <div className="mb-3">
+          <h4 className="font-medium text-gray-900 mb-1">Expertise</h4>
+          <p className="text-gray-700">{persona.expertise_description}</p>
+        </div>
+      )}
+
+      {persona.preferred_libraries && persona.preferred_libraries.length > 0 && (
+        <div className="mb-3">
+          <h5 className="text-xs font-semibold text-gray-600 uppercase mb-1.5">Preferred Libraries</h5>
+          <div className="flex flex-wrap gap-1">
+            {persona.preferred_libraries.map((lib: string) => (
+              <span key={lib} className="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded font-medium">
+                {lib}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {persona.guidance && persona.guidance.length > 0 && (
+        <div>
+          <h5 className="text-xs font-semibold text-gray-600 uppercase mb-1.5">Key Constraints</h5>
+          <ul className="text-xs text-gray-600 list-disc list-inside space-y-0.5">
+            {persona.guidance
+              .find((g: any) => g.scope === 'code_generation')
+              ?.constraints?.slice(0, 3)
+              .map((c: string, i: number) => (
+                <li key={i}>{c}</li>
+              ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <div className="space-y-6">
       {/* Info banner */}
@@ -132,22 +214,23 @@ const PersonaTab: React.FC<PersonaTabProps> = ({ notebookId }) => {
           <div className="text-sm text-blue-800">
             <p className="font-medium mb-1">How Personas Work</p>
             <p className="text-xs">
-              Personas define specialized AI assistants for different domains. Select one
-              <strong> base persona</strong> (required) and optionally add domain-specific
-              personas for enhanced capabilities.
+              Personas define domain experts who write your digital article. Select the persona
+              that best matches your analysis domain (clinical trials, genomics, real-world data, etc.).
             </p>
           </div>
         </div>
       </div>
 
       {/* Current Selection Summary */}
-      {selection.base_persona && (
+      {(selection.base_persona || selection.domain_personas.length > 0) && (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
           <h4 className="text-sm font-medium text-gray-700 mb-2">Current Selection</h4>
           <div className="flex flex-wrap gap-2">
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
-              Base: {selection.base_persona}
-            </span>
+            {selection.base_persona && (
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
+                Base: {selection.base_persona}
+              </span>
+            )}
             {selection.domain_personas.map(slug => (
               <span
                 key={slug}
@@ -156,123 +239,155 @@ const PersonaTab: React.FC<PersonaTabProps> = ({ notebookId }) => {
                 Domain: {slug}
               </span>
             ))}
-            {selection.role_modifier && (
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800 border border-orange-200">
-                Role: {selection.role_modifier}
-              </span>
-            )}
           </div>
         </div>
       )}
 
-      {/* Base Personas (Required - Radio Select) */}
+      {/* Base Personas - Radio Select */}
       <div>
         <h3 className="text-sm font-semibold text-gray-700 mb-3">
-          Base Persona <span className="text-red-500">*</span>
+          Select Base Persona <span className="text-red-500">*</span>
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {basePersonas.map(persona => (
-            <PersonaCard
-              key={persona.slug}
-              persona={persona}
-              isSelected={selection.base_persona === persona.slug}
-              onSelect={() => setSelection({ ...selection, base_persona: persona.slug })}
-              selectionMode="radio"
-            />
+            <div key={persona.slug}>
+              <div className="relative">
+                <PersonaCard
+                  persona={persona}
+                  isSelected={selection.base_persona === persona.slug}
+                  onSelect={() => setSelection({ ...selection, base_persona: persona.slug })}
+                  selectionMode="radio"
+                />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setExpandedPersona(expandedPersona === persona.slug ? null : persona.slug)
+                  }}
+                  className="absolute bottom-2 right-2 p-1 hover:bg-gray-200 rounded transition-colors z-10"
+                  title={expandedPersona === persona.slug ? "Hide details" : "Show details"}
+                >
+                  {expandedPersona === persona.slug ? (
+                    <ChevronDown className="h-4 w-4 text-gray-600" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-gray-600" />
+                  )}
+                </button>
+              </div>
+              {expandedPersona === persona.slug && <PersonaDetails persona={persona} />}
+            </div>
+          ))}
+          {customPersonas.map(persona => (
+            <div key={persona.slug}>
+              <div className="relative">
+                <PersonaCard
+                  persona={persona}
+                  isSelected={selection.base_persona === persona.slug}
+                  onSelect={() => setSelection({ ...selection, base_persona: persona.slug })}
+                  selectionMode="radio"
+                />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setExpandedPersona(expandedPersona === persona.slug ? null : persona.slug)
+                  }}
+                  className="absolute bottom-2 right-2 p-1 hover:bg-gray-200 rounded transition-colors z-10"
+                  title={expandedPersona === persona.slug ? "Hide details" : "Show details"}
+                >
+                  {expandedPersona === persona.slug ? (
+                    <ChevronDown className="h-4 w-4 text-gray-600" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-gray-600" />
+                  )}
+                </button>
+              </div>
+              {expandedPersona === persona.slug && <PersonaDetails persona={persona} />}
+            </div>
           ))}
         </div>
       </div>
 
-      {/* Domain Personas (Optional - Multi-select) */}
+      {/* Domain Personas - Checkbox Multi-Select */}
       {domainPersonas.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-gray-700 mb-3">
-            Domain Personas <span className="text-gray-500 text-xs font-normal">(Optional)</span>
+            Add Domain Specializations <span className="text-gray-500 text-xs font-normal">(Optional)</span>
           </h3>
+          <p className="text-xs text-gray-600 mb-3">
+            Domain personas add specialized expertise to your base persona. You can select multiple.
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {domainPersonas.map(persona => (
-              <PersonaCard
-                key={persona.slug}
-                persona={persona}
-                isSelected={selection.domain_personas.includes(persona.slug)}
-                onSelect={() => {
-                  const isCurrentlySelected = selection.domain_personas.includes(persona.slug)
-                  setSelection({
-                    ...selection,
-                    domain_personas: isCurrentlySelected
-                      ? selection.domain_personas.filter(s => s !== persona.slug)
-                      : [...selection.domain_personas, persona.slug],
-                  })
-                }}
-                selectionMode="checkbox"
-              />
+              <div key={persona.slug}>
+                <div className="relative">
+                  <PersonaCard
+                    persona={persona}
+                    isSelected={selection.domain_personas.includes(persona.slug)}
+                    onSelect={() => toggleDomainPersona(persona.slug)}
+                    selectionMode="checkbox"
+                  />
+                  <button
+                    onClick={() => setExpandedPersona(expandedPersona === persona.slug ? null : persona.slug)}
+                    className="absolute top-2 right-2 p-1 hover:bg-gray-100 rounded transition-colors"
+                    title={expandedPersona === persona.slug ? "Hide details" : "Show details"}
+                  >
+                    {expandedPersona === persona.slug ? (
+                      <ChevronDown className="h-4 w-4 text-gray-600" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-gray-600" />
+                    )}
+                  </button>
+                </div>
+                {expandedPersona === persona.slug && <PersonaDetails persona={persona} />}
+              </div>
             ))}
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            💡 Select multiple domain personas to combine their expertise
+            💡 Domain personas combine their expertise with your base persona
           </p>
         </div>
       )}
 
-      {/* Role Personas (Optional - Radio Select) */}
-      {rolePersonas.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">
-            Role Modifier <span className="text-gray-500 text-xs font-normal">(Optional)</span>
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {rolePersonas.map(persona => (
-              <PersonaCard
-                key={persona.slug}
-                persona={persona}
-                isSelected={selection.role_modifier === persona.slug}
-                onSelect={() =>
-                  setSelection({
-                    ...selection,
-                    role_modifier:
-                      selection.role_modifier === persona.slug ? null : persona.slug,
-                  })
-                }
-                selectionMode="radio"
-              />
-            ))}
-          </div>
+      {/* Combined Guidance Preview */}
+      {selection.domain_personas.length > 0 && (
+        <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+          <h4 className="text-sm font-semibold text-purple-900 mb-2 flex items-center gap-2">
+            Combined Guidance Preview
+            {loadingPreview && <Loader className="h-4 w-4 animate-spin text-purple-600" />}
+          </h4>
+          {!loadingPreview && combinedPreview ? (
+            <div className="text-sm text-purple-800 space-y-2">
+              <div>
+                <span className="font-medium">Active Personas:</span>{' '}
+                {combinedPreview.source_personas?.join(' + ') || 'N/A'}
+              </div>
+              {combinedPreview.effective_guidance?.code_generation?.constraints?.length > 0 && (
+                <div>
+                  <span className="font-medium">Active Constraints:</span>{' '}
+                  {combinedPreview.effective_guidance.code_generation.constraints.length}
+                </div>
+              )}
+              {combinedPreview.effective_guidance?.code_generation?.preferences?.length > 0 && (
+                <div>
+                  <span className="font-medium">Preferences:</span>{' '}
+                  {combinedPreview.effective_guidance.code_generation.preferences.length}
+                </div>
+              )}
+              {combinedPreview.conflict_resolutions && combinedPreview.conflict_resolutions.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-purple-300">
+                  <span className="font-medium text-xs">Conflicts Resolved:</span>{' '}
+                  <span className="text-xs">{combinedPreview.conflict_resolutions.length}</span>
+                </div>
+              )}
+            </div>
+          ) : !loadingPreview ? (
+            <p className="text-sm text-purple-700">Select domain personas to see combined guidance</p>
+          ) : null}
         </div>
       )}
-
-      {/* Custom Personas */}
-      {customPersonas.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">
-            Custom Personas
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {customPersonas.map(persona => (
-              <PersonaCard
-                key={persona.slug}
-                persona={persona}
-                isSelected={selection.base_persona === persona.slug}
-                onSelect={() => setSelection({ ...selection, base_persona: persona.slug })}
-                selectionMode="radio"
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Save Button */}
-      <div className="pt-4 border-t border-gray-200">
-        <button
-          onClick={handleSave}
-          disabled={saving || !notebookId}
-          className="w-full px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
-        >
-          {saving && <Loader className="h-4 w-4 animate-spin" />}
-          <span>{saving ? 'Saving...' : notebookId ? 'Save Persona Selection' : 'Open a notebook to save'}</span>
-        </button>
-      </div>
     </div>
   )
-}
+})
+
+PersonaTab.displayName = 'PersonaTab'
 
 export default PersonaTab

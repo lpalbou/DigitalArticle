@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BookOpen, Plus, Save, Download, AlertTriangle, ChevronDown, Settings } from 'lucide-react'
+import { BookOpen, Plus, Save, Download, AlertTriangle, ChevronDown, Settings, ClipboardCheck } from 'lucide-react'
 import SettingsModal from './SettingsModal'
 import ArticleQuickAccess from './ArticleQuickAccess'
 import ArticleBrowserModal from './ArticleBrowserModal'
@@ -14,7 +14,9 @@ interface HeaderProps {
   onExportPDF?: (includeCode: boolean) => void
   onSelectNotebook?: (notebookId: string) => void
   onDeleteNotebook?: (notebookId: string) => void
+  onReviewArticle?: () => void
   isGeneratingPDF?: boolean
+  isReviewingArticle?: boolean
   currentNotebookId?: string
   currentNotebookTitle?: string
 }
@@ -28,7 +30,9 @@ const Header: React.FC<HeaderProps> = ({
   onExportPDF,
   onSelectNotebook,
   onDeleteNotebook,
+  onReviewArticle,
   isGeneratingPDF = false,
+  isReviewingArticle = false,
   currentNotebookId,
   currentNotebookTitle
 }) => {
@@ -73,29 +77,44 @@ const Header: React.FC<HeaderProps> = ({
             </div>
 
             {/* Action Buttons */}
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2">
+              {/* Settings Icon */}
               <button
                 onClick={() => setShowSettingsModal(true)}
-                className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-2.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                 title="Settings"
               >
                 <Settings className="h-5 w-5" />
               </button>
 
+              {/* New Button */}
               <button
                 onClick={handleNewNotebook}
-                className="btn btn-danger flex items-center space-x-2"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors"
                 title="New Digital Article"
               >
                 <Plus className="h-4 w-4" />
                 <span>New</span>
               </button>
 
+              {/* Review Article Button */}
+              {currentNotebookId && (
+                <button
+                  onClick={onReviewArticle}
+                  disabled={isReviewingArticle}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Review Article Quality"
+                >
+                  <ClipboardCheck className="h-4 w-4" />
+                  <span>{isReviewingArticle ? 'Reviewing...' : 'Review'}</span>
+                </button>
+              )}
+
               {/* Save Dropdown (consolidates Save + Export) */}
               <div className="relative">
                 <button
                   onClick={() => setShowExportDropdown(!showExportDropdown)}
-                  className="btn btn-primary flex items-center space-x-2"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   title="Save Digital Article"
                   disabled={isGeneratingPDF}
                 >

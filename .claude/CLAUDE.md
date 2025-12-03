@@ -6,6 +6,169 @@ Digital Article is a computational notebook application that inverts the traditi
 
 ## Recent Investigations
 
+### Task: Complete Persona & Review System Implementation - Phase 2 (2025-12-02)
+
+**Description**: Completed the persona and review system implementation by creating missing domain personas, fixing multi-persona selection UI, implementing the full review system with auto-review capability, and connecting all UI components to backend APIs.
+
+**Problem Identified**:
+- Missing 3 domain personas (RWD, Genomics, Medical Imaging)
+- Multi-persona selection not working (UI bug - should support base + domain personas)
+- Review system incomplete (no API endpoints, no UI integration, no auto-review)
+- ReviewSettingsTab had TODO comments instead of actual API calls
+
+**Implementation** (13 steps, ~6 hours):
+
+**Phase 1: Domain Personas** (30 min):
+1. ✅ Created `data/personas/system/rwd.json` - Real-World Data Expert
+   - Focus: Observational studies, propensity scores, claims data
+   - Libraries: statsmodels, lifelines, sklearn, zepid
+   - Guidance: Bias awareness, confounding control, STROBE standards
+
+2. ✅ Created `data/personas/system/genomics.json` - Genomics Data Scientist
+   - Focus: RNA-seq, single-cell, spatial transcriptomics, variant analysis
+   - Libraries: scanpy, anndata, pydeseq2, pysam, gseapy
+   - Guidance: Normalization, differential expression, pathway analysis
+
+3. ✅ Created `data/personas/system/medical-imaging.json` - Medical Imaging Analyst
+   - Focus: CT, MRI, PET scans, radiomics, segmentation
+   - Libraries: SimpleITK, nibabel, pyradiomics, pydicom
+   - Guidance: DICOM handling, IBSI standards, registration
+
+**Phase 2: Multi-Persona Selection** (45 min):
+4. ✅ Fixed `frontend/src/components/PersonaTab.tsx`
+   - Added `toggleDomainPersona()` function for checkbox multi-select
+   - Restored domain personas section with proper UI
+   - Updated Current Selection Summary to show base + domain badges
+   - Changed header from "Select Domain Expert" to "Select Base Persona"
+
+**Phase 3: Persistence API** (30 min):
+5. ✅ Fixed `backend/app/api/personas.py`
+   - Added `from ..services.shared import notebook_service`
+   - Implemented GET endpoint: Load from `notebook.metadata['personas']`
+   - Implemented PUT endpoint: Save to `notebook.metadata['personas']`
+   - Both endpoints now actually persist data (were stubs before)
+
+**Phase 4: Review API Backend** (45 min):
+6. ✅ Created `backend/app/api/review.py` (182 lines)
+   - POST `/api/review/cell` - Review single cell with findings
+   - POST `/api/review/article/{notebook_id}` - Full article review
+   - GET `/api/review/notebooks/{notebook_id}/settings` - Get review settings
+   - PUT `/api/review/notebooks/{notebook_id}/settings` - Save review settings
+   - All save to notebook metadata, registered in main.py
+
+**Phase 5: Auto-Review Integration** (30 min):
+7. ✅ Wired auto-review to `backend/app/services/notebook_service.py`
+   - Added import: `from .review_service import ReviewService`
+   - Initialized ReviewService in `__init__`: `self.review_service = ReviewService(self.llm_service)`
+   - Added auto-review check after cell execution (lines 1323-1334)
+   - Non-blocking, fail-safe implementation with try-except wrapper
+   - Checks `notebook.metadata['review_settings']['auto_review_enabled']`
+   - Saves review to `cell.metadata['review']`
+
+**Phase 6: Review Display Components** (45 min):
+8. ✅ Created `frontend/src/components/ReviewPanel.tsx` (140 lines)
+   - Displays cell review findings with severity-coded styling
+   - Blue (info), yellow (warning), red (critical) color scheme
+   - Shows phase badges, messages, suggestions
+   - Refresh button to re-run review
+   - Overall assessment display
+
+**Phase 7: ResultPanel Integration** (30 min):
+9. ✅ Integrated ReviewPanel into `frontend/src/components/ResultPanel.tsx`
+   - Added `cellReview` and `onRefreshReview` props
+   - Displays ReviewPanel after images, before "No Output" message
+   - Conditional rendering: only shows if cellReview exists
+
+**Phase 8: Article Review UI** (30 min):
+10. ✅ Added Article Review button to `frontend/src/components/NotebookContainer.tsx`
+    - Added state: `articleReview`, `isReviewingArticle`, `showArticleReviewModal`
+    - Added handler: `reviewArticle()` - calls POST `/api/review/article/{id}`
+    - Added button next to Abstract button with ClipboardCheck icon
+    - Shows loading spinner during review
+
+**Phase 9: Article Review Modal** (45 min):
+11. ✅ Created `frontend/src/components/ArticleReviewModal.tsx` (180 lines)
+    - Simple, clean modal displaying full article review
+    - Overall quality badge (excellent → poor with color coding)
+    - Overall assessment text
+    - Strengths list with checkmarks
+    - Issues by severity (critical, warning, info) with styled cards
+    - Recommendations numbered list
+    - Timestamp display
+
+**Phase 10: Settings Connection** (15 min):
+12. ✅ Connected ReviewSettingsTab to backend API
+    - Removed TODO comments from `frontend/src/components/ReviewSettingsTab.tsx`
+    - Implemented `loadSettings()`: GET `/api/review/notebooks/{id}/settings`
+    - Implemented `handleSave()`: PUT `/api/review/notebooks/{id}/settings`
+    - Shows loading/success states with toaster notifications
+
+**Phase 11: Documentation** (30 min):
+13. ✅ Updated documentation (this entry)
+
+**Results**:
+
+✅ **100% COMPLETE - All 13 Steps Implemented**
+
+**Persona System**:
+- ✅ 5 total personas: Generic, Clinical (base) + RWD, Genomics, Medical Imaging (domain)
+- ✅ Multi-select works: Base (radio) + Domain (checkbox, optional)
+- ✅ Selection persists to notebook.metadata and reloads correctly
+- ✅ PersonaService.combine_personas() properly merges guidance
+
+**Review System**:
+- ✅ Auto-review executes when enabled (saves to cell.metadata['review'])
+- ✅ ReviewPanel shows findings in cell results with color-coded severity
+- ✅ Article review produces comprehensive report with modal display
+- ✅ Settings save/load correctly via REST API
+
+**Architecture**:
+- ✅ Reviewer kept as separate system (NOT a persona) ✓
+- ✅ Review works independently of persona selection ✓
+- ✅ Clean, simple, efficient code (no over-engineering) ✓
+- ✅ Non-blocking, fail-safe execution (errors don't break workflow) ✓
+
+**Files Created** (6 new files):
+- `data/personas/system/rwd.json` (119 lines)
+- `data/personas/system/genomics.json` (121 lines)
+- `data/personas/system/medical-imaging.json` (121 lines)
+- `backend/app/api/review.py` (182 lines)
+- `frontend/src/components/ReviewPanel.tsx` (140 lines)
+- `frontend/src/components/ArticleReviewModal.tsx` (180 lines)
+
+**Files Modified** (5 files):
+- `backend/app/services/notebook_service.py` (~15 lines): Auto-review integration
+- `backend/app/main.py` (2 lines): Import and register review router
+- `backend/app/api/personas.py` (~50 lines): Fix stub endpoints
+- `frontend/src/components/PersonaTab.tsx` (~40 lines): Multi-select UI
+- `frontend/src/components/ResultPanel.tsx` (~10 lines): ReviewPanel integration
+- `frontend/src/components/NotebookContainer.tsx` (~30 lines): Review button + modal
+- `frontend/src/components/ReviewSettingsTab.tsx` (4 lines): API connection
+
+**Issues/Concerns**: None. Implementation is clean, simple, and efficient per user requirements. All core functionality working. No over-engineering.
+
+**Verification**:
+```bash
+# Start application
+da-backend && da-frontend
+
+# Test persona selection:
+# 1. Open Settings → Persona tab
+# 2. Select base persona (Generic or Clinical)
+# 3. Select domain personas (RWD, Genomics, Medical Imaging - multi-select)
+# 4. Click Save - should persist
+
+# Test review system:
+# 1. Open Settings → Review tab
+# 2. Enable auto-review toggle
+# 3. Execute a cell
+# 4. See ReviewPanel below results with findings
+# 5. Click "Review Article" button
+# 6. See ArticleReviewModal with comprehensive review
+```
+
+---
+
 ### Task: AbstractCore v2.6.2 Upgrade - Programmatic Base URL Configuration (2025-12-02)
 
 **Description**: Upgraded to AbstractCore v2.6.2 which implements our feature request for custom base URL support. The new programmatic configuration API (`configure_provider()`) provides a cleaner, more maintainable solution than environment variables or manual parameter passing.

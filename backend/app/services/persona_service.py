@@ -5,6 +5,7 @@ Handles CRUD operations, persona combination, and prompt building.
 """
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -25,15 +26,28 @@ from ..models.persona import (
 class PersonaService:
     """Service for managing personas and persona combinations."""
 
-    def __init__(self, workspace_dir: str = "data"):
+    def __init__(self, workspace_dir: Optional[str] = None):
         """Initialize persona service.
 
         Args:
             workspace_dir: Root workspace directory containing personas/ folder
+                          If None, uses project root / "data"
         """
+        self.logger = logging.getLogger(__name__)
+
+        if workspace_dir is None:
+            # Find project root (where backend/ directory is)
+            current_file = Path(__file__).resolve()
+            backend_dir = current_file.parent.parent.parent  # backend/app/services/ -> backend/
+            project_root = backend_dir.parent  # backend/ -> project root
+            workspace_dir = str(project_root / "data")
+
         self.workspace_dir = Path(workspace_dir)
         self.system_personas_dir = self.workspace_dir / "personas" / "system"
         self.custom_personas_dir = self.workspace_dir / "personas" / "custom"
+
+        self.logger.info(f"📁 PersonaService initialized with workspace: {self.workspace_dir.resolve()}")
+        self.logger.info(f"📁 System personas directory: {self.system_personas_dir.resolve()}")
 
         # Ensure directories exist
         self.system_personas_dir.mkdir(parents=True, exist_ok=True)
@@ -92,10 +106,13 @@ class PersonaService:
         Returns:
             List of personas
         """
+        self.logger.info(f"📋 Listing personas (username={username}, category={category}, include_inactive={include_inactive})")
         personas = []
 
         # Load system personas
-        for file_path in self.system_personas_dir.glob("*.json"):
+        system_files = list(self.system_personas_dir.glob("*.json"))
+        self.logger.info(f"📂 Found {len(system_files)} system persona files in {self.system_personas_dir}")
+        for file_path in system_files:
             persona = self._load_persona_from_file(file_path)
             if persona:
                 personas.append(persona)
@@ -116,6 +133,7 @@ class PersonaService:
         if not include_inactive:
             personas = [p for p in personas if p.is_active]
 
+        self.logger.info(f"✅ Returning {len(personas)} personas (after filtering)")
         return personas
 
     def create_persona(
@@ -456,9 +474,11 @@ class PersonaService:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                return Persona(**data)
+                persona = Persona(**data)
+                self.logger.debug(f"✅ Loaded persona: {persona.name} ({persona.slug})")
+                return persona
         except Exception as e:
-            print(f"Error loading persona from {file_path}: {e}")
+            self.logger.error(f"❌ Error loading persona from {file_path}: {e}")
             return None
 
     def _save_persona_to_file(self, persona: Persona, file_path: Path) -> None:

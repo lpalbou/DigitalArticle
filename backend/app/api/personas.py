@@ -18,6 +18,7 @@ from ..models.persona import (
     PersonaSelectionUpdateRequest,
 )
 from ..services.persona_service import PersonaService
+from ..services.shared import notebook_service
 
 # Initialize router
 router = APIRouter(prefix="/api/personas", tags=["personas"])
@@ -208,14 +209,33 @@ async def get_notebook_personas(
 
     Returns:
         Persona selection, or null if not set
-
-    Note:
-        This reads from notebook metadata. Integration with NotebookService
-        will be completed in system prompt integration step.
     """
-    # TODO: Integrate with NotebookService in Step 5
-    # For now, return None to indicate not yet implemented
-    return None
+    try:
+        # Load notebook from NotebookService
+        notebook = notebook_service.get_notebook(notebook_id)
+
+        # Get personas from metadata
+        personas_data = notebook.metadata.get('personas')
+
+        # Log for debugging
+        print(f"📖 Loading personas for notebook {notebook_id}: {personas_data}")
+
+        if not personas_data:
+            # Return default selection if not set
+            print(f"⚠️  No personas found, returning default 'generic'")
+            return PersonaSelection(
+                base_persona='generic',
+                domain_personas=[],
+                role_modifier=None,
+                custom_overrides={},
+            )
+
+        return PersonaSelection(**personas_data)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load notebook personas: {str(e)}"
+        )
 
 
 @router.put("/notebooks/{notebook_id}/personas", response_model=PersonaSelection)
@@ -233,16 +253,32 @@ async def update_notebook_personas(
 
     Returns:
         Updated persona selection
-
-    Note:
-        This updates notebook metadata. Integration with NotebookService
-        will be completed in system prompt integration step.
     """
-    # TODO: Integrate with NotebookService in Step 5
-    # For now, just return the request as confirmation
-    return PersonaSelection(
-        base_persona=request.base_persona,
-        domain_personas=request.domain_personas or [],
-        role_modifier=request.role_modifier,
-        custom_overrides=request.custom_overrides or {},
-    )
+    try:
+        # Load notebook from NotebookService
+        notebook = notebook_service.get_notebook(notebook_id)
+
+        # Create persona selection
+        persona_selection = PersonaSelection(
+            base_persona=request.base_persona,
+            domain_personas=request.domain_personas or [],
+            role_modifier=request.role_modifier,
+            custom_overrides=request.custom_overrides or {},
+        )
+
+        # Update notebook metadata
+        personas_dict = persona_selection.model_dump()
+        notebook.metadata['personas'] = personas_dict
+
+        # Save notebook
+        notebook_service._save_notebook(notebook)
+
+        # Log for debugging
+        print(f"✅ Saved personas for notebook {notebook_id}: {personas_dict}")
+
+        return persona_selection
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update notebook personas: {str(e)}"
+        )

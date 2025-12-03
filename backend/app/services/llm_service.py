@@ -1030,6 +1030,23 @@ GUIDELINES:
 - Maintain objective, analytical tone
 - Length: 3-5 sentences, maximum 200 words for complex analyses"""
 
+        # Inject persona guidance for methodology if available
+        if context and 'persona_combination' in context:
+            from ..services.persona_service import PersonaService
+            from ..models.persona import PersonaScope
+
+            persona_service = PersonaService()
+            persona_combination = context['persona_combination']
+            methodology_guidance = persona_service.build_system_prompt_addition(
+                persona_combination,
+                PersonaScope.METHODOLOGY
+            )
+            if methodology_guidance:
+                system_prompt += "\n\n" + "="*60 + "\n"
+                system_prompt += "METHODOLOGY WRITING GUIDANCE (from active personas):\n"
+                system_prompt += "="*60 + "\n"
+                system_prompt += methodology_guidance
+
         # Build context section for previous methodologies
         previous_context = ""
         if previous_methodologies and len(previous_methodologies) > 0:

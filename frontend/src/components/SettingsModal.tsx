@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import {
   X, AlertCircle, CheckCircle, Loader, HelpCircle, Shuffle,
   Download, Settings2, Beaker, ChevronDown, ChevronUp, Eye, EyeOff,
@@ -7,7 +7,8 @@ import {
 import axios from 'axios'
 import { useToaster } from '../contexts/ToasterContext'
 import { useModelDownload } from '../contexts/ModelDownloadContext'
-import PersonaTab from './PersonaTab'
+import PersonaTab, { PersonaTabRef } from './PersonaTab'
+import ReviewSettingsTab, { ReviewSettingsTabRef } from './ReviewSettingsTab'
 
 interface Provider {
   name: string
@@ -53,7 +54,11 @@ const DEFAULT_BASE_URLS: Record<string, string> = {
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebookId }) => {
   const toaster = useToaster()
   const { downloadProgress, isDownloading, startDownload, cancelDownload } = useModelDownload()
-  
+
+  // Refs for tab save functions
+  const personaTabRef = useRef<PersonaTabRef>(null)
+  const reviewTabRef = useRef<ReviewSettingsTabRef>(null)
+
   const [activeTab, setActiveTab] = useState<TabId>('personas')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -263,36 +268,46 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
   const handleSave = async () => {
     setSaving(true)
     try {
-      // Save settings
-      await axios.put('/api/settings', {
-        llm: {
+      // Call the appropriate tab's save function based on active tab
+      if (activeTab === 'personas' && personaTabRef.current) {
+        await personaTabRef.current.save()
+        // Fire custom event to notify badge to refresh
+        window.dispatchEvent(new CustomEvent('persona-updated'))
+        onClose()
+      } else if (activeTab === 'review' && reviewTabRef.current) {
+        await reviewTabRef.current.save()
+        toaster.success('Review settings saved successfully')
+        onClose()
+      } else if (activeTab === 'provider' || activeTab === 'reproducibility') {
+        // Save provider and reproducibility settings
+        await axios.put('/api/settings', {
+          llm: {
+            provider: selectedProvider,
+            model: selectedModel,
+            temperature,
+            base_urls: baseUrls,
+          },
+          reproducibility: {
+            use_llm_seed: useLlmSeed,
+            llm_seed: useLlmSeed && llmSeed ? parseInt(llmSeed) : null,
+            use_code_seed: useCodeSeed,
+            code_seed: useCodeSeed && codeSeed ? parseInt(codeSeed) : null,
+          },
+        })
+
+        // Also update the global LLM provider selection
+        await axios.post('/api/llm/providers/select', {
           provider: selectedProvider,
           model: selectedModel,
-          temperature,
-          base_urls: baseUrls,
-        },
-        reproducibility: {
-          use_llm_seed: useLlmSeed,
-          llm_seed: useLlmSeed && llmSeed ? parseInt(llmSeed) : null,
-          use_code_seed: useCodeSeed,
-          code_seed: useCodeSeed && codeSeed ? parseInt(codeSeed) : null,
-        },
-      })
+          notebook_id: notebookId,
+        })
 
-      // Also update the global LLM provider selection
-      // If we have a notebookId, also update that notebook's config
-      await axios.post('/api/llm/providers/select', {
-        provider: selectedProvider,
-        model: selectedModel,
-        notebook_id: notebookId,  // Update current notebook if open
-      })
+        // Trigger footer refresh
+        window.dispatchEvent(new CustomEvent('llm-settings-updated'))
 
-      // Trigger footer refresh
-      window.dispatchEvent(new CustomEvent('llm-settings-updated'))
-
-      toaster.success('Settings saved successfully')
-      onClose()
-      
+        toaster.success('Settings saved successfully')
+        onClose()
+      }
     } catch (error: any) {
       toaster.error(error.response?.data?.detail || 'Failed to save settings')
     } finally {
@@ -379,7 +394,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
         />
 
         {/* Modal panel */}
-        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
+        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-[840px] sm:w-full">
           {/* Header */}
           <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">Settings</h3>
@@ -442,7 +457,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
           </div>
 
           {/* Content */}
-          <div className="bg-white px-6 py-6 max-h-[60vh] overflow-y-auto">
+          <div className="bg-white px-6 py-6 max-h-[69vh] overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader className="h-8 w-8 animate-spin text-blue-600" />
@@ -506,7 +521,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
 
                 {/* Persona Tab */}
                 {activeTab === 'personas' && (
-                  <PersonaTab notebookId={notebookId} />
+                  <PersonaTab ref={personaTabRef} notebookId={notebookId} />
                 )}
 
                 {/* Provider & Model Tab */}
@@ -929,22 +944,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
 
                 {/* Review Tab */}
                 {activeTab === 'review' && (
-                  <div className="space-y-6">
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <p className="text-sm text-blue-800">
-                        <strong>Auto-review settings</strong> enable automatic scientific review of your analyses.
-                        The Reviewer persona will check code quality, methodology rigor, and result interpretation.
-                      </p>
-                    </div>
-
-                    <div className="text-center text-gray-500 py-8">
-                      <ClipboardCheck className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-                      <p className="text-sm">Review settings UI coming in next steps...</p>
-                      <p className="text-xs text-gray-400 mt-2">
-                        Will include: Auto-review toggle, phase selection, severity filtering
-                      </p>
-                    </div>
-                  </div>
+                  <ReviewSettingsTab ref={reviewTabRef} notebookId={notebookId} />
                 )}
               </>
             )}
@@ -960,11 +960,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || (!selectedProvider && availableProviders.length > 0)}
+              disabled={saving || (activeTab === 'provider' && !selectedProvider && availableProviders.length > 0) || (activeTab === 'personas' && !notebookId) || (activeTab === 'review' && !notebookId)}
               className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-2"
             >
               {saving && <Loader className="h-4 w-4 animate-spin" />}
-              <span>{saving ? 'Saving...' : 'Save'}</span>
+              <span>
+                {saving ? 'Saving...' :
+                  activeTab === 'personas' ? 'Save Persona Settings' :
+                  activeTab === 'review' ? 'Save Review Settings' :
+                  'Save Settings'}
+              </span>
             </button>
           </div>
         </div>

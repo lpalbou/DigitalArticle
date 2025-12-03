@@ -27,6 +27,7 @@ from .semantic_analysis_service import SemanticAnalysisService
 from .semantic_profile_service import SemanticProfileService
 from .analysis_planner import AnalysisPlanner
 from .analysis_critic import AnalysisCritic
+from .review_service import ReviewService
 from ..models.analysis_plan import AnalysisPlan
 from ..models.analysis_critique import AnalysisCritique
 
@@ -88,6 +89,10 @@ class NotebookService:
             logger.info("🔄 Initializing profile graph service...")
             self.profile_graph_service = SemanticProfileService()
             logger.info("✅ Profile graph service initialized")
+
+            logger.info("🔄 Initializing review service...")
+            self.review_service = ReviewService(self.llm_service)
+            logger.info("✅ Review service initialized")
 
             # Get data manager for file context
             logger.info("🔄 Getting data manager...")
@@ -1313,6 +1318,19 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             except Exception as e:
                 logger.warning(f"⚠️ Semantic extraction failed (non-critical): {e}")
                 # Don't let semantic extraction errors break execution
+                pass
+
+            # Run auto-review if enabled (non-blocking)
+            try:
+                review_settings = notebook.metadata.get('review_settings', {})
+                if review_settings.get('auto_review_enabled', False):
+                    logger.info(f"📋 Auto-review enabled - reviewing cell {cell.id}...")
+                    cell_review = self.review_service.review_cell(cell, notebook)
+                    cell.metadata['review'] = cell_review.dict()
+                    logger.info(f"✅ Auto-review complete: {len(cell_review.findings)} findings")
+            except Exception as e:
+                logger.warning(f"⚠️ Auto-review failed (non-critical): {e}")
+                # Don't let auto-review errors break execution
                 pass
 
             # Save notebook
