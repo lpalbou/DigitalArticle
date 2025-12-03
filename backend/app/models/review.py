@@ -39,6 +39,51 @@ class ReviewFinding(BaseModel):
     line_number: Optional[int] = None  # For code-specific findings
 
 
+# Enhanced Models for SOTA Scientific Review
+
+class DimensionRating(BaseModel):
+    """Rating for a specific review dimension."""
+    score: int = Field(ge=1, le=5)  # 1-5 stars
+    label: str  # "Excellent", "Good", "Adequate", "Needs Improvement", "Poor"
+    summary: str  # Brief justification (markdown supported)
+
+
+class ResearchQuestionAssessment(BaseModel):
+    """Assessment of the research question/intent quality."""
+    rating: DimensionRating
+    relevance: str  # Was the subject relevant and significant? (markdown)
+    clarity: str  # Was the question clearly stated? (markdown)
+    scope: str  # Was the scope appropriate? (markdown)
+
+
+class MethodologyAssessment(BaseModel):
+    """Assessment of the methodological rigor."""
+    rating: DimensionRating
+    approach_validity: str  # Was the statistical/analytical approach valid? (markdown)
+    assumptions: str  # Were assumptions checked and appropriate? (markdown)
+    reproducibility: str  # Is the code reproducible? (markdown)
+
+
+class ResultsCommunicationAssessment(BaseModel):
+    """Assessment of results communication quality."""
+    rating: DimensionRating
+    accuracy: str  # Do results accurately reflect the analysis? (markdown)
+    clarity: str  # Are results clearly presented? (markdown)
+    completeness: str  # Are all relevant results reported? (markdown)
+    methodology_text: str  # Does methodology text explain the approach well? (markdown)
+
+
+class EnhancedIssue(BaseModel):
+    """Enhanced issue with structured feedback for article reviews."""
+    severity: ReviewSeverity
+    category: ReviewCategory
+    title: str  # Short descriptive title
+    description: str  # What is the issue? (markdown)
+    impact: str  # Why does this matter? What's the scope? (markdown)
+    suggestion: str  # How to address this? (actionable, markdown)
+    cell_id: Optional[str] = None
+
+
 class CellReview(BaseModel):
     """Review of a single cell's analysis."""
     cell_id: str
@@ -49,13 +94,30 @@ class CellReview(BaseModel):
 
 
 class ArticleReview(BaseModel):
-    """Comprehensive review of entire notebook/article."""
+    """Comprehensive review of entire notebook/article.
+
+    Supports both legacy and enhanced review formats for backward compatibility.
+    Enhanced format includes dimensional assessments following SOTA journal review practices.
+    """
     notebook_id: str
-    overall_assessment: str  # Narrative assessment
-    rating: int = Field(ge=1, le=5)  # 1-5 stars
-    strengths: List[str] = Field(default_factory=list)
-    issues: List[ReviewFinding] = Field(default_factory=list)
-    recommendations: List[str] = Field(default_factory=list)
+
+    # Enhanced Format (SOTA Scientific Review) - Optional for backward compatibility
+    research_question: Optional[ResearchQuestionAssessment] = None
+    methodology: Optional[MethodologyAssessment] = None
+    results_communication: Optional[ResultsCommunicationAssessment] = None
+    recommendation: Optional[str] = None  # "Accept", "Minor Revisions", "Major Revisions", "Reject"
+
+    # Overall Assessment (used in both legacy and enhanced formats)
+    overall_assessment: str  # Narrative assessment (markdown supported)
+    rating: int = Field(ge=1, le=5, default=3)  # Overall 1-5 stars (legacy field, kept for compatibility)
+
+    # Detailed Feedback (enhanced format uses EnhancedIssue, legacy uses ReviewFinding)
+    strengths: List[str] = Field(default_factory=list)  # Key strengths (markdown supported)
+    issues: List[ReviewFinding] = Field(default_factory=list)  # Legacy format issues
+    enhanced_issues: List[EnhancedIssue] = Field(default_factory=list)  # Enhanced format issues
+    recommendations: List[str] = Field(default_factory=list)  # Suggestions (markdown supported)
+
+    # Metadata
     reviewed_at: datetime = Field(default_factory=datetime.now)
     reviewer_persona: Optional[str] = None  # Slug of persona that performed review
 

@@ -16,6 +16,12 @@ from ..models.review import (
     ReviewFinding,
     ReviewSeverity,
     ReviewCategory,
+    # Enhanced models
+    DimensionRating,
+    ResearchQuestionAssessment,
+    MethodologyAssessment,
+    ResultsCommunicationAssessment,
+    EnhancedIssue,
 )
 from ..services.llm_service import LLMService
 from ..services.persona_service import PersonaService
@@ -142,11 +148,13 @@ class ReviewService:
 
         # Call LLM for review
         try:
-            review_text = self.llm_service.llm.generate(
+            response = self.llm_service.llm.generate(
                 review_prompt,
                 system_prompt="You are a scientific code reviewer. Provide structured, actionable feedback.",
                 temperature=0.3,  # Lower temperature for more consistent reviews
             )
+            # Extract text from GenerateResponse object
+            review_text = response.content if hasattr(response, 'content') else str(response)
 
             # Parse findings from review text
             findings = self._parse_review_findings(review_text, cell.id)
@@ -196,11 +204,13 @@ class ReviewService:
 
         # Call LLM for review
         try:
-            review_text = self.llm_service.llm.generate(
+            response = self.llm_service.llm.generate(
                 review_prompt,
                 system_prompt="You are a scientific results reviewer. Focus on interpretation accuracy and completeness.",
                 temperature=0.3,
             )
+            # Extract text from GenerateResponse object
+            review_text = response.content if hasattr(response, 'content') else str(response)
 
             # Parse findings
             findings = self._parse_review_findings(review_text, cell.id)
@@ -231,7 +241,7 @@ class ReviewService:
         reviewer = self.persona_service.get_persona('reviewer')
         if not reviewer:
             logger.error("Reviewer persona not found!")
-            return self._empty_article_review(notebook.id)
+            return self._empty_article_review(str(notebook.id))
 
         # Find synthesis review template
         synthesis_capability = next(
@@ -240,7 +250,7 @@ class ReviewService:
         )
         if not synthesis_capability:
             logger.error("No synthesis review capability found")
-            return self._empty_article_review(notebook.id)
+            return self._empty_article_review(str(notebook.id))
 
         # Build article summary
         cells_summary = self._summarize_cells(notebook)
@@ -257,20 +267,27 @@ class ReviewService:
 
         # Call LLM for synthesis review
         try:
-            review_text = self.llm_service.llm.generate(
+            logger.info("🤖 Calling LLM for article review...")
+            response = self.llm_service.llm.generate(
                 review_prompt,
                 system_prompt="You are a scientific peer reviewer conducting holistic article assessment.",
                 temperature=0.3,
             )
+            # Extract text from GenerateResponse object
+            review_text = response.content if hasattr(response, 'content') else str(response)
+            logger.info(f"✅ LLM returned {len(review_text)} characters")
 
             # Parse article review from structured response
-            article_review = self._parse_article_review(review_text, notebook.id)
+            article_review = self._parse_article_review(review_text, str(notebook.id))
             logger.info(f"✅ Article review complete: {article_review.rating}/5 stars")
             return article_review
 
         except Exception as e:
-            logger.error(f"Article review failed: {e}")
-            return self._empty_article_review(notebook.id)
+            logger.error(f"❌ Article review failed: {type(e).__name__}: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Re-raise the exception so the API returns a proper error
+            raise
 
     # ===== Helper Methods =====
 
@@ -424,63 +441,191 @@ class ReviewService:
         )
 
     def _parse_article_review(self, review_text: str, notebook_id: str) -> ArticleReview:
-        """Parse article synthesis review.
+        """Parse enhanced article synthesis review.
 
-        Simple parser extracting key sections.
+        Extracts dimensional assessments, structured issues, and overall assessment
+        from LLM-generated review following SOTA journal review format.
 
         Args:
-            review_text: LLM synthesis review
+            review_text: LLM synthesis review with structured sections
             notebook_id: Notebook ID
 
         Returns:
-            Article review
+            Enhanced article review with dimensional assessments
         """
-        # Extract rating (look for X/5 or star pattern)
-        rating = 3  # Default
-        if '/5' in review_text:
+        import re
+
+        # Helper to extract rating from text like "4/5 - Good"
+        def extract_rating(text: str) -> tuple[int, str]:
+            """Extract rating score and label from formatted string."""
+            rating_match = re.search(r'(\d+)/5\s*-?\s*(\w+)', text)
+            if rating_match:
+                score = int(rating_match.group(1))
+                label = rating_match.group(2)
+                return max(1, min(5, score)), label
+            return 3, "Adequate"
+
+        # Helper to extract content between section headers
+        def get_section_content(section_name: str) -> str:
+            """Extract content between section header and next header."""
+            pattern = rf'##\s*\d*\.?\s*{re.escape(section_name)}[^\n]*\n(.*?)(?=##|\Z)'
+            match = re.search(pattern, review_text, re.DOTALL | re.IGNORECASE)
+            return match.group(1).strip() if match else ""
+
+        # Helper to extract dimensional assessment from structured text
+        def parse_dimension_assessment(section_content: str) -> tuple[DimensionRating, dict]:
+            """Parse dimensional assessment with rating and details."""
+            details = {}
+
+            # Extract rating
+            rating_line = [l for l in section_content.split('\n') if 'rating' in l.lower()]
+            if rating_line:
+                score, label = extract_rating(rating_line[0])
+            else:
+                score, label = 3, "Adequate"
+
+            # Extract summary
+            summary_match = re.search(r'\*\*Summary\*\*:\s*(.+?)(?:\n\n|\n-|\Z)', section_content, re.DOTALL)
+            summary = summary_match.group(1).strip() if summary_match else f"{label} rating based on analysis."
+
+            rating = DimensionRating(score=score, label=label, summary=summary)
+
+            # Extract detail fields - match only first-level content (stop at next section or blank line)
+            for field_name in ['relevance', 'clarity', 'scope', 'approach_validity', 'assumptions',
+                               'reproducibility', 'accuracy', 'completeness', 'methodology_text']:
+                # Match from field heading to next top-level field (starting at line beginning)
+                field_pattern = rf'^\*\*{field_name.replace("_", " ").title()}\*\*:\s*(.+?)(?=\n\*\*[A-Z]|\Z)'
+                field_match = re.search(field_pattern, section_content, re.DOTALL | re.IGNORECASE | re.MULTILINE)
+                if field_match:
+                    # Clean up: remove any nested **Field**: patterns
+                    content = field_match.group(1).strip()
+                    # Remove nested bold field labels like "  **Clarity**: ..."
+                    content = re.sub(r'\n\s+\*\*[A-Z][^:]*\*\*:.*', '', content, flags=re.DOTALL)
+                    details[field_name] = content.strip()
+
+            return rating, details
+
+        # Parse dimensional assessments
+        try:
+            # Research Question Assessment
+            rq_content = get_section_content("RESEARCH QUESTION ASSESSMENT")
+            rq_rating, rq_details = parse_dimension_assessment(rq_content)
+            research_question = ResearchQuestionAssessment(
+                rating=rq_rating,
+                relevance=rq_details.get('relevance', 'Not assessed'),
+                clarity=rq_details.get('clarity', 'Not assessed'),
+                scope=rq_details.get('scope', 'Not assessed'),
+            )
+
+            # Methodology Assessment
+            method_content = get_section_content("METHODOLOGY ASSESSMENT")
+            method_rating, method_details = parse_dimension_assessment(method_content)
+            methodology = MethodologyAssessment(
+                rating=method_rating,
+                approach_validity=method_details.get('approach_validity', 'Not assessed'),
+                assumptions=method_details.get('assumptions', 'Not assessed'),
+                reproducibility=method_details.get('reproducibility', 'Not assessed'),
+            )
+
+            # Results Communication Assessment
+            results_content = get_section_content("RESULTS COMMUNICATION ASSESSMENT")
+            results_rating, results_details = parse_dimension_assessment(results_content)
+            results_communication = ResultsCommunicationAssessment(
+                rating=results_rating,
+                accuracy=results_details.get('accuracy', 'Not assessed'),
+                clarity=results_details.get('clarity', 'Not assessed'),
+                completeness=results_details.get('completeness', 'Not assessed'),
+                methodology_text=results_details.get('methodology_text', 'Not assessed'),
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to parse dimensional assessments: {e}")
+            # Create default assessments
+            default_rating = DimensionRating(score=3, label="Adequate", summary="Assessment pending")
+            research_question = ResearchQuestionAssessment(
+                rating=default_rating,
+                relevance="Not assessed", clarity="Not assessed", scope="Not assessed"
+            )
+            methodology = MethodologyAssessment(
+                rating=default_rating,
+                approach_validity="Not assessed", assumptions="Not assessed", reproducibility="Not assessed"
+            )
+            results_communication = ResultsCommunicationAssessment(
+                rating=default_rating,
+                accuracy="Not assessed", clarity="Not assessed",
+                completeness="Not assessed", methodology_text="Not assessed"
+            )
+
+        # Parse overall assessment
+        overall_content = get_section_content("OVERALL ASSESSMENT")
+        overall_rating_match = re.search(r'(\d+)/5', overall_content)
+        overall_rating = int(overall_rating_match.group(1)) if overall_rating_match else 3
+
+        recommendation_match = re.search(r'\*\*Recommendation\*\*:\s*(\w+(?:\s+\w+)?)', overall_content, re.IGNORECASE)
+        recommendation = recommendation_match.group(1) if recommendation_match else "Minor Revisions"
+
+        summary_match = re.search(r'\*\*Summary\*\*:\s*(.+?)(?=\n##|\Z)', overall_content, re.DOTALL)
+        overall_assessment = summary_match.group(1).strip() if summary_match else review_text[:500]
+
+        # Parse strengths
+        strengths_content = get_section_content("KEY STRENGTHS")
+        strengths = [line.strip('- •').strip() for line in strengths_content.split('\n')
+                     if line.strip() and (line.strip().startswith('-') or line.strip().startswith('•'))]
+
+        # Parse enhanced issues
+        issues_content = get_section_content("ISSUES REQUIRING ATTENTION")
+        enhanced_issues = []
+
+        # Split by issue blocks (look for Title: pattern)
+        issue_blocks = re.split(r'-\s*\*\*Title\*\*:', issues_content)
+        for block in issue_blocks[1:]:  # Skip first empty split
             try:
-                rating_str = review_text.split('/5')[0].split()[-1]
-                rating = int(rating_str)
-            except:
-                pass
+                title_match = re.search(r'^(.+?)(?:\n|$)', block)
+                desc_match = re.search(r'\*\*Description\*\*:\s*(.+?)(?=\n\*\*|\Z)', block, re.DOTALL)
+                impact_match = re.search(r'\*\*Impact\*\*:\s*(.+?)(?=\n\*\*|\Z)', block, re.DOTALL)
+                suggestion_match = re.search(r'\*\*Suggestion\*\*:\s*(.+?)(?=\n\*\*|\Z)', block, re.DOTALL)
+                severity_match = re.search(r'\*\*Severity\*\*:\s*(\w+)', block, re.IGNORECASE)
 
-        # Extract sections (simple heuristic)
-        strengths = []
-        issues = []
-        recommendations = []
+                if title_match and desc_match:
+                    title = title_match.group(1).strip()
+                    description = desc_match.group(1).strip()
+                    impact = impact_match.group(1).strip() if impact_match else "Impact assessment pending"
+                    suggestion = suggestion_match.group(1).strip() if suggestion_match else "Suggestion pending"
 
-        lines = review_text.split('\n')
-        current_section = None
+                    severity_str = severity_match.group(1).lower() if severity_match else "warning"
+                    severity = ReviewSeverity.CRITICAL if 'critical' in severity_str else \
+                               ReviewSeverity.WARNING if 'warning' in severity_str else ReviewSeverity.INFO
 
-        for line in lines:
-            line_lower = line.lower().strip()
-
-            if 'strength' in line_lower:
-                current_section = 'strengths'
-            elif 'issue' in line_lower or 'critical' in line_lower:
-                current_section = 'issues'
-            elif 'recommendation' in line_lower or 'suggestion' in line_lower:
-                current_section = 'recommendations'
-            elif line.strip().startswith('-') or line.strip().startswith('•'):
-                item = line.strip()[1:].strip()
-                if current_section == 'strengths':
-                    strengths.append(item)
-                elif current_section == 'issues':
-                    # Convert to finding
-                    issues.append(ReviewFinding(
-                        severity=ReviewSeverity.CRITICAL,
+                    enhanced_issues.append(EnhancedIssue(
+                        severity=severity,
                         category=ReviewCategory.METHODOLOGY,
-                        message=item,
+                        title=title,
+                        description=description,
+                        impact=impact,
+                        suggestion=suggestion,
                     ))
-                elif current_section == 'recommendations':
-                    recommendations.append(item)
+            except Exception as e:
+                logger.warning(f"Failed to parse issue block: {e}")
+                continue
+
+        # Parse recommendations
+        rec_content = get_section_content("RECOMMENDATIONS FOR IMPROVEMENT")
+        recommendations = [line.strip('- •').strip() for line in rec_content.split('\n')
+                          if line.strip() and (line.strip().startswith('-') or line.strip().startswith('•'))]
 
         return ArticleReview(
             notebook_id=notebook_id,
-            overall_assessment=review_text[:500],  # First 500 chars as summary
-            rating=max(1, min(5, rating)),  # Clamp to 1-5
+            # Dimensional assessments
+            research_question=research_question,
+            methodology=methodology,
+            results_communication=results_communication,
+            recommendation=recommendation,
+            # Overall
+            overall_assessment=overall_assessment,
+            rating=max(1, min(5, overall_rating)),
+            # Detailed feedback
             strengths=strengths or ["Analysis completed successfully"],
-            issues=issues,
+            enhanced_issues=enhanced_issues,
             recommendations=recommendations or ["Consider additional validation"],
             reviewer_persona="reviewer",
         )

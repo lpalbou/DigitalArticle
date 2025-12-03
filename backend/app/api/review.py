@@ -55,7 +55,7 @@ async def review_cell_endpoint(
         cell_review = review_service.review_cell(cell, notebook, force=force)
 
         # Save review to cell metadata
-        cell.metadata['review'] = cell_review.dict()
+        cell.metadata['review'] = cell_review.model_dump()
         notebook_service._save_notebook(notebook)
 
         return cell_review
@@ -93,7 +93,7 @@ async def review_article_endpoint(
         # Save review to notebook metadata
         if 'article_review' not in notebook.metadata:
             notebook.metadata['article_review'] = {}
-        notebook.metadata['article_review'] = article_review.dict()
+        notebook.metadata['article_review'] = article_review.model_dump()
         notebook_service._save_notebook(notebook)
 
         return article_review
@@ -167,7 +167,7 @@ async def update_review_settings(
         notebook = notebook_service.get_notebook(notebook_id)
 
         # Update metadata
-        notebook.metadata['review_settings'] = settings.dict()
+        notebook.metadata['review_settings'] = settings.model_dump()
 
         # Save notebook
         notebook_service._save_notebook(notebook)
