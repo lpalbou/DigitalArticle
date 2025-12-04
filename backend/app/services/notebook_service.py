@@ -1358,14 +1358,18 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
     def _save_notebook(self, notebook: Notebook):
         """
         Save a notebook to disk using atomic write pattern.
-        
+
         Args:
             notebook: Notebook to save
+
+        Raises:
+            Exception: Re-raises any save errors after cleanup
         """
+        temp_file = None
         try:
             notebook_file = self.notebooks_dir / f"{notebook.id}.json"
             temp_file = self.notebooks_dir / f"{notebook.id}.json.tmp"
-            
+
             # Write to temporary file first
             with open(temp_file, 'w', encoding='utf-8') as f:
                 json.dump(
@@ -1375,16 +1379,28 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                     ensure_ascii=False,
                     default=str  # Handle UUID and datetime serialization
                 )
-            
+
             # Atomic rename - this is the critical part that prevents corruption
             temp_file.rename(notebook_file)
-            
+            logger.debug(f"✅ Saved notebook {notebook.id} successfully")
+
         except Exception as e:
-            logger.error(f"Failed to save notebook {notebook.title}: {e}")
+            logger.error(f"❌ CRITICAL: Failed to save notebook {notebook.title}: {e}")
+            logger.error(f"   Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"   Traceback:\n{traceback.format_exc()}")
+
             # Clean up temporary file if it exists
-            temp_file = self.notebooks_dir / f"{notebook.id}.json.tmp"
-            if temp_file.exists():
-                temp_file.unlink()
+            if temp_file and temp_file.exists():
+                try:
+                    temp_file.unlink()
+                    logger.debug(f"Cleaned up temp file: {temp_file}")
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to cleanup temp file: {cleanup_error}")
+
+            # RE-RAISE THE EXCEPTION - DO NOT SILENTLY FAIL!
+            # This ensures the API returns an error and the frontend knows save failed
+            raise RuntimeError(f"Failed to save notebook {notebook.id}: {e}") from e
     
     def export_notebook(self, notebook_id: str, format: str = "json") -> Optional[str]:
         """

@@ -1116,6 +1116,14 @@ class ExecutionService:
                 plot_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
                 buffer.close()
 
+                # Close the figure to prevent it from being auto-captured again
+                # This fixes the bug where display(fig) results in duplicate figures
+                try:
+                    plt.close(obj)
+                    logger.debug(f"Closed matplotlib figure after display: {label}")
+                except Exception as close_err:
+                    logger.warning(f"Could not close matplotlib figure: {close_err}")
+
                 return {
                     'type': 'image',
                     'data': plot_data,
