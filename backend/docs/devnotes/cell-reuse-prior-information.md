@@ -398,10 +398,44 @@ None. Implementation is:
 
 ---
 
+## CRITICAL FOLLOW-UP FIX (2025-12-04 - Later)
+
+### BUG #6: Variables Shown as "unknown" in User Prompt
+
+**Discovery**: User reported that despite fixes, Cell 4 was still recreating DataFrames instead of reusing them. Investigation revealed the LLM was seeing `'dataframes': unknown` in the prompt.
+
+**File**: `backend/app/services/llm_service.py` lines 452-518
+
+**Root Cause**: The code was iterating over the **categorized** variable structure incorrectly:
+```python
+# BROKEN:
+for name, info in variables.items():  # name='dataframes', info={dict of dfs}
+    var_type = info.get('type', 'unknown')  # info is a dict, not a variable!
+```
+
+**Fix**: Recognize categorized structure and iterate properly:
+```python
+# FIXED:
+if is_categorized:
+    # Iterate through each category
+    if variables.get('dataframes'):
+        for name, info in variables['dataframes'].items():  # Proper iteration
+            # Show DataFrame details
+```
+
+**Test Results**: ✅ 3/3 new tests passing
+- `test_variables_not_shown_as_unknown`
+- `test_dataframe_shown_first_with_columns`
+- `test_integration_with_notebook_service`
+
+**Impact**: LLM now sees complete variable details instead of "unknown", enabling proper DataFrame reuse.
+
+---
+
 ## Next Steps
 
-1. ✅ Implementation complete
-2. ✅ Tests passing (7/7)
+1. ✅ Implementation complete (all 6 bugs fixed)
+2. ✅ Tests passing (10/10 total: 7 + 3)
 3. ⏳ **User testing** with real notebooks
 4. ⏳ **Monitor**: Cell continuity working correctly
 

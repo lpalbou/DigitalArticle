@@ -459,45 +459,57 @@ HELPERS (pre-loaded):
                 user_prompt += "These variables already exist in memory. DO NOT recreate them!\n"
                 user_prompt += "REUSE them by their exact variable names shown below.\n\n"
 
-                # Separate DataFrames from other variables for emphasis
-                dataframes = {}
-                other_vars = {}
+                # Check if variables are categorized (from get_variable_info)
+                is_categorized = 'dataframes' in variables or 'modules' in variables
 
-                for name, info in variables.items():
-                    var_type = info.get('type', 'unknown') if isinstance(info, dict) else str(info)
-                    if 'DataFrame' in var_type:
-                        dataframes[name] = info
-                    else:
-                        other_vars[name] = info
-
-                # Show DataFrames FIRST (most important for reuse)
-                if dataframes:
-                    user_prompt += "🔹 DATAFRAMES AVAILABLE (REUSE THESE - NEVER RECREATE!):\n"
-                    user_prompt += "-" * 80 + "\n"
-                    for name, info in dataframes.items():
-                        if isinstance(info, dict):
+                if is_categorized:
+                    # Handle categorized structure from get_variable_info()
+                    # Show DataFrames FIRST (most important for reuse)
+                    if variables.get('dataframes'):
+                        user_prompt += "🔹 DATAFRAMES AVAILABLE (REUSE THESE - NEVER RECREATE!):\n"
+                        user_prompt += "-" * 80 + "\n"
+                        for name, info in variables['dataframes'].items():
                             shape = info.get('shape', 'unknown')
                             columns = info.get('columns', [])
                             user_prompt += f"  ▶ Variable name: '{name}'\n"
                             user_prompt += f"    Type: DataFrame\n"
                             user_prompt += f"    Shape: {shape}\n"
                             if columns:
-                                cols_preview = ', '.join(str(c) for c in columns)  # Show ALL columns - no truncation
+                                cols_preview = ', '.join(str(c) for c in columns)  # Show ALL columns
                                 user_prompt += f"    Columns: {cols_preview}\n"
                             user_prompt += f"    ⚠️  USE THIS: {name}[column_name] or {name}.method()\n"
                             user_prompt += "\n"
-                        else:
-                            user_prompt += f"  ▶ '{name}': {info}\n\n"
 
-                # Show other variables
-                if other_vars:
-                    user_prompt += "🔹 OTHER VARIABLES AVAILABLE:\n"
+                    # Show other variable categories
+                    for category in ['arrays', 'dicts', 'numbers', 'modules', 'other']:
+                        if variables.get(category):
+                            category_name = category.upper().replace('_', ' ')
+                            user_prompt += f"🔹 {category_name} AVAILABLE:\n"
+                            user_prompt += "-" * 80 + "\n"
+                            for name, info in variables[category].items():
+                                var_type = info.get('type', 'unknown') if isinstance(info, dict) else 'unknown'
+                                if isinstance(info, dict):
+                                    # Show detailed info for structured types
+                                    if 'shape' in info:
+                                        user_prompt += f"  ▶ '{name}': {var_type} {info['shape']}\n"
+                                    elif 'size' in info:
+                                        user_prompt += f"  ▶ '{name}': {var_type} (size: {info['size']})\n"
+                                    elif 'value' in info:
+                                        user_prompt += f"  ▶ '{name}': {var_type} = {info['value']}\n"
+                                    else:
+                                        user_prompt += f"  ▶ '{name}': {var_type}\n"
+                                else:
+                                    user_prompt += f"  ▶ '{name}': {info}\n"
+                            user_prompt += "\n"
+
+                else:
+                    # Handle flat structure (legacy or simple case)
+                    user_prompt += "🔹 VARIABLES AVAILABLE:\n"
                     user_prompt += "-" * 80 + "\n"
-                    for name, info in other_vars.items():
+                    for name, info in variables.items():
                         if isinstance(info, dict):
                             var_type = info.get('type', 'unknown')
-                            extra = info.get('shape') or info.get('length') or ''
-                            user_prompt += f"  ▶ '{name}': {var_type} {extra}\n"
+                            user_prompt += f"  ▶ '{name}': {var_type}\n"
                         else:
                             user_prompt += f"  ▶ '{name}': {info}\n"
                     user_prompt += "\n"
