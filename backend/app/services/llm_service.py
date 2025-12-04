@@ -482,9 +482,7 @@ HELPERS (pre-loaded):
                             user_prompt += f"    Type: DataFrame\n"
                             user_prompt += f"    Shape: {shape}\n"
                             if columns:
-                                cols_preview = ', '.join(str(c) for c in columns[:8])
-                                if len(columns) > 8:
-                                    cols_preview += f", ... ({len(columns)} total columns)"
+                                cols_preview = ', '.join(str(c) for c in columns)  # Show ALL columns - no truncation
                                 user_prompt += f"    Columns: {cols_preview}\n"
                             user_prompt += f"    ⚠️  USE THIS: {name}[column_name] or {name}.method()\n"
                             user_prompt += "\n"
@@ -533,7 +531,7 @@ HELPERS (pre-loaded):
 
             if plan.get('assumptions') and len(plan['assumptions']) > 0:
                 user_prompt += f"\n⚙️  Assumptions to Consider:\n"
-                for assumption in plan['assumptions'][:5]:  # Limit to 5
+                for assumption in plan['assumptions']:  # Show all assumptions - no truncation
                     user_prompt += f"   - {assumption}\n"
 
             if plan.get('validation_issues') and len(plan['validation_issues']) > 0:
@@ -542,7 +540,7 @@ HELPERS (pre-loaded):
                           if issue.get('severity') != 'critical']
                 if warnings:
                     user_prompt += f"\n⚠️  VALIDATION WARNINGS ({len(warnings)}):\n"
-                    for issue in warnings[:3]:  # Limit to 3
+                    for issue in warnings:  # Show all warnings - no truncation
                         user_prompt += f"   - {issue.get('message', 'Unknown issue')}\n"
                         if issue.get('suggestion'):
                             user_prompt += f"     Suggestion: {issue['suggestion']}\n"
@@ -559,7 +557,7 @@ HELPERS (pre-loaded):
                 for idx, cell in enumerate(previous_cells, 1):
                     user_prompt += f"\nCell {idx} ({'✓' if cell.get('success') else '✗'}):\n"
                     if cell.get('prompt'):
-                        user_prompt += f"  Prompt: {cell['prompt'][:200]}...\n" if len(cell.get('prompt', '')) > 200 else f"  Prompt: {cell['prompt']}\n"
+                        user_prompt += f"  Prompt: {cell['prompt']}\n"  # Full prompt - no truncation
                     user_prompt += f"  Code: {cell['code']}\n"
                     if cell.get('has_dataframes'):
                         user_prompt += f"  ✓ This cell created/modified DataFrames\n"
@@ -612,10 +610,7 @@ HELPERS (pre-loaded):
                         if 'error' not in preview:
                             if file_info['type'] == 'csv':
                                 user_prompt += f"   Shape: {preview['shape'][0]} rows × {preview['shape'][1]} columns\n"
-                                columns = preview['columns'][:5]  # Show first 5 columns
-                                cols_str = ', '.join(columns)
-                                if len(preview['columns']) > 5:
-                                    cols_str += f", ... ({len(preview['columns'])} total)"
+                                cols_str = ', '.join(preview['columns'])  # Show all columns - no truncation
                                 user_prompt += f"   Columns: {cols_str}\n"
                             elif file_info['type'] == 'json':
                                 if preview.get('type') == 'array':
@@ -625,9 +620,7 @@ HELPERS (pre-loaded):
                                 elif preview.get('type') == 'object':
                                     user_prompt += f"   JSON object with {preview.get('total_keys', len(preview.get('keys', [])))} properties\n"
                                     if preview.get('keys'):
-                                        keys_str = ', '.join(preview['keys'][:5])
-                                        if len(preview['keys']) > 5:
-                                            keys_str += f", ... ({len(preview['keys'])} total)"
+                                        keys_str = ', '.join(preview['keys'])  # Show all keys - no truncation
                                         user_prompt += f"   Keys: {keys_str}\n"
                             elif file_info['type'] in ['xlsx', 'xls']:
                                 if 'sheets' in preview:

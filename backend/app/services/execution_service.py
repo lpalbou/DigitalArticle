@@ -693,6 +693,7 @@ class ExecutionService:
                         categorized["dataframes"][name] = {
                             "type": var_type,
                             "shape": list(value.shape),
+                            "columns": value.columns.tolist(),  # CRITICAL: Include column names for LLM
                             "display": f"{var_type} {value.shape}"
                         }
 

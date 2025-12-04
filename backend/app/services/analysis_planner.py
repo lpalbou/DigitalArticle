@@ -218,8 +218,8 @@ You respond with structured JSON following the requested format."""
         context = ""
         if previous_cells:
             context = "\n\nPREVIOUS ANALYSIS CONTEXT:\n"
-            for i, cell in enumerate(previous_cells[-3:], 1):  # Last 3 cells
-                context += f"Step {i}: {cell.get('prompt', 'N/A')[:100]}\n"
+            for i, cell in enumerate(previous_cells, 1):  # All previous cells - no truncation
+                context += f"Step {i}: {cell.get('prompt', 'N/A')}\n"  # Full prompt - no truncation
 
         prompt = f"""Analyze this data analysis request and clarify the user's intent:
 

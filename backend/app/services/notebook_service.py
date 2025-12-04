@@ -258,7 +258,7 @@ class NotebookService:
                     previous_cells.append({
                         'type': cell.cell_type.value,
                         'prompt': cell.prompt if cell.cell_type == CellType.PROMPT else None,
-                        'code': cell.code[:500],  # Truncate long code to first 500 chars
+                        'code': cell.code,  # Full code - LLM needs complete context
                         'success': cell.last_result.status == ExecutionStatus.SUCCESS if cell.last_result else None,
                         'has_dataframes': bool(cell.last_result and cell.last_result.tables) if cell.last_result else False
                     })
