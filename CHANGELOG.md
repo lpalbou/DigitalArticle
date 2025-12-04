@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.2.5] - 2025-12-04
+
+### Added
+
+- **🎭 Persona System**: Domain-expert personas that shape article generation
+  - **5 Built-in Personas**: Generic, Clinical, Genomics, RWD (Real-World Data), Medical Imaging
+  - **Per-Notebook Selection**: Each notebook can have its own persona (stored in notebook metadata)
+  - **Domain-Specific Guidance**: Personas inject expertise into code generation, methodology writing, and terminology
+  - **Custom Personas**: Users can create and manage their own domain-specific personas
+  - **Scope-Aware Prompts**: Different guidance for code generation, methodology, chat, abstract, and review
+  - Files: `backend/app/models/persona.py`, `backend/app/services/persona_service.py`, `backend/app/api/personas.py`
+  - UI: `PersonaTab.tsx`, `PersonaCard.tsx`, `PersonaEditor.tsx`
+
+- **📝 Article Review System**: Automated peer-review quality control
+  - **Dimensional Assessment**: Structured evaluation across 5 scientific dimensions
+    - Research Question (relevance, clarity, scope)
+    - Methodology (appropriateness, implementation, statistical rigor)
+    - Results (accuracy, completeness, presentation)
+    - Reproducibility (documentation, data access, code quality)
+    - Communication (structure, language, visualization)
+  - **3-Phase Review**: Intent review, Implementation review, Results review
+  - **Severity Levels**: Info, Warning, Critical findings with actionable suggestions
+  - **Article-Level Synthesis**: Overall assessment with key strengths and areas for improvement
+  - Files: `backend/app/models/review.py`, `backend/app/services/review_service.py`, `backend/app/api/review.py`
+  - UI: `ArticleReviewModal.tsx`, `ReviewPanel.tsx`, `ReviewSettingsTab.tsx`
+
+- **📖 Architecture Documentation**: Comprehensive documentation of the Persona and Review systems
+  - File: `docs/persona-and-review-architecture.md`
+
+### Changed
+
+- **💬 Enhanced Chat Service**: Chat now supports mode-based operation (standard, review)
+- **⚙️ Settings Modal**: New tabs for Persona selection and Review configuration
+- **🔧 LLM Service**: Enhanced to support persona context injection
+
 ## [0.2.3] - 2025-12-02
 
 ### Changed
