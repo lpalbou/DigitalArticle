@@ -251,6 +251,8 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
         return 'Code Fix / Retry'
       case 'methodology_generation':
         return 'Methodology Generation'
+      case 'article_review':
+        return 'Article Review'
       default:
         return stepType
     }
@@ -264,6 +266,8 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
         return 'text-yellow-600 bg-yellow-50'
       case 'methodology_generation':
         return 'text-purple-600 bg-purple-50'
+      case 'article_review':
+        return 'text-green-600 bg-green-50'
       default:
         return 'text-gray-600 bg-gray-50'
     }

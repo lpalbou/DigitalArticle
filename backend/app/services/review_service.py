@@ -392,6 +392,11 @@ EXAMPLE OF CORRECT FORMAT:
                 review_prompt,
                 system_prompt=self.REVIEW_SYSTEM_PROMPT,  # Comprehensive SOTA prompt
                 temperature=0.3,
+                trace_metadata={
+                    'step_type': 'article_review',
+                    'attempt_number': 1,
+                    'notebook_id': str(notebook.id),
+                },
             )
             # Extract text from GenerateResponse object
             review_text = response.content if hasattr(response, 'content') else str(response)
