@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BookOpen, Plus, Save, Download, AlertTriangle, ChevronDown, Settings } from 'lucide-react'
+import { BookOpen, Plus, Save, Download, AlertTriangle, ChevronDown, Settings, ClipboardCheck } from 'lucide-react'
 import SettingsModal from './SettingsModal'
 import ArticleQuickAccess from './ArticleQuickAccess'
 import ArticleBrowserModal from './ArticleBrowserModal'
@@ -14,7 +14,11 @@ interface HeaderProps {
   onExportPDF?: (includeCode: boolean) => void
   onSelectNotebook?: (notebookId: string) => void
   onDeleteNotebook?: (notebookId: string) => void
+  onReviewArticle?: () => void
+  onViewLastReview?: () => void
+  hasExistingReview?: boolean
   isGeneratingPDF?: boolean
+  isReviewingArticle?: boolean
   currentNotebookId?: string
   currentNotebookTitle?: string
 }
@@ -28,7 +32,11 @@ const Header: React.FC<HeaderProps> = ({
   onExportPDF,
   onSelectNotebook,
   onDeleteNotebook,
+  onReviewArticle,
+  onViewLastReview,
+  hasExistingReview = false,
   isGeneratingPDF = false,
+  isReviewingArticle = false,
   currentNotebookId,
   currentNotebookTitle
 }) => {
@@ -36,6 +44,7 @@ const Header: React.FC<HeaderProps> = ({
   const [showExportDropdown, setShowExportDropdown] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [showBrowserModal, setShowBrowserModal] = useState(false)
+  const [showReviewDropdown, setShowReviewDropdown] = useState(false)
 
   const handleNewNotebook = () => {
     setShowConfirmModal(true)
@@ -73,29 +82,105 @@ const Header: React.FC<HeaderProps> = ({
             </div>
 
             {/* Action Buttons */}
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2">
+              {/* Settings Icon */}
               <button
                 onClick={() => setShowSettingsModal(true)}
-                className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-2.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                 title="Settings"
               >
                 <Settings className="h-5 w-5" />
               </button>
 
+              {/* New Button */}
               <button
                 onClick={handleNewNotebook}
-                className="btn btn-danger flex items-center space-x-2"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors"
                 title="New Digital Article"
               >
                 <Plus className="h-4 w-4" />
                 <span>New</span>
               </button>
 
+              {/* Review Article Button (Split button when review exists) */}
+              {currentNotebookId && !hasExistingReview && (
+                <button
+                  onClick={onReviewArticle}
+                  disabled={isReviewingArticle}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Generate Article Review"
+                >
+                  <ClipboardCheck className="h-4 w-4" />
+                  <span>{isReviewingArticle ? 'Reviewing...' : 'Review'}</span>
+                </button>
+              )}
+
+              {/* Review Split Button (when review exists) */}
+              {currentNotebookId && hasExistingReview && (
+                <div className="relative inline-flex">
+                  {/* Main button - View Last Review */}
+                  <button
+                    onClick={onViewLastReview}
+                    disabled={isReviewingArticle}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 font-medium rounded-l-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="View Last Review"
+                  >
+                    <ClipboardCheck className="h-4 w-4" />
+                    <span>{isReviewingArticle ? 'Reviewing...' : 'View Review'}</span>
+                  </button>
+
+                  {/* Dropdown button */}
+                  <button
+                    onClick={() => setShowReviewDropdown(!showReviewDropdown)}
+                    disabled={isReviewingArticle}
+                    className="px-2 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 font-medium rounded-r-lg border-l border-purple-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Review Options"
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+
+                  {/* Dropdown menu */}
+                  {showReviewDropdown && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-10"
+                        onClick={() => setShowReviewDropdown(false)}
+                      />
+                      <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+                        <button
+                          onClick={() => {
+                            setShowReviewDropdown(false)
+                            onViewLastReview?.()
+                          }}
+                          className="w-full text-left px-4 py-2 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                        >
+                          <ClipboardCheck className="h-4 w-4 text-purple-600" />
+                          <span className="text-sm">View Last Review</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowReviewDropdown(false)
+                            onReviewArticle?.()
+                          }}
+                          className="w-full text-left px-4 py-2 hover:bg-gray-50 transition-colors flex items-center gap-2 border-t border-gray-100"
+                        >
+                          <ClipboardCheck className="h-4 w-4 text-amber-600" />
+                          <div className="flex-1">
+                            <div className="text-sm font-medium">Re-run Review</div>
+                            <div className="text-xs text-gray-500">Generate fresh review</div>
+                          </div>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* Save Dropdown (consolidates Save + Export) */}
               <div className="relative">
                 <button
                   onClick={() => setShowExportDropdown(!showExportDropdown)}
-                  className="btn btn-primary flex items-center space-x-2"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   title="Save Digital Article"
                   disabled={isGeneratingPDF}
                 >

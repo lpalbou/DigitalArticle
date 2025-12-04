@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react'
-import { 
-  X, AlertCircle, CheckCircle, Loader, HelpCircle, Shuffle, 
-  Download, Settings2, Beaker, ChevronDown, ChevronUp, Eye, EyeOff
+import React, { useState, useEffect, useCallback, useRef } from 'react'
+import {
+  X, AlertCircle, CheckCircle, Loader, HelpCircle, Shuffle,
+  Download, Settings2, Beaker, ChevronDown, ChevronUp, Eye, EyeOff,
+  Users, ClipboardCheck
 } from 'lucide-react'
 import axios from 'axios'
 import { useToaster } from '../contexts/ToasterContext'
 import { useModelDownload } from '../contexts/ModelDownloadContext'
+import PersonaTab, { PersonaTabRef } from './PersonaTab'
+import ReviewSettingsTab, { ReviewSettingsTabRef } from './ReviewSettingsTab'
 
 interface Provider {
   name: string
@@ -39,7 +42,7 @@ interface SettingsModalProps {
   notebookId?: string  // Current notebook ID, if any
 }
 
-type TabId = 'provider' | 'reproducibility'
+type TabId = 'personas' | 'provider' | 'reproducibility' | 'review'
 
 const DEFAULT_BASE_URLS: Record<string, string> = {
   ollama: 'http://localhost:11434',
@@ -51,8 +54,12 @@ const DEFAULT_BASE_URLS: Record<string, string> = {
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebookId }) => {
   const toaster = useToaster()
   const { downloadProgress, isDownloading, startDownload, cancelDownload } = useModelDownload()
-  
-  const [activeTab, setActiveTab] = useState<TabId>('provider')
+
+  // Refs for tab save functions
+  const personaTabRef = useRef<PersonaTabRef>(null)
+  const reviewTabRef = useRef<ReviewSettingsTabRef>(null)
+
+  const [activeTab, setActiveTab] = useState<TabId>('personas')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   
@@ -303,36 +310,46 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
   const handleSave = async () => {
     setSaving(true)
     try {
-      // Save settings
-      await axios.put('/api/settings', {
-        llm: {
+      // Call the appropriate tab's save function based on active tab
+      if (activeTab === 'personas' && personaTabRef.current) {
+        await personaTabRef.current.save()
+        // Fire custom event to notify badge to refresh
+        window.dispatchEvent(new CustomEvent('persona-updated'))
+        onClose()
+      } else if (activeTab === 'review' && reviewTabRef.current) {
+        await reviewTabRef.current.save()
+        toaster.success('Review settings saved successfully')
+        onClose()
+      } else if (activeTab === 'provider' || activeTab === 'reproducibility') {
+        // Save provider and reproducibility settings
+        await axios.put('/api/settings', {
+          llm: {
+            provider: selectedProvider,
+            model: selectedModel,
+            temperature,
+            base_urls: baseUrls,
+          },
+          reproducibility: {
+            use_llm_seed: useLlmSeed,
+            llm_seed: useLlmSeed && llmSeed ? parseInt(llmSeed) : null,
+            use_code_seed: useCodeSeed,
+            code_seed: useCodeSeed && codeSeed ? parseInt(codeSeed) : null,
+          },
+        })
+
+        // Also update the global LLM provider selection
+        await axios.post('/api/llm/providers/select', {
           provider: selectedProvider,
           model: selectedModel,
-          temperature,
-          base_urls: baseUrls,
-        },
-        reproducibility: {
-          use_llm_seed: useLlmSeed,
-          llm_seed: useLlmSeed && llmSeed ? parseInt(llmSeed) : null,
-          use_code_seed: useCodeSeed,
-          code_seed: useCodeSeed && codeSeed ? parseInt(codeSeed) : null,
-        },
-      })
+          notebook_id: notebookId,
+        })
 
-      // Also update the global LLM provider selection
-      // If we have a notebookId, also update that notebook's config
-      await axios.post('/api/llm/providers/select', {
-        provider: selectedProvider,
-        model: selectedModel,
-        notebook_id: notebookId,  // Update current notebook if open
-      })
+        // Trigger footer refresh
+        window.dispatchEvent(new CustomEvent('llm-settings-updated'))
 
-      // Trigger footer refresh
-      window.dispatchEvent(new CustomEvent('llm-settings-updated'))
-
-      toaster.success('Settings saved successfully')
-      onClose()
-      
+        toaster.success('Settings saved successfully')
+        onClose()
+      }
     } catch (error: any) {
       toaster.error(error.response?.data?.detail || 'Failed to save settings')
     } finally {
@@ -419,7 +436,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
         />
 
         {/* Modal panel */}
-        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
+        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-[840px] sm:w-full">
           {/* Header */}
           <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">Settings</h3>
@@ -434,6 +451,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
           {/* Tabs */}
           <div className="border-b border-gray-200">
             <nav className="flex -mb-px">
+              <button
+                onClick={() => setActiveTab('personas')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center space-x-2 ${
+                  activeTab === 'personas'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Users className="h-4 w-4" />
+                <span>Persona</span>
+              </button>
               <button
                 onClick={() => setActiveTab('provider')}
                 className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center space-x-2 ${
@@ -456,11 +484,22 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
                 <Beaker className="h-4 w-4" />
                 <span>Reproducibility</span>
               </button>
+              <button
+                onClick={() => setActiveTab('review')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center space-x-2 ${
+                  activeTab === 'review'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <ClipboardCheck className="h-4 w-4" />
+                <span>Review</span>
+              </button>
             </nav>
           </div>
 
           {/* Content */}
-          <div className="bg-white px-6 py-6 max-h-[60vh] overflow-y-auto">
+          <div className="bg-white px-6 py-6 max-h-[69vh] overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader className="h-8 w-8 animate-spin text-blue-600" />
@@ -522,8 +561,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
                   </div>
                 )}
 
-                {activeTab === 'provider' ? (
-                  /* Provider & Model Tab */
+                {/* Persona Tab */}
+                {activeTab === 'personas' && (
+                  <PersonaTab ref={personaTabRef} notebookId={notebookId} />
+                )}
+
+                {/* Provider & Model Tab */}
+                {activeTab === 'provider' && (
                   <div className="space-y-6">
                 {hasNoAvailableProviders ? (
                   <div className="bg-red-50 border border-red-200 rounded-lg p-6">
@@ -846,8 +890,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
                   )}
                 </div>
               </div>
-            ) : (
-              /* Reproducibility Tab */
+            )}
+
+                {/* Reproducibility Tab */}
+                {activeTab === 'reproducibility' && (
               <div className="space-y-6">
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <p className="text-sm text-blue-800">
@@ -947,6 +993,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
                 </div>
               </div>
                 )}
+
+                {/* Review Tab */}
+                {activeTab === 'review' && (
+                  <ReviewSettingsTab ref={reviewTabRef} notebookId={notebookId} />
+                )}
               </>
             )}
           </div>
@@ -961,11 +1012,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || (!selectedProvider && availableProviders.length > 0)}
+              disabled={saving || (activeTab === 'provider' && !selectedProvider && availableProviders.length > 0) || (activeTab === 'personas' && !notebookId) || (activeTab === 'review' && !notebookId)}
               className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-2"
             >
               {saving && <Loader className="h-4 w-4 animate-spin" />}
-              <span>{saving ? 'Saving...' : 'Save'}</span>
+              <span>
+                {saving ? 'Saving...' :
+                  activeTab === 'personas' ? 'Save Persona Settings' :
+                  activeTab === 'review' ? 'Save Review Settings' :
+                  'Save Settings'}
+              </span>
             </button>
           </div>
         </div>

@@ -238,6 +238,7 @@ export interface ChatRequest {
   notebook_id: string
   message: string
   conversation_history?: ChatMessage[]
+  mode?: 'article' | 'reviewer'
 }
 
 export interface ChatResponse {

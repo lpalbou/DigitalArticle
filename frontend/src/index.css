@@ -40,7 +40,7 @@
   }
   
   .result-panel {
-    @apply mt-4 p-4 bg-gray-50 border-t border-gray-200;
+    @apply mt-4;
   }
   
   .prompt-editor {

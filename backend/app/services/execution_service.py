@@ -1103,24 +1103,7 @@ class ExecutionService:
                 table_data['type'] = 'table'
                 return table_data
 
-            # Priority 3: Check for Jupyter-standard _repr_html_() method (after DataFrame/Series)
-            if hasattr(obj, '_repr_html_') and callable(getattr(obj, '_repr_html_')):
-                try:
-                    html_content = obj._repr_html_()
-                    if label is None:
-                        self.notebook_table_counters[notebook_id] += 1
-                        label = f"Table {self.notebook_table_counters[notebook_id]}"
-
-                    return {
-                        'type': 'html',
-                        'content': html_content,
-                        'label': label,
-                        'source': 'display'
-                    }
-                except Exception as e:
-                    logger.warning(f"Failed to get _repr_html_(): {e}")
-
-            # Priority 4: Matplotlib figures
+            # Priority 3: Matplotlib figures (BEFORE _repr_html_ check to avoid HTML rendering)
             if hasattr(obj, 'savefig') and callable(getattr(obj, 'savefig')):
                 if label is None:
                     self.notebook_figure_counters[notebook_id] += 1
@@ -1138,6 +1121,23 @@ class ExecutionService:
                     'label': label,
                     'source': 'display'
                 }
+
+            # Priority 4: Check for Jupyter-standard _repr_html_() method (after matplotlib)
+            if hasattr(obj, '_repr_html_') and callable(getattr(obj, '_repr_html_')):
+                try:
+                    html_content = obj._repr_html_()
+                    if label is None:
+                        self.notebook_table_counters[notebook_id] += 1
+                        label = f"Table {self.notebook_table_counters[notebook_id]}"
+
+                    return {
+                        'type': 'html',
+                        'content': html_content,
+                        'label': label,
+                        'source': 'display'
+                    }
+                except Exception as e:
+                    logger.warning(f"Failed to get _repr_html_(): {e}")
 
             # Priority 5: NumPy arrays
             if isinstance(obj, np.ndarray):

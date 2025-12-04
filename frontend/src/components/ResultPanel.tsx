@@ -14,12 +14,15 @@ import {
   Eye as EyeIcon
 } from 'lucide-react'
 import { ExecutionResult, ExecutionStatus, TableData } from '../types'
+import ReviewPanel from './ReviewPanel'
 
 interface ResultPanelProps {
   result: ExecutionResult
+  cellReview?: any  // Cell review data from cell.metadata['review']
+  onRefreshReview?: () => void  // Callback to refresh review
 }
 
-const ResultPanel: React.FC<ResultPanelProps> = ({ result }) => {
+const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefreshReview }) => {
   const [warningsCollapsed, setWarningsCollapsed] = useState(true)
 
   const hasOutput = useMemo(() => {
@@ -67,120 +70,162 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result }) => {
         </div>
       )}
 
-      {/* Analysis Results - Clean article-first display */}
-      {result.tables.filter((t: any) => t.source === 'display').length > 0 && (
-        <div className="mb-4 space-y-4">
-          {result.tables.filter((t: any) => t.source === 'display').map((table: any, index: number) => {
-            const displayType = table.type || 'table'; // Default to table for backwards compatibility
+      {(() => {
+        // Extract orphaned labels from broken html-type tables
+        const orphanedLabels: string[] = [];
+        result.tables.forEach((t: any) => {
+          // Empty html tables (broken captures)
+          if (t.type === 'html' && (!t.content || t.content === null) && t.label) {
+            orphanedLabels.push(t.label);
+          }
+          // Plotly html tables that duplicate interactive_plots
+          if (t.type === 'html' && t.content && t.content.includes('plotly') && t.label) {
+            orphanedLabels.push(t.label);
+          }
+        });
 
-            return (
-              <div key={index} className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
-                {/* Display the label prominently */}
-                {table.label && (
-                  <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
-                    <h4 className="text-sm font-semibold text-gray-900">{table.label}</h4>
-                  </div>
-                )}
-
-                {/* Render based on display type */}
-                {displayType === 'table' && <TableDisplay table={table} />}
-
-                {displayType === 'html' && (
-                  <div className="p-4 prose max-w-none" dangerouslySetInnerHTML={{ __html: table.content }} />
-                )}
-
-                {displayType === 'json' && (
-                  <div className="p-4">
-                    <pre className="bg-gray-50 p-3 rounded text-xs overflow-x-auto font-mono">
-                      <code className="text-gray-800">{table.content}</code>
-                    </pre>
-                  </div>
-                )}
-
-                {displayType === 'text' && (
-                  <div className="p-4">
-                    <pre className="bg-gray-50 p-3 rounded text-sm overflow-x-auto whitespace-pre-wrap font-mono">
-                      {table.content}
-                    </pre>
-                  </div>
-                )}
-
-                {displayType === 'model' && (
-                  <div className="p-4">
-                    <div className="bg-gradient-to-r from-purple-50 to-blue-50 p-4 rounded-lg border border-purple-200">
-                      <div className="flex items-center mb-3">
-                        <BarChart3 className="h-5 w-5 text-purple-600 mr-2" />
-                        <span className="font-semibold text-purple-900">Machine Learning Model</span>
-                      </div>
-                      <pre className="bg-white p-3 rounded text-xs overflow-x-auto font-mono border">
-                        <code className="text-gray-800">{table.content}</code>
-                      </pre>
-                    </div>
-                  </div>
-                )}
+        return (
+          <>
+            {/* Analysis Results */}
+            {result.tables.filter((t: any) => {
+              // Filter for display source
+              if (t.source !== 'display') return false;
+              // Skip html-type tables with no content (broken old captures)
+              if (t.type === 'html' && (!t.content || t.content === null)) return false;
+              // Skip plotly html tables (duplicates of interactive_plots)
+              if (t.type === 'html' && t.content && t.content.includes('plotly')) return false;
+              return true;
+            }).map((table: any, index: number) => {
+        const displayType = table.type || 'table';
+        return (
+          <div key={`table-${index}`} className="mb-4 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+            {table.label && (
+              <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
+                <h4 className="text-sm font-semibold text-gray-900">{table.label}</h4>
               </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Note: Console output, intermediary variables, and warnings are available via TRACE button → Execution Details */}
-
-      {/* Matplotlib Plots */}
-      {result.plots.length > 0 && (
-        <div className="mb-4 space-y-4">
-          {result.plots.map((plot: any, index: number) => {
-            // Handle both old format (string) and new format (object with label)
-            const plotData = typeof plot === 'string' ? plot : plot.data;
-            const plotLabel = typeof plot === 'object' && plot.label ? plot.label : null;
-            const isDisplayed = typeof plot === 'object' && plot.source === 'display';
-
-            return (
-              <div key={index} className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
-                {/* Show label for explicitly displayed plots */}
-                {plotLabel && isDisplayed && (
-                  <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
-                    <h4 className="text-sm font-semibold text-gray-900">{plotLabel}</h4>
-                  </div>
-                )}
-                <div className="p-4">
+            )}
+            <div className="p-4">
+              {displayType === 'table' && <TableDisplay table={table} />}
+              {displayType === 'html' && (
+                // Fallback: if html type has no content but has data, treat as image (backward compat)
+                table.content ? (
+                  <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: table.content }} />
+                ) : table.data ? (
                   <img
-                    src={`data:image/png;base64,${plotData}`}
-                    alt={plotLabel || `Plot ${index + 1}`}
+                    src={`data:image/png;base64,${table.data}`}
+                    alt={table.label || 'Figure'}
                     className="max-w-full h-auto"
                   />
+                ) : null
+              )}
+              {displayType === 'json' && (
+                <pre className="bg-gray-50 p-3 rounded text-xs overflow-x-auto font-mono">
+                  <code className="text-gray-800">{table.content}</code>
+                </pre>
+              )}
+              {displayType === 'text' && (
+                <pre className="bg-gray-50 p-3 rounded text-sm overflow-x-auto whitespace-pre-wrap font-mono">
+                  {table.content}
+                </pre>
+              )}
+              {displayType === 'model' && (
+                <div className="bg-gradient-to-r from-purple-50 to-blue-50 p-4 rounded-lg border border-purple-200">
+                  <div className="flex items-center mb-3">
+                    <BarChart3 className="h-5 w-5 text-purple-600 mr-2" />
+                    <span className="font-semibold text-purple-900">Machine Learning Model</span>
+                  </div>
+                  <pre className="bg-white p-3 rounded text-xs overflow-x-auto font-mono border">
+                    <code className="text-gray-800">{table.content}</code>
+                  </pre>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Interactive Plotly Plots */}
-      {result.interactive_plots.length > 0 && (
-        <div className="mb-4">
-          <div className="flex items-center space-x-2 mb-2">
-            <BarChart3 className="h-4 w-4" />
-            <span className="text-sm font-medium text-gray-700">Interactive Plots</span>
-          </div>
-          <div className="grid gap-4">
-            {result.interactive_plots.map((plot, index) => (
-              <div key={index} className="plot-container">
-                <Plot
-                  data={plot.figure.data}
-                  layout={plot.figure.layout}
-                  config={{
-                    responsive: true,
-                    displayModeBar: true,
-                    displaylogo: false
-                  }}
-                  style={{ width: '100%', height: '400px' }}
+              )}
+              {displayType === 'image' && (
+                <img
+                  src={`data:image/png;base64,${table.data}`}
+                  alt={table.label || 'Figure'}
+                  className="max-w-full h-auto"
                 />
-              </div>
-            ))}
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })}
+
+            {/* Matplotlib Plots */}
+            {result.plots.map((plot: any, index: number) => {
+              const plotData = typeof plot === 'string' ? plot : plot.data;
+              let plotLabel = typeof plot === 'object' && plot.label ? plot.label : null;
+              const isDisplayed = typeof plot === 'object' && plot.source === 'display';
+
+              // If no label and there's an orphaned label, use it
+              if (!plotLabel && orphanedLabels.length > index) {
+                plotLabel = orphanedLabels[index];
+              }
+
+        // Skip if no plot data
+        if (!plotData) return null;
+
+              return (
+                <div key={`plot-${index}`} className="mb-4 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+                  {plotLabel && (
+                    <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
+                      <h4 className="text-sm font-semibold text-gray-900">{plotLabel}</h4>
+                    </div>
+                  )}
+                  <div className="p-4">
+              <img
+                src={`data:image/png;base64,${plotData}`}
+                alt={plotLabel || `Plot ${index + 1}`}
+                className="max-w-full h-auto"
+              />
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Interactive Plotly Plots */}
+            {result.interactive_plots.map((plot: any, index: number) => {
+              let plotLabel = plot.label;
+
+              // If no label and there are orphaned labels, try to use them
+              // (offset by number of regular plots that already consumed orphaned labels)
+              if (!plotLabel && orphanedLabels.length > 0) {
+                const orphanedIndex = result.plots.length + index;
+                if (orphanedIndex < orphanedLabels.length) {
+                  plotLabel = orphanedLabels[orphanedIndex];
+                }
+              }
+
+              return (
+                <div key={`interactive-${index}`} className="mb-4 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+                  {plotLabel && (
+                    <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
+                      <h4 className="text-sm font-semibold text-gray-900">{plotLabel}</h4>
+                    </div>
+                  )}
+                  <div className="p-4">
+                    <Plot
+                      data={plot.figure.data}
+                      layout={{
+                        ...plot.figure.layout,
+                        autosize: true
+                      }}
+                      config={{
+                        responsive: true,
+                        displayModeBar: true,
+                        displaylogo: false
+                      }}
+                      style={{ width: '100%', height: '600px' }}
+                      useResizeHandler={true}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        );
+      })()}
+
 
       {/* Images */}
       {result.images.length > 0 && (
@@ -201,6 +246,11 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result }) => {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Review Panel - Show review findings if available */}
+      {cellReview && (
+        <ReviewPanel review={cellReview} onRefresh={onRefreshReview} />
       )}
 
       {/* No Output Message */}
