@@ -15,7 +15,7 @@ import LLMStatusFooter from './LLMStatusFooter'
 import SettingsModal from './SettingsModal'
 import DependencyModal from './DependencyModal'
 import Toast, { ToastType } from './Toast'
-import { notebookAPI, cellAPI, llmAPI, handleAPIError, downloadFile, getCurrentUser } from '../services/api'
+import { notebookAPI, cellAPI, llmAPI, reviewAPI, handleAPIError, downloadFile, getCurrentUser } from '../services/api'
 import {
   Notebook,
   Cell,
@@ -25,6 +25,7 @@ import {
   CellCreateRequest,
   CellUpdateRequest,
   ExecutionStatus,
+  ExecutionResult,
   LLMTrace
 } from '../types'
 
@@ -63,6 +64,7 @@ const NotebookContainer: React.FC = () => {
 
   // Article review state
   const [articleReview, setArticleReview] = useState<any>(null)
+  const [reviewTraces, setReviewTraces] = useState<LLMTrace[]>([])
   const [isReviewingArticle, setIsReviewingArticle] = useState(false)
   const [showArticleReviewModal, setShowArticleReviewModal] = useState(false)
 
@@ -84,6 +86,7 @@ const NotebookContainer: React.FC = () => {
 
   // Chat state
   const [isChatOpen, setIsChatOpen] = useState(false)
+  const [chatMode, setChatMode] = useState<'article' | 'reviewer'>('article')
 
   // LLM settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -151,6 +154,16 @@ const NotebookContainer: React.FC = () => {
         setAbstract(notebookWithDefaultTabs.abstract)
       } else {
         setAbstract('')
+      }
+
+      // Load existing article review if available
+      if (notebookWithDefaultTabs.metadata?.article_review) {
+        setArticleReview(notebookWithDefaultTabs.metadata.article_review)
+      }
+
+      // Load existing review traces if available
+      if (notebookWithDefaultTabs.metadata?.review_traces) {
+        setReviewTraces(notebookWithDefaultTabs.metadata.review_traces)
       }
     } catch (err) {
       const apiError = handleAPIError(err)
@@ -881,7 +894,24 @@ const NotebookContainer: React.FC = () => {
     try {
       const response = await axios.post(`/api/review/article/${notebook.id}`)
       setArticleReview(response.data)
+
+      // Fetch review traces
+      try {
+        const tracesResponse = await reviewAPI.getTraces(notebook.id)
+        setReviewTraces(tracesResponse.traces || [])
+      } catch (tracesErr) {
+        console.warn('Failed to load review traces:', tracesErr)
+        setReviewTraces([])
+      }
+
+      // Clear old review chat history (new review makes old chat irrelevant)
+      const chatKey = `reviewer_chat_${notebook.id}`
+      localStorage.removeItem(chatKey)
+      console.log('🗑️ Cleared old review chat history for new review')
+
       setShowArticleReviewModal(true)
+
+      // Chat is now embedded in the review modal, no need to open separate panel
       setToast({
         message: 'Article review completed',
         type: 'success'
@@ -893,6 +923,12 @@ const NotebookContainer: React.FC = () => {
       setIsReviewingArticle(false)
     }
   }, [notebook?.id])
+
+  const viewLastReview = useCallback(() => {
+    if (articleReview) {
+      setShowArticleReviewModal(true)
+    }
+  }, [articleReview])
 
   // ===== PERSONA BADGE - COMPLETELY REWRITTEN =====
   const [activePersonas, setActivePersonas] = useState<string[]>(['Generic'])
@@ -1022,6 +1058,8 @@ const NotebookContainer: React.FC = () => {
         onSelectNotebook={selectNotebook}
         onDeleteNotebook={deleteNotebook}
         onReviewArticle={reviewArticle}
+        onViewLastReview={viewLastReview}
+        hasExistingReview={!!articleReview}
         isGeneratingPDF={isGeneratingPDF}
         isReviewingArticle={isReviewingArticle}
         currentNotebookId={notebook?.id}
@@ -1055,6 +1093,8 @@ const NotebookContainer: React.FC = () => {
       <ArticleReviewModal
         isVisible={showArticleReviewModal}
         review={articleReview}
+        traces={reviewTraces}
+        notebookId={notebook?.id || ''}
         onClose={() => setShowArticleReviewModal(false)}
       />
 
@@ -1333,9 +1373,14 @@ const NotebookContainer: React.FC = () => {
       <ChatFloatingButton onClick={() => setIsChatOpen(true)} />
       <ArticleChatPanel
         isOpen={isChatOpen}
-        onClose={() => setIsChatOpen(false)}
+        onClose={() => {
+          setIsChatOpen(false)
+          // Reset to article mode when closing
+          setChatMode('article')
+        }}
         notebookId={notebook?.id || ''}
         notebook={notebook}
+        mode={chatMode}
       />
     </>
   )

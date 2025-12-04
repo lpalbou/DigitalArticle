@@ -302,11 +302,20 @@ export class APIError extends Error {
 
 // Chat API
 export const chatAPI = {
-  // Send a chat message about the article
+  // Send a chat message about the article (mode: 'article' or 'reviewer')
   sendMessage: async (request: ChatRequest): Promise<ChatResponse> => {
     const response: AxiosResponse<ChatResponse> = await api.post('/chat/ask', request)
     return response.data
   },
+}
+
+// Review API
+export const reviewAPI = {
+  // Get LLM traces for article review
+  getTraces: async (notebookId: string): Promise<{ notebook_id: string; traces: any[]; source: string }> => {
+    const response = await api.get(`/review/notebooks/${notebookId}/traces`)
+    return response.data
+  }
 }
 
 // Utility functions

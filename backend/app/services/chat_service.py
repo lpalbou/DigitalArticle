@@ -44,6 +44,33 @@ EXAMPLES:
 - "What does the code in Cell 4 do?" → Explain the code implementation
 """
 
+    REVIEWER_SYSTEM_PROMPT = """You are the Scientific Reviewer who just completed a peer review of this Digital Article.
+
+You have access to:
+- The complete article (cells, code, methodology, results)
+- Your comprehensive review (overall assessment, dimensional ratings, issues, recommendations)
+
+Your role is to answer questions about your review findings and help the author improve their work.
+
+INSTRUCTIONS:
+1. Answer questions about your review findings
+2. Help the author understand specific feedback
+3. Suggest concrete ways to address issues you identified
+4. Prioritize which issues are most important to fix
+5. Recommend implementation approaches when asked
+6. Be constructive and specific - reference your review findings
+7. Explain WHY certain things matter for scientific rigor
+8. Draw from your review's dimensional assessments (Research Question, Methodology, Results Communication)
+
+EXAMPLES:
+- "What did you mean by [issue]?" → Explain the specific concern in more detail
+- "How should I fix [issue]?" → Provide concrete implementation steps
+- "Which issues are most critical?" → Rank issues by importance
+- "Do you recommend method X?" → Evaluate based on your review findings
+- "Why is reproducibility important here?" → Explain scientific reasoning
+
+Be helpful, specific, and always reference your review findings when relevant."""
+
     def __init__(self, notebook_service: NotebookService):
         self.notebook_service = notebook_service
         # Access LLM service from notebook service
@@ -53,7 +80,8 @@ EXAMPLES:
         self,
         notebook_id: str,
         question: str,
-        conversation_history: Optional[List[Dict[str, Any]]] = None
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+        mode: str = 'article'
     ) -> Dict[str, Any]:
         """
         Answer a question about the notebook.
@@ -62,6 +90,7 @@ EXAMPLES:
             notebook_id: UUID of the notebook
             question: User's question
             conversation_history: Previous messages in the conversation
+            mode: 'article' for article questions, 'reviewer' for review questions
 
         Returns:
             Dictionary with answer, context_used, and timestamp
@@ -71,11 +100,16 @@ EXAMPLES:
         if not notebook:
             raise ValueError(f"Notebook {notebook_id} not found")
 
-        # Build article context
-        article_context = self._build_article_context(notebook)
+        # Build context based on mode
+        if mode == 'reviewer':
+            context = self._build_reviewer_context(notebook)
+            system_prompt = self.REVIEWER_SYSTEM_PROMPT
+        else:
+            context = self._build_article_context(notebook)
+            system_prompt = self.SYSTEM_PROMPT
 
         # Build conversation prompt with history
-        prompt_parts = [f"ARTICLE CONTEXT:\n{article_context}\n"]
+        prompt_parts = [f"CONTEXT:\n{context}\n"]
 
         # Add conversation history if provided
         if conversation_history:
@@ -101,7 +135,7 @@ EXAMPLES:
 
             response = self.llm_service.llm.generate(
                 user_prompt,  # First positional argument
-                system_prompt=self.SYSTEM_PROMPT,
+                system_prompt=system_prompt,  # Use mode-specific prompt
                 max_tokens=32000,  # Full active context (article + question + history)
                 max_output_tokens=8192,  # 8k output limit
                 temperature=0.3  # Lower temperature for more factual responses
@@ -193,6 +227,78 @@ EXAMPLES:
             context_parts.append(f"\n(Note: Showing most recent {max_cells} cells out of {len(notebook.cells)} total)")
 
         return "\n".join(context_parts)
+
+    def _build_reviewer_context(self, notebook: Notebook) -> str:
+        """
+        Build reviewer-specific context including article content AND review findings.
+
+        Includes:
+        - Article content (via _build_article_context)
+        - Review findings (overall assessment, dimensional ratings, issues, recommendations)
+        """
+        import json
+
+        # Start with article context
+        article_context = self._build_article_context(notebook)
+
+        # Add review data if available
+        review_data = notebook.metadata.get('article_review')
+        if review_data:
+            review_parts = ["\n\n=== YOUR REVIEW ==="]
+
+            # Overall assessment
+            if 'overall_assessment' in review_data:
+                review_parts.append(f"\nOVERALL ASSESSMENT:\n{review_data['overall_assessment']}")
+
+            # Dimensional ratings
+            if 'research_question' in review_data:
+                rq = review_data['research_question']
+                rating = rq.get('rating', {})
+                review_parts.append(f"\nRESEARCH QUESTION RATING: {rating.get('score', '?')}/5 - {rating.get('label', 'N/A')}")
+                review_parts.append(f"Summary: {rating.get('summary', 'N/A')}")
+
+            if 'methodology' in review_data:
+                meth = review_data['methodology']
+                rating = meth.get('rating', {})
+                review_parts.append(f"\nMETHODOLOGY RATING: {rating.get('score', '?')}/5 - {rating.get('label', 'N/A')}")
+                review_parts.append(f"Summary: {rating.get('summary', 'N/A')}")
+
+            if 'results_communication' in review_data:
+                results = review_data['results_communication']
+                rating = results.get('rating', {})
+                review_parts.append(f"\nRESULTS COMMUNICATION RATING: {rating.get('score', '?')}/5 - {rating.get('label', 'N/A')}")
+                review_parts.append(f"Summary: {rating.get('summary', 'N/A')}")
+
+            # Recommendation
+            if 'recommendation' in review_data:
+                review_parts.append(f"\nRECOMMENDATION: {review_data['recommendation']}")
+
+            # Strengths
+            if 'strengths' in review_data and review_data['strengths']:
+                review_parts.append("\nKEY STRENGTHS:")
+                for i, strength in enumerate(review_data['strengths'], 1):
+                    review_parts.append(f"{i}. {strength}")
+
+            # Issues
+            if 'enhanced_issues' in review_data and review_data['enhanced_issues']:
+                review_parts.append("\nISSUES IDENTIFIED:")
+                for i, issue in enumerate(review_data['enhanced_issues'], 1):
+                    review_parts.append(f"\n{i}. {issue.get('title', 'Issue')}")
+                    review_parts.append(f"   Severity: {issue.get('severity', 'unknown')}")
+                    review_parts.append(f"   Description: {issue.get('description', 'N/A')}")
+                    review_parts.append(f"   Impact: {issue.get('impact', 'N/A')}")
+                    review_parts.append(f"   Suggestion: {issue.get('suggestion', 'N/A')}")
+
+            # Recommendations
+            if 'recommendations' in review_data and review_data['recommendations']:
+                review_parts.append("\nRECOMMENDATIONS FOR IMPROVEMENT:")
+                for i, rec in enumerate(review_data['recommendations'], 1):
+                    review_parts.append(f"{i}. {rec}")
+
+            return article_context + "\n".join(review_parts)
+        else:
+            # No review available yet
+            return article_context + "\n\n=== YOUR REVIEW ===\n(Review not yet generated)"
 
     def _extract_referenced_cells(self, answer: str, notebook: Notebook) -> List[str]:
         """

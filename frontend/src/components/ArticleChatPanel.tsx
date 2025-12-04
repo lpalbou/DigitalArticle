@@ -9,13 +9,15 @@ interface ArticleChatPanelProps {
   onClose: () => void
   notebookId: string
   notebook: Notebook | null
+  mode?: 'article' | 'reviewer'
 }
 
 const ArticleChatPanel: React.FC<ArticleChatPanelProps> = ({
   isOpen,
   onClose,
   notebookId,
-  notebook
+  notebook,
+  mode = 'article'
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputValue, setInputValue] = useState('')
@@ -34,10 +36,10 @@ const ArticleChatPanel: React.FC<ArticleChatPanelProps> = ({
     })
   }, [])
 
-  // Load conversation from localStorage on mount
+  // Load conversation from localStorage on mount (mode-specific key)
   useEffect(() => {
     if (notebookId) {
-      const key = `chat_history_${notebookId}`
+      const key = mode === 'reviewer' ? `reviewer_chat_history_${notebookId}` : `chat_history_${notebookId}`
       const saved = localStorage.getItem(key)
       if (saved) {
         try {
@@ -46,17 +48,20 @@ const ArticleChatPanel: React.FC<ArticleChatPanelProps> = ({
         } catch (e) {
           console.error('Failed to load chat history:', e)
         }
+      } else {
+        // Clear messages when switching modes
+        setMessages([])
       }
     }
-  }, [notebookId])
+  }, [notebookId, mode])
 
-  // Save conversation to localStorage whenever messages change
+  // Save conversation to localStorage whenever messages change (mode-specific key)
   useEffect(() => {
     if (notebookId && messages.length > 0) {
-      const key = `chat_history_${notebookId}`
+      const key = mode === 'reviewer' ? `reviewer_chat_history_${notebookId}` : `chat_history_${notebookId}`
       localStorage.setItem(key, JSON.stringify(messages))
     }
-  }, [notebookId, messages])
+  }, [notebookId, messages, mode])
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -96,11 +101,12 @@ const ArticleChatPanel: React.FC<ArticleChatPanelProps> = ({
     setIsLoading(true)
 
     try {
-      // Send to backend
+      // Send to backend with mode
       const response = await chatAPI.sendMessage({
         notebook_id: notebookId,
         message: userMessage.content,
-        conversation_history: messages.filter(m => !m.loading)
+        conversation_history: messages.filter(m => !m.loading),
+        mode: mode
       })
 
       // Replace loading message with actual response
@@ -143,7 +149,8 @@ const ArticleChatPanel: React.FC<ArticleChatPanelProps> = ({
     if (confirm('Clear all chat history? This cannot be undone.')) {
       setMessages([])
       if (notebookId) {
-        localStorage.removeItem(`chat_history_${notebookId}`)
+        const key = mode === 'reviewer' ? `reviewer_chat_history_${notebookId}` : `chat_history_${notebookId}`
+        localStorage.removeItem(key)
       }
     }
   }
@@ -171,12 +178,16 @@ const ArticleChatPanel: React.FC<ArticleChatPanelProps> = ({
       {/* Chat panel */}
       <div className="fixed right-0 top-0 bottom-0 w-full sm:w-[560px] bg-white shadow-2xl z-50 flex flex-col animate-slide-in-right">
         {/* Header */}
-        <div className="bg-blue-600 text-white p-4 flex items-center justify-between">
+        <div className={`${mode === 'reviewer' ? 'bg-amber-600' : 'bg-blue-600'} text-white p-4 flex items-center justify-between`}>
           <div className="flex items-center space-x-2">
             <MessageCircle className="h-5 w-5" />
             <div>
-              <h2 className="font-semibold">Ask About This Article</h2>
-              <p className="text-xs text-blue-100">Read-only assistant</p>
+              <h2 className="font-semibold">
+                {mode === 'reviewer' ? 'Discuss Review' : 'Ask About This Article'}
+              </h2>
+              <p className="text-xs opacity-90">
+                {mode === 'reviewer' ? 'Scientific Reviewer Q&A' : 'Read-only assistant'}
+              </p>
             </div>
           </div>
           <div className="flex items-center space-x-2">
@@ -199,6 +210,15 @@ const ArticleChatPanel: React.FC<ArticleChatPanelProps> = ({
           </div>
         </div>
 
+        {/* Reviewer Mode Hint */}
+        {mode === 'reviewer' && (
+          <div className="bg-amber-50 border-b border-amber-200 p-3">
+            <p className="text-sm text-amber-800">
+              💬 <strong>Ask the reviewer follow-up questions</strong> about the review findings, suggestions, or how to address issues.
+            </p>
+          </div>
+        )}
+
         {/* Messages area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length === 0 ? (
@@ -208,7 +228,7 @@ const ArticleChatPanel: React.FC<ArticleChatPanelProps> = ({
                 Start a conversation
               </h3>
               <p className="text-sm text-gray-500 mb-4">
-                Ask me anything about this article!
+                {mode === 'reviewer' ? 'Ask the reviewer about the review findings!' : 'Ask me anything about this article!'}
               </p>
               <div className="space-y-2 text-left max-w-sm mx-auto">
                 <button

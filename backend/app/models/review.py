@@ -43,8 +43,8 @@ class ReviewFinding(BaseModel):
 
 class DimensionRating(BaseModel):
     """Rating for a specific review dimension."""
-    score: int = Field(ge=1, le=5)  # 1-5 stars
-    label: str  # "Excellent", "Good", "Adequate", "Needs Improvement", "Poor"
+    score: int = Field(ge=0, le=5)  # 0-5 stars (0 = Not Assessed)
+    label: str  # "Excellent", "Good", "Adequate", "Needs Improvement", "Poor", "Not Assessed"
     summary: str  # Brief justification (markdown supported)
 
 

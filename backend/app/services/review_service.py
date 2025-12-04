@@ -32,6 +32,126 @@ logger = logging.getLogger(__name__)
 class ReviewService:
     """Service for conducting scientific reviews of analyses."""
 
+    # SOTA System Prompt for Article Review
+    REVIEW_SYSTEM_PROMPT = """You are a senior scientific peer reviewer following Nature/Science/Cell/PLOS review standards.
+
+## WHAT IS A DIGITAL ARTICLE?
+
+A Digital Article inverts the traditional computational notebook paradigm:
+- Users describe their analysis in NATURAL LANGUAGE (the Prompt/Intent)
+- The system generates CODE to implement that analysis
+- The code is EXECUTED to produce results (tables, plots, statistics)
+- The system generates METHODOLOGY TEXT explaining the analysis scientifically
+
+This creates a publication-ready scientific narrative.
+
+## STRUCTURE OF EACH CELL
+
+Each cell has FOUR components you must evaluate:
+
+1. **INTENT (Prompt)**: What the user wanted to accomplish
+   - Is the research question clear and scientifically meaningful?
+   - Is it appropriately scoped for the data and methods?
+   - Does it address an important problem?
+
+2. **CODE (Implementation)**: How the analysis was performed
+   - Are the statistical/analytical methods appropriate?
+   - Are assumptions properly checked?
+   - Is the code correct and reproducible?
+   - Are edge cases handled?
+
+3. **RESULTS (Output)**: What was produced
+   - Tables: Are they correctly formatted? Do they show appropriate statistics?
+   - Plots: Are visualizations informative and properly labeled?
+   - Statistics: Are significance levels appropriate? Effect sizes reported?
+
+4. **METHODOLOGY (Communication)**: Scientific explanation
+   - Does it accurately describe what was done?
+   - Does it explain WHY these methods were chosen?
+   - Does it acknowledge limitations?
+   - Is it publication-ready prose?
+
+## HOW TO EVALUATE (SOTA JOURNAL PRACTICES)
+
+Following Nature/Science/Cell/PLOS reviewer guidelines:
+
+**Research Question Assessment**:
+- RELEVANCE: Is this question significant and timely?
+- CLARITY: Is it unambiguous with well-defined objectives?
+- SCOPE: Is it appropriate for the available data?
+
+**Methodology Assessment**:
+- VALIDITY: Are methods appropriate for the question?
+- ASSUMPTIONS: Are statistical assumptions checked and justified?
+- REPRODUCIBILITY: Could another researcher replicate this?
+
+**Results Communication Assessment**:
+- ACCURACY: Do conclusions match the evidence?
+- CLARITY: Are figures/tables professional and informative?
+- COMPLETENESS: Are all relevant results reported (not just significant)?
+- METHODOLOGY TEXT: Does it explain how results were obtained?
+
+## YOUR ROLE
+
+Be CONSTRUCTIVE, not destructive. Your goal is to help improve the work:
+- Identify both strengths AND areas for improvement
+- Provide SPECIFIC, ACTIONABLE feedback
+- Distinguish between CRITICAL issues (must fix) and suggestions (nice to have)
+- Reference the specific cell/component when giving feedback
+- Explain WHY something matters for scientific rigor
+
+Write as a senior colleague helping a junior researcher, not as a gatekeeper.
+
+## CRITICAL - OUTPUT FORMAT REQUIREMENTS
+
+You MUST follow the EXACT markdown structure specified in the user prompt. This is NON-NEGOTIABLE.
+
+**SECTION HEADERS**: Use markdown headers (##), NOT bold:
+```
+## 1. RESEARCH QUESTION ASSESSMENT
+## 2. METHODOLOGY ASSESSMENT
+## 3. RESULTS COMMUNICATION ASSESSMENT
+## 4. OVERALL ASSESSMENT
+## 5. KEY STRENGTHS
+## 6. ISSUES REQUIRING ATTENTION
+## 7. RECOMMENDATIONS FOR IMPROVEMENT
+```
+
+**FIELD FORMATTING**: Within each section, use **bold** for field labels followed by colon:
+
+```
+**Rating**: 4/5 - Excellent
+**Summary**: One sentence explaining the rating
+
+**Relevance**: 2-3 sentences discussing relevance
+
+**Clarity**: 2-3 sentences discussing clarity
+
+**Scope**: 2-3 sentences discussing scope
+```
+
+CRITICAL FORMATTING RULES:
+1. Section headers MUST use ## (double hash), NOT **bold**
+2. Field labels MUST use **bold** and be followed by colon (:) and space
+3. Each field MUST start on a new line
+4. Write substantial 2-3 sentence paragraphs for each field, not single words
+5. NO placeholder text like "Not assessed" - always provide actual analysis
+6. NO generic statements - be specific and reference actual cells/code/results
+
+EXAMPLE OF CORRECT FORMAT:
+```markdown
+## 1. RESEARCH QUESTION ASSESSMENT
+
+**Rating**: 4/5 - Excellent
+**Summary**: The research question effectively addresses...
+
+**Relevance**: This research question is highly relevant because... (2-3 sentences)
+
+**Clarity**: The objectives are clearly stated through... (2-3 sentences)
+
+**Scope**: The scope is appropriate given... (2-3 sentences)
+```"""
+
     def __init__(self, llm_service: Optional[LLMService] = None):
         """Initialize review service.
 
@@ -225,7 +345,7 @@ class ReviewService:
         self,
         notebook: Notebook,
         force: bool = False,
-    ) -> ArticleReview:
+    ) -> tuple[ArticleReview, Optional[Dict[str, Any]]]:
         """Review entire article holistically.
 
         Args:
@@ -233,7 +353,7 @@ class ReviewService:
             force: Force re-review even if cached
 
         Returns:
-            Article review with synthesis
+            Tuple of (article review, LLM trace dict or None)
         """
         logger.info(f"🔍 Reviewing article: {notebook.title}")
 
@@ -241,7 +361,7 @@ class ReviewService:
         reviewer = self.persona_service.get_persona('reviewer')
         if not reviewer:
             logger.error("Reviewer persona not found!")
-            return self._empty_article_review(str(notebook.id))
+            return self._empty_article_review(str(notebook.id)), None
 
         # Find synthesis review template
         synthesis_capability = next(
@@ -250,44 +370,89 @@ class ReviewService:
         )
         if not synthesis_capability:
             logger.error("No synthesis review capability found")
-            return self._empty_article_review(str(notebook.id))
+            return self._empty_article_review(str(notebook.id)), None
 
-        # Build article summary
-        cells_summary = self._summarize_cells(notebook)
+        # Build COMPLETE article context (intent, code, results, methodology for ALL cells)
+        cells_context = self._build_full_article_context(notebook)
 
         # Build context
         context = {
             'title': notebook.title,
-            'cells_summary': cells_summary,
+            'cells_summary': cells_context,  # Full context, not truncated summary
             'abstract': notebook.abstract or "No abstract generated",
         }
 
         # Fill template
         review_prompt = synthesis_capability.prompt_template.format(**context)
 
-        # Call LLM for synthesis review
+        # Call LLM for synthesis review with SOTA system prompt
         try:
-            logger.info("🤖 Calling LLM for article review...")
+            logger.info("🤖 Calling LLM for article review with SOTA guidance...")
             response = self.llm_service.llm.generate(
                 review_prompt,
-                system_prompt="You are a scientific peer reviewer conducting holistic article assessment.",
+                system_prompt=self.REVIEW_SYSTEM_PROMPT,  # Comprehensive SOTA prompt
                 temperature=0.3,
             )
             # Extract text from GenerateResponse object
             review_text = response.content if hasattr(response, 'content') else str(response)
             logger.info(f"✅ LLM returned {len(review_text)} characters")
 
+            # Extract trace (same pattern as llm_service.py:266-286)
+            trace_id = response.metadata.get('trace_id') if hasattr(response, 'metadata') else None
+            full_trace = None
+            if trace_id and self.llm_service.llm:
+                try:
+                    traces = self.llm_service.llm.get_traces(trace_id=trace_id)
+                    full_trace = traces[0] if isinstance(traces, list) and traces else traces
+                    logger.info(f"✅ Captured review trace: {trace_id}")
+                except Exception as trace_error:
+                    logger.warning(f"Failed to capture review trace: {trace_error}")
+
             # Parse article review from structured response
             article_review = self._parse_article_review(review_text, str(notebook.id))
             logger.info(f"✅ Article review complete: {article_review.rating}/5 stars")
-            return article_review
+
+            # Mark trace as successful
+            if full_trace:
+                full_trace['status'] = 'success'
+                full_trace['result_summary'] = f"Review complete: {article_review.rating}/5 stars"
+
+            return article_review, full_trace
 
         except Exception as e:
             logger.error(f"❌ Article review failed: {type(e).__name__}: {str(e)}")
             import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            # Re-raise the exception so the API returns a proper error
-            raise
+            error_traceback = traceback.format_exc()
+            logger.error(f"Traceback: {error_traceback}")
+
+            # Create error trace with full details
+            error_trace = {
+                'step': 'article_review',
+                'status': 'error',
+                'error_type': type(e).__name__,
+                'error_message': str(e),
+                'error_traceback': error_traceback,
+                'timestamp': None,  # Will be set by API layer
+                'context': {
+                    'notebook_id': str(notebook.id),
+                    'notebook_title': notebook.title,
+                    'num_cells': len(notebook.cells),
+                }
+            }
+
+            # Try to capture LLM trace even on failure
+            try:
+                trace_id = response.metadata.get('trace_id') if 'response' in locals() and hasattr(response, 'metadata') else None
+                if trace_id and self.llm_service.llm:
+                    traces = self.llm_service.llm.get_traces(trace_id=trace_id)
+                    llm_trace = traces[0] if isinstance(traces, list) and traces else traces
+                    error_trace['llm_trace'] = llm_trace
+                    error_trace['trace_id'] = trace_id
+            except Exception as trace_error:
+                logger.warning(f"Failed to capture error trace: {trace_error}")
+
+            # Return error trace instead of raising (so API can save it)
+            return self._empty_article_review(str(notebook.id)), error_trace
 
     # ===== Helper Methods =====
 
@@ -342,14 +507,92 @@ class ReviewService:
 
         return "\n".join(parts) if parts else "No output"
 
-    def _summarize_cells(self, notebook: Notebook) -> str:
-        """Summarize all cells for article review.
+    def _build_full_article_context(self, notebook: Notebook) -> str:
+        """Build COMPLETE context for article review - NO TRUNCATION.
+
+        The Digital Article structure for each cell:
+        - Prompt (intent): What the user wanted to accomplish
+        - Code (implementation): How the analysis was performed
+        - Results (output): What was produced (stdout, tables, plots)
+        - Methodology (communication): Scientific explanation of the analysis
 
         Args:
-            notebook: Notebook to summarize
+            notebook: Notebook to build context from
 
         Returns:
-            Summary string
+            Complete article context with all cell details
+        """
+        context_parts = []
+
+        for i, cell in enumerate(notebook.cells, 1):
+            cell_context = []
+            cell_context.append(f"═══════════════════════════════════════════════════")
+            cell_context.append(f"CELL {i}")
+            cell_context.append(f"═══════════════════════════════════════════════════")
+
+            # 1. INTENT (Prompt) - FULL TEXT
+            cell_context.append(f"\n### INTENT (What the user wanted):")
+            cell_context.append(cell.prompt if cell.prompt else "No prompt specified")
+
+            # 2. IMPLEMENTATION (Code) - FULL CODE
+            cell_context.append(f"\n### CODE (How it was implemented):")
+            if cell.code:
+                cell_context.append(f"```python\n{cell.code}\n```")
+            else:
+                cell_context.append("No code generated")
+
+            # 3. RESULTS (Output) - FULL RESULTS
+            cell_context.append(f"\n### RESULTS (What was produced):")
+            if cell.last_result:
+                result = cell.last_result
+                if result.status == "success":
+                    cell_context.append(f"Status: SUCCESS (execution time: {result.execution_time:.2f}s)")
+
+                    # Stdout output
+                    if result.stdout:
+                        cell_context.append(f"\nStandard Output:\n{result.stdout}")
+
+                    # Tables info
+                    if result.tables:
+                        cell_context.append(f"\nTables Generated: {len(result.tables)}")
+                        for j, table in enumerate(result.tables, 1):
+                            label = table.get('label', f'Table {j}')
+                            shape = table.get('shape', 'unknown')
+                            columns = table.get('columns', [])
+                            cell_context.append(f"  - {label}: {shape}, columns: {columns[:10] if len(columns) > 10 else columns}")
+
+                    # Plots info
+                    if result.plots:
+                        cell_context.append(f"\nPlots Generated: {len(result.plots)}")
+                        for j, plot in enumerate(result.plots, 1):
+                            if isinstance(plot, dict):
+                                label = plot.get('label', f'Figure {j}')
+                                cell_context.append(f"  - {label}")
+                            else:
+                                cell_context.append(f"  - Figure {j}")
+                else:
+                    cell_context.append(f"Status: {result.status}")
+                    if result.error_message:
+                        cell_context.append(f"Error: {result.error_message}")
+            else:
+                cell_context.append("Cell not yet executed")
+
+            # 4. METHODOLOGY (Communication) - FULL TEXT
+            cell_context.append(f"\n### METHODOLOGY (Scientific explanation):")
+            if cell.scientific_explanation:
+                cell_context.append(cell.scientific_explanation)
+            else:
+                cell_context.append("No methodology text generated")
+
+            context_parts.append("\n".join(cell_context))
+
+        return "\n\n".join(context_parts) if context_parts else "No cells to review"
+
+    def _summarize_cells(self, notebook: Notebook) -> str:
+        """DEPRECATED: Use _build_full_article_context() instead.
+
+        This method severely truncates content and should not be used for review.
+        Kept for backward compatibility only.
         """
         summaries = []
         for i, cell in enumerate(notebook.cells, 1):
@@ -477,31 +720,49 @@ class ReviewService:
             """Parse dimensional assessment with rating and details."""
             details = {}
 
-            # Extract rating
-            rating_line = [l for l in section_content.split('\n') if 'rating' in l.lower()]
+            # Extract rating - try multiple patterns
+            rating_line = [l for l in section_content.split('\n') if 'rating' in l.lower() and '/5' in l]
             if rating_line:
                 score, label = extract_rating(rating_line[0])
             else:
                 score, label = 3, "Adequate"
 
-            # Extract summary
-            summary_match = re.search(r'\*\*Summary\*\*:\s*(.+?)(?:\n\n|\n-|\Z)', section_content, re.DOTALL)
+            # Extract summary - try multiple patterns
+            summary_match = re.search(r'\*\*Summary\*\*:\s*(.+?)(?:\n\n|\n\*\*|\Z)', section_content, re.DOTALL)
+            if not summary_match:
+                # Try without bold
+                summary_match = re.search(r'Summary:\s*(.+?)(?:\n\n|\n\*\*|\Z)', section_content, re.DOTALL)
             summary = summary_match.group(1).strip() if summary_match else f"{label} rating based on analysis."
 
             rating = DimensionRating(score=score, label=label, summary=summary)
 
-            # Extract detail fields - match only first-level content (stop at next section or blank line)
+            # Extract detail fields - more flexible matching
             for field_name in ['relevance', 'clarity', 'scope', 'approach_validity', 'assumptions',
                                'reproducibility', 'accuracy', 'completeness', 'methodology_text']:
-                # Match from field heading to next top-level field (starting at line beginning)
-                field_pattern = rf'^\*\*{field_name.replace("_", " ").title()}\*\*:\s*(.+?)(?=\n\*\*[A-Z]|\Z)'
-                field_match = re.search(field_pattern, section_content, re.DOTALL | re.IGNORECASE | re.MULTILINE)
-                if field_match:
-                    # Clean up: remove any nested **Field**: patterns
-                    content = field_match.group(1).strip()
-                    # Remove nested bold field labels like "  **Clarity**: ..."
-                    content = re.sub(r'\n\s+\*\*[A-Z][^:]*\*\*:.*', '', content, flags=re.DOTALL)
-                    details[field_name] = content.strip()
+
+                # Try multiple patterns for field matching
+                field_title = field_name.replace("_", " ").title()
+
+                # Pattern 1: Bold field at line start: **Relevance**: content
+                pattern1 = rf'^\*\*{re.escape(field_title)}\*\*:\s*(.+?)(?=\n\*\*|\n\n|\Z)'
+
+                # Pattern 2: Bold field not at line start: some space **Relevance**: content
+                pattern2 = rf'\*\*{re.escape(field_title)}\*\*:\s*(.+?)(?=\n\*\*|\n\n|\Z)'
+
+                # Pattern 3: Non-bold field: Relevance: content
+                pattern3 = rf'^{re.escape(field_title)}:\s*(.+?)(?=\n[A-Z][a-z]+:|\n\n|\Z)'
+
+                # Try all patterns in order
+                for pattern in [pattern1, pattern2, pattern3]:
+                    field_match = re.search(pattern, section_content, re.DOTALL | re.IGNORECASE | re.MULTILINE)
+                    if field_match:
+                        content = field_match.group(1).strip()
+                        # Clean up: remove nested field labels
+                        content = re.sub(r'\n\s*\*\*[A-Z][^:]*\*\*:.*', '', content, flags=re.DOTALL)
+                        # Remove any remaining line breaks followed by field-like patterns
+                        content = re.sub(r'\n\s*[A-Z][a-z\s]+:.*', '', content)
+                        details[field_name] = content.strip()
+                        break
 
             return rating, details
 
@@ -509,39 +770,71 @@ class ReviewService:
         try:
             # Research Question Assessment
             rq_content = get_section_content("RESEARCH QUESTION ASSESSMENT")
+            logger.info(f"📝 Research Question section length: {len(rq_content)} chars")
+            if rq_content:
+                logger.info(f"📝 First 200 chars: {rq_content[:200]}")
             rq_rating, rq_details = parse_dimension_assessment(rq_content)
+            logger.info(f"📝 Parsed fields: {list(rq_details.keys())}")
+
+            # If any field is missing, set rating to 0 stars
+            rq_relevance = rq_details.get('relevance', 'Not assessed')
+            rq_clarity = rq_details.get('clarity', 'Not assessed')
+            rq_scope = rq_details.get('scope', 'Not assessed')
+
+            if any(field == 'Not assessed' for field in [rq_relevance, rq_clarity, rq_scope]):
+                rq_rating = DimensionRating(score=0, label="Not Assessed", summary="Assessment incomplete - missing required fields")
+
             research_question = ResearchQuestionAssessment(
                 rating=rq_rating,
-                relevance=rq_details.get('relevance', 'Not assessed'),
-                clarity=rq_details.get('clarity', 'Not assessed'),
-                scope=rq_details.get('scope', 'Not assessed'),
+                relevance=rq_relevance,
+                clarity=rq_clarity,
+                scope=rq_scope,
             )
 
             # Methodology Assessment
             method_content = get_section_content("METHODOLOGY ASSESSMENT")
             method_rating, method_details = parse_dimension_assessment(method_content)
+
+            # If any field is missing, set rating to 0 stars
+            method_validity = method_details.get('approach_validity', 'Not assessed')
+            method_assumptions = method_details.get('assumptions', 'Not assessed')
+            method_reproducibility = method_details.get('reproducibility', 'Not assessed')
+
+            if any(field == 'Not assessed' for field in [method_validity, method_assumptions, method_reproducibility]):
+                method_rating = DimensionRating(score=0, label="Not Assessed", summary="Assessment incomplete - missing required fields")
+
             methodology = MethodologyAssessment(
                 rating=method_rating,
-                approach_validity=method_details.get('approach_validity', 'Not assessed'),
-                assumptions=method_details.get('assumptions', 'Not assessed'),
-                reproducibility=method_details.get('reproducibility', 'Not assessed'),
+                approach_validity=method_validity,
+                assumptions=method_assumptions,
+                reproducibility=method_reproducibility,
             )
 
             # Results Communication Assessment
             results_content = get_section_content("RESULTS COMMUNICATION ASSESSMENT")
             results_rating, results_details = parse_dimension_assessment(results_content)
+
+            # If any field is missing, set rating to 0 stars
+            results_accuracy = results_details.get('accuracy', 'Not assessed')
+            results_clarity = results_details.get('clarity', 'Not assessed')
+            results_completeness = results_details.get('completeness', 'Not assessed')
+            results_methodology_text = results_details.get('methodology_text', 'Not assessed')
+
+            if any(field == 'Not assessed' for field in [results_accuracy, results_clarity, results_completeness, results_methodology_text]):
+                results_rating = DimensionRating(score=0, label="Not Assessed", summary="Assessment incomplete - missing required fields")
+
             results_communication = ResultsCommunicationAssessment(
                 rating=results_rating,
-                accuracy=results_details.get('accuracy', 'Not assessed'),
-                clarity=results_details.get('clarity', 'Not assessed'),
-                completeness=results_details.get('completeness', 'Not assessed'),
-                methodology_text=results_details.get('methodology_text', 'Not assessed'),
+                accuracy=results_accuracy,
+                clarity=results_clarity,
+                completeness=results_completeness,
+                methodology_text=results_methodology_text,
             )
 
         except Exception as e:
             logger.warning(f"Failed to parse dimensional assessments: {e}")
-            # Create default assessments
-            default_rating = DimensionRating(score=3, label="Adequate", summary="Assessment pending")
+            # Create default assessments with 0 stars (not assessed)
+            default_rating = DimensionRating(score=0, label="Not Assessed", summary="Assessment failed - parser error")
             research_question = ResearchQuestionAssessment(
                 rating=default_rating,
                 relevance="Not assessed", clarity="Not assessed", scope="Not assessed"
@@ -569,8 +862,9 @@ class ReviewService:
 
         # Parse strengths
         strengths_content = get_section_content("KEY STRENGTHS")
-        strengths = [line.strip('- •').strip() for line in strengths_content.split('\n')
-                     if line.strip() and (line.strip().startswith('-') or line.strip().startswith('•'))]
+        raw_strengths = [line.strip('- •').strip() for line in strengths_content.split('\n')
+                         if line.strip() and (line.strip().startswith('-') or line.strip().startswith('•'))]
+        strengths = [s for s in raw_strengths if s]  # Filter out empty strings
 
         # Parse enhanced issues
         issues_content = get_section_content("ISSUES REQUIRING ATTENTION")
@@ -610,8 +904,9 @@ class ReviewService:
 
         # Parse recommendations
         rec_content = get_section_content("RECOMMENDATIONS FOR IMPROVEMENT")
-        recommendations = [line.strip('- •').strip() for line in rec_content.split('\n')
-                          if line.strip() and (line.strip().startswith('-') or line.strip().startswith('•'))]
+        raw_recs = [line.strip('- •').strip() for line in rec_content.split('\n')
+                    if line.strip() and (line.strip().startswith('-') or line.strip().startswith('•'))]
+        recommendations = [r for r in raw_recs if r]  # Filter out empty strings
 
         return ArticleReview(
             notebook_id=notebook_id,

@@ -270,6 +270,16 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
   }
 
   const getSuccessIndicator = (trace: LLMTrace): { color: string, label: string } => {
+    // Check for explicit error status (from review service error traces)
+    if ((trace as any).status === 'error') {
+      return { color: 'text-red-600', label: '✗ Error' }
+    }
+
+    // Check for explicit success status
+    if ((trace as any).status === 'success') {
+      return { color: 'text-green-600', label: '✓ Success' }
+    }
+
     const finishReason = trace.response?.finish_reason
     const content = trace.response?.content || ''
     const hasValidContent = content.trim().length > 10

@@ -1,6 +1,9 @@
-import React, { useState, useMemo } from 'react'
-import { X, ClipboardCheck, AlertTriangle, Info, AlertCircle, CheckCircle, ChevronDown, ChevronRight } from 'lucide-react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
+import { X, ClipboardCheck, AlertTriangle, Info, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Activity, MessageCircle, Send, Loader2, Copy, Check } from 'lucide-react'
 import { marked } from 'marked'
+import ExecutionDetailsModal from './ExecutionDetailsModal'
+import { LLMTrace, ChatMessage } from '../types'
+import { chatAPI } from '../services/api'
 
 // Configure marked for review rendering
 marked.setOptions({
@@ -73,6 +76,8 @@ interface ArticleReview {
 interface ArticleReviewModalProps {
   isVisible: boolean
   review: ArticleReview | null
+  traces?: LLMTrace[]
+  notebookId: string
   onClose: () => void
 }
 
@@ -84,9 +89,18 @@ interface ArticleReviewModalProps {
  * - Overall assessment with recommendation
  * - Strengths, issues, and recommendations with markdown rendering
  */
-const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, review, onClose }) => {
+const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, review, traces = [], notebookId, onClose }) => {
   const [expandedDimension, setExpandedDimension] = useState<string | null>(null)
   const [expandedIssues, setExpandedIssues] = useState<Set<number>>(new Set())
+  const [showExecutionDetails, setShowExecutionDetails] = useState(false)
+
+  // Chat state
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [inputValue, setInputValue] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   // Memoize marked configuration
   useMemo(() => {
@@ -97,6 +111,38 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
       mangle: false
     })
   }, [])
+
+  // Load chat history from localStorage on mount OR when new review arrives
+  useEffect(() => {
+    if (notebookId && isVisible) {
+      const key = `reviewer_chat_${notebookId}`
+      const saved = localStorage.getItem(key)
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved)
+          setMessages(parsed)
+        } catch (e) {
+          console.error('Failed to load reviewer chat history:', e)
+        }
+      } else {
+        // Clear messages for fresh review (localStorage was cleared)
+        setMessages([])
+      }
+    }
+  }, [notebookId, isVisible, review?.reviewed_at])
+
+  // Save chat history to localStorage when messages change
+  useEffect(() => {
+    if (notebookId && messages.length > 0) {
+      const key = `reviewer_chat_${notebookId}`
+      localStorage.setItem(key, JSON.stringify(messages))
+    }
+  }, [notebookId, messages])
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
 
   if (!isVisible || !review) return null
 
@@ -142,28 +188,125 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
     setExpandedIssues(newExpanded)
   }
 
+  // Send chat message
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() || isLoading) return
+
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: inputValue.trim(),
+      timestamp: new Date().toISOString()
+    }
+
+    setMessages(prev => [...prev, userMessage])
+    setInputValue('')
+
+    // Add loading message
+    const loadingMessage: ChatMessage = {
+      id: `loading-${Date.now()}`,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+      loading: true
+    }
+    setMessages(prev => [...prev, loadingMessage])
+    setIsLoading(true)
+
+    try {
+      const response = await chatAPI.sendMessage({
+        notebook_id: notebookId,
+        message: userMessage.content,
+        conversation_history: messages.filter(m => !m.loading),
+        mode: 'reviewer'
+      })
+
+      // Replace loading message with actual response
+      setMessages(prev => prev.map(msg =>
+        msg.id === loadingMessage.id
+          ? {
+              id: Date.now().toString(),
+              role: 'assistant' as const,
+              content: response.message,
+              timestamp: response.timestamp
+            }
+          : msg
+      ))
+    } catch (error) {
+      console.error('Failed to send message:', error)
+      setMessages(prev => prev.map(msg =>
+        msg.id === loadingMessage.id
+          ? {
+              id: Date.now().toString(),
+              role: 'assistant' as const,
+              content: '❌ Sorry, I encountered an error. Please try again.',
+              timestamp: new Date().toISOString()
+            }
+          : msg
+      ))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const copyMessage = async (content: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopiedId(id)
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch (err) {
+      console.error('Failed to copy:', err)
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSendMessage()
+    }
+  }
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-gray-50">
-          <div className="flex items-center space-x-3">
-            <ClipboardCheck className="h-6 w-6 text-blue-600" />
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">Article Review</h2>
-              <p className="text-xs text-gray-600">Scientific Peer Review</p>
+      <div className="bg-white rounded-lg shadow-xl max-w-7xl w-full max-h-[90vh] overflow-hidden flex">
+        {/* LEFT: Review Content (50%) */}
+        <div className="w-[50%] flex flex-col border-r border-gray-200">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
+            <div className="flex items-center space-x-3">
+              <ClipboardCheck className="h-6 w-6 text-blue-600" />
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Article Review</h2>
+                <p className="text-xs text-gray-600">Scientific Peer Review</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-3">
+              {/* Execution Details Button - Icon Only */}
+              {traces && traces.length > 0 && (
+                <button
+                  onClick={() => setShowExecutionDetails(true)}
+                  className="relative p-2 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors"
+                  title="View review execution details"
+                >
+                  <Activity className="h-4 w-4" />
+                  {traces.length > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                      {traces.length}
+                    </span>
+                  )}
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="h-6 w-6" />
+              </button>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <X className="h-6 w-6" />
-          </button>
-        </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Review Content - Scrollable */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* Overall Assessment */}
           <div className="border border-gray-200 rounded-lg p-5 bg-gray-50">
             <div className="flex items-start justify-between mb-3">
@@ -393,23 +536,122 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
               </ul>
             </div>
           )}
+          </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex justify-between items-center p-6 border-t border-gray-200 bg-gray-50">
-          {review.reviewed_at && (
-            <p className="text-xs text-gray-500">
-              Reviewed: {new Date(review.reviewed_at).toLocaleString()}
+        {/* RIGHT: Embedded Chat (50%) */}
+        <div className="w-[50%] flex flex-col bg-gray-50">
+          {/* Chat Header - Amber for reviewer mode */}
+          <div className="bg-amber-600 text-white p-4">
+            <div className="flex items-center space-x-2">
+              <MessageCircle className="h-5 w-5" />
+              <div>
+                <h3 className="font-semibold">Discuss Review</h3>
+                <p className="text-xs opacity-90">Ask follow-up questions</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Hint Banner */}
+          <div className="bg-amber-50 border-b border-amber-200 p-3">
+            <p className="text-sm text-amber-800">
+              💬 <strong>Ask the reviewer follow-up questions</strong> about findings, suggestions, or how to address issues.
             </p>
-          )}
-          <button
-            onClick={onClose}
-            className="px-5 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors font-medium"
-          >
-            Close
-          </button>
+          </div>
+
+          {/* Chat Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {messages.length === 0 ? (
+              <div className="text-center py-8">
+                <MessageCircle className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-sm text-gray-500">Ask the reviewer about the review findings!</p>
+              </div>
+            ) : (
+              messages.map((message) => (
+                <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[90%] rounded-lg px-4 py-2 ${
+                    message.role === 'user'
+                      ? 'bg-amber-600 text-white'
+                      : 'bg-white text-gray-900 border border-gray-200'
+                  }`}>
+                    {message.loading ? (
+                      <div className="flex items-center space-x-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span className="text-sm text-gray-600">Thinking...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div
+                          className={`chat-markdown ${message.role === 'user' ? 'chat-markdown-white' : ''} text-sm leading-relaxed`}
+                          dangerouslySetInnerHTML={{ __html: marked.parse(message.content) }}
+                        />
+                        {message.role === 'assistant' && (
+                          <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
+                            <span className="text-xs text-gray-500">
+                              {new Date(message.timestamp).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </span>
+                            <button
+                              onClick={() => copyMessage(message.content, message.id)}
+                              className="text-gray-500 hover:text-gray-700 transition-colors"
+                              title="Copy message"
+                            >
+                              {copiedId === message.id ? (
+                                <Check className="h-3 w-3 text-green-500" />
+                              ) : (
+                                <Copy className="h-3 w-3" />
+                              )}
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Chat Input */}
+          <div className="border-t border-gray-200 p-4 bg-white">
+            <div className="flex space-x-2">
+              <textarea
+                ref={inputRef}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Ask about the review..."
+                className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                rows={2}
+                disabled={isLoading}
+              />
+              <button
+                onClick={handleSendMessage}
+                disabled={!inputValue.trim() || isLoading}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                title="Send message"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* Execution Details Modal */}
+      {showExecutionDetails && (
+        <ExecutionDetailsModal
+          isVisible={showExecutionDetails}
+          cellId=""
+          notebookId=""
+          traces={traces}
+          executionResult={null}
+          onClose={() => setShowExecutionDetails(false)}
+        />
+      )}
 
       {/* Markdown styles matching chat panel */}
       <style>{`
@@ -476,6 +718,92 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
           padding-left: 1em;
           margin: 0.5em 0;
           color: rgba(0, 0, 0, 0.7);
+        }
+
+        /* Chat markdown styling (matches ArticleChatPanel) */
+        .chat-markdown h1, .chat-markdown h2, .chat-markdown h3 {
+          font-weight: 600;
+          margin-top: 0.75em;
+          margin-bottom: 0.5em;
+          line-height: 1.3;
+        }
+        .chat-markdown h1 { font-size: 1.25em; }
+        .chat-markdown h2 { font-size: 1.15em; }
+        .chat-markdown h3 { font-size: 1.1em; }
+
+        .chat-markdown p {
+          margin: 0.5em 0;
+        }
+
+        .chat-markdown strong {
+          font-weight: 600;
+          color: inherit;
+        }
+
+        .chat-markdown em {
+          font-style: italic;
+        }
+
+        .chat-markdown ul, .chat-markdown ol {
+          margin: 0.5em 0;
+          padding-left: 1.5em;
+        }
+
+        .chat-markdown li {
+          margin: 0.25em 0;
+        }
+
+        .chat-markdown code {
+          background-color: rgba(0, 0, 0, 0.05);
+          padding: 0.125em 0.25em;
+          border-radius: 0.25em;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          font-size: 0.9em;
+          word-break: break-word;
+        }
+
+        .chat-markdown pre {
+          background-color: rgba(0, 0, 0, 0.05);
+          padding: 0.75em;
+          border-radius: 0.375em;
+          overflow-x: auto;
+          margin: 0.5em 0;
+        }
+
+        .chat-markdown pre code {
+          background-color: transparent;
+          padding: 0;
+          word-break: normal;
+        }
+
+        .chat-markdown a {
+          color: #2563eb;
+          text-decoration: underline;
+        }
+
+        .chat-markdown blockquote {
+          border-left: 3px solid rgba(0, 0, 0, 0.1);
+          padding-left: 1em;
+          margin: 0.5em 0;
+          color: rgba(0, 0, 0, 0.7);
+        }
+
+        /* White text variant for user messages (amber background) */
+        .chat-markdown-white code {
+          background-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .chat-markdown-white pre {
+          background-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .chat-markdown-white a {
+          color: #fcd34d;
+        }
+
+        .chat-markdown-white blockquote {
+          border-left-color: rgba(255, 255, 255, 0.3);
+          color: rgba(255, 255, 255, 0.9);
         }
       `}</style>
     </div>
