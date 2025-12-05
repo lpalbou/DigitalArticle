@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.3.0] - 2025-12-05
+
+### Fixed
+
+- **🔧 Docker Deployment**: Fixed missing personas in Docker containers
+  - Added `COPY data/personas/system/` to all 4 Dockerfiles (monolithic, NVIDIA, 3-tier backend, root)
+  - Added `libgomp1` runtime dependency for llama-cpp-python (AbstractCore HuggingFace provider)
+  - Personas now properly included in Docker images, available in Settings UI
+  - Backend no longer crashes with "libgomp.so.1: cannot open shared object file" error
+
+- **🌐 Base URL Settings**: Fixed Ollama/LMStudio base URL not applied to LLM calls
+  - LLM service now loads saved base URLs from `user_settings.json`
+  - Priority: saved settings > environment variable > default
+  - Provider discovery and LLM calls now use consistent base URL configuration
+  - Docker deployments can still override via environment variables
+
+- **📦 Docker Registry**: Switched 3-tier backend to AWS ECR Public
+  - Eliminated Docker Hub rate limit warnings for Python base images
+  - Consistent with monolithic Dockerfile (all use AWS ECR except Ollama)
+
+### Changed
+
+- **🎨 PDF Export**: Enhanced with Plotly figure support (from 0.2.5)
+  - Added `kaleido==0.2.1` for Plotly → PNG conversion
+  - Scientific PDFs now include all interactive visualizations as high-quality static images
+
+
 ## [0.2.5] - 2025-12-04
 
 ### Added
