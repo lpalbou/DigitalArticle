@@ -59,6 +59,7 @@ FROM public.ecr.aws/docker/library/python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Python runtime
     libpq-dev \
+    libgomp1 \
     # Nginx
     nginx \
     # Supervisor
@@ -89,6 +90,9 @@ COPY digitalarticle/ ./digitalarticle/
 # Copy default configuration
 COPY config.json ./config.json
 
+# Copy default system personas (users can extend with custom personas via volume)
+COPY data/personas/system/ ./data/personas/system/
+
 # Copy configuration files
 COPY docker/monolithic/nginx.conf /etc/nginx/conf.d/default.conf
 RUN rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default 2>/dev/null || true
@@ -102,6 +106,7 @@ RUN chmod +x /entrypoint.sh
 RUN mkdir -p \
     /app/data/notebooks \
     /app/data/workspace \
+    /app/data/personas/custom \
     /app/logs \
     /models/ollama \
     /models/huggingface \

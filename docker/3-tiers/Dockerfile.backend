@@ -27,6 +27,7 @@ FROM python:3.12-slim
 # Install runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
+    libgomp1 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -46,12 +47,15 @@ COPY backend/ ./backend/
 # Copy configuration
 COPY config.json .
 
+# Copy default system personas
+COPY data/personas/system/ ./data/personas/system/
+
 # Copy entrypoint script
 COPY docker/3-tiers/entrypoint.backend.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Create directories for persistence (with correct ownership)
-RUN mkdir -p /app/notebooks /app/data /app/logs /models/huggingface && \
+RUN mkdir -p /app/notebooks /app/data/personas/custom /app/logs /models/huggingface && \
     chown -R appuser:appuser /app /models
 
 # Environment variables

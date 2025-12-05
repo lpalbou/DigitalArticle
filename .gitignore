@@ -213,5 +213,5 @@ backend/notebook_workspace/
 untracked
 
 
-
-data
+data/notebooks/
+data/workspace/
