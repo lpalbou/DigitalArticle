@@ -326,9 +326,10 @@ class ScientificPDFService:
             if section_name in sections and sections[section_name]:
                 self._add_article_section(story, section_name, sections[section_name])
                 
-                # Add figures after Results section
+                # Add figures and tables after Results section
                 if section_name == 'results':
                     figure_counter = self._add_figures_to_results(story, notebook, figure_counter)
+                    self._add_tables_to_results(story, notebook)
         
         # Empirical evidence (code snippets, data outputs)
         if include_code:
@@ -513,10 +514,42 @@ class ScientificPDFService:
             error_para = Paragraph(f"<i>[Figure {figure_title} could not be displayed]</i>", self.styles['BodyText'])
             story.append(error_para)
 
+    def _convert_plotly_to_png(self, figure_data: Dict) -> Optional[str]:
+        """Convert Plotly figure JSON to base64 PNG for PDF embedding.
+
+        Args:
+            figure_data: Dict with 'figure' key containing Plotly figure dict
+
+        Returns:
+            Base64 encoded PNG string, or None if conversion fails
+        """
+        try:
+            import plotly.graph_objects as go
+            import plotly.io as pio
+            import base64
+
+            # Recreate Plotly figure from stored dict
+            fig_dict = figure_data.get('figure', {})
+            fig = go.Figure(fig_dict)
+
+            # Convert to PNG bytes using kaleido
+            img_bytes = pio.to_image(fig, format='png', width=1200, height=800, scale=2)
+
+            # Encode to base64
+            return base64.b64encode(img_bytes).decode('utf-8')
+
+        except Exception as e:
+            logger.warning(f"Failed to convert Plotly figure to PNG: {e}")
+            return None
+
     def _add_figures_to_results(self, story: List, notebook: Notebook, figure_counter: int) -> int:
         """Add figures inline with the Results section."""
         for i, cell in enumerate(notebook.cells, 1):
-            if cell.last_result and cell.last_result.plots:
+            if not cell.last_result:
+                continue
+
+            # 1. Handle static matplotlib plots (existing logic)
+            if cell.last_result.plots:
                 for plot_data in cell.last_result.plots:
                     try:
                         # Create meaningful scientific caption
@@ -526,14 +559,49 @@ class ScientificPDFService:
                             caption += self._generate_figure_caption(cell.prompt, cell.code, cell.last_result)
                         else:
                             caption += f"Data visualization from analysis step {i}"
-                        
+
                         self._add_figure_to_story(story, plot_data, f"Figure {figure_counter}", caption)
                         figure_counter += 1
                     except Exception as e:
                         logger.warning(f"Failed to add figure {figure_counter} to results: {e}")
-        
+
+            # 2. Handle Plotly interactive plots (NEW)
+            if cell.last_result.interactive_plots:
+                for plot_data in cell.last_result.interactive_plots:
+                    try:
+                        # Convert Plotly to PNG
+                        png_base64 = self._convert_plotly_to_png(plot_data)
+                        if png_base64:
+                            caption = f"Figure {figure_counter}. "
+                            plot_name = plot_data.get('name', 'Interactive visualization')
+                            if cell.prompt:
+                                caption += self._generate_figure_caption(cell.prompt, cell.code, cell.last_result)
+                            else:
+                                caption += f"Interactive visualization: {plot_name}"
+
+                            self._add_figure_to_story(story, png_base64, f"Figure {figure_counter}", caption)
+                            figure_counter += 1
+                        else:
+                            # Fallback: add description only if conversion failed
+                            logger.warning(f"Could not convert interactive plot to image, adding description")
+                            self._add_interactive_plot_description(story, plot_data)
+                    except Exception as e:
+                        logger.warning(f"Failed to add interactive figure {figure_counter}: {e}")
+
         return figure_counter
-    
+
+    def _add_tables_to_results(self, story: List, notebook: Notebook):
+        """Add tables inline with the Results section."""
+        for cell in notebook.cells:
+            if cell.last_result and cell.last_result.tables:
+                for table_data in cell.last_result.tables:
+                    # Skip HTML tables (embedded Plotly) - these are handled as figures
+                    if table_data.get('type') == 'html':
+                        continue
+                    # Add proper data tables
+                    if table_data.get('columns') and table_data.get('data'):
+                        self._add_professional_table(story, table_data)
+
     def _generate_figure_caption(self, prompt: str, code: str, result) -> str:
         """Generate a meaningful scientific figure caption."""
         # Analyze the prompt and code to determine visualization type
