@@ -1,6 +1,7 @@
 # Multi-stage build for Digital Article Backend
 # Stage 1: Builder - Install dependencies
-FROM python:3.12-slim AS builder
+# Using AWS ECR Public Gallery (no rate limits) instead of Docker Hub
+FROM public.ecr.aws/docker/library/python:3.12-slim AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -22,7 +23,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
 # Stage 2: Final runtime image
-FROM python:3.12-slim
+# Using AWS ECR Public Gallery (no rate limits) instead of Docker Hub
+FROM public.ecr.aws/docker/library/python:3.12-slim
 
 # Install runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
