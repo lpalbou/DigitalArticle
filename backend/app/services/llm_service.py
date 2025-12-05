@@ -55,22 +55,37 @@ class LLMService:
     def _initialize_llm(self):
         """Initialize the LLM client with tracing enabled for observability."""
         try:
-            # For Ollama provider, check if custom base URL is set via environment
             kwargs = {
                 "enable_tracing": True,  # Enable full interaction tracing
                 "max_traces": 100  # Ring buffer for last 100 interactions
             }
 
+            # Load user settings for base URLs (with env var fallback for Docker)
+            base_url = None
+            try:
+                from .user_settings_service import get_user_settings_service
+                settings_service = get_user_settings_service()
+                settings = settings_service.get_settings()
+                base_urls = settings.llm.base_urls
+            except Exception as e:
+                logger.warning(f"Could not load user settings, using env vars: {e}")
+                base_urls = {}
+
             if self.provider.lower() == "ollama":
-                # Read Ollama base URL from environment (for containerized deployment)
-                ollama_url = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
-                kwargs["base_url"] = ollama_url
-                logger.info(f"🐳 Using Ollama at: {ollama_url}")
+                # Priority: saved settings > env var > default
+                base_url = base_urls.get('ollama') or os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+                kwargs["base_url"] = base_url
+                logger.info(f"🐳 Using Ollama at: {base_url}")
             elif self.provider.lower() == "lmstudio":
-                # Read LMStudio base URL from environment (for external LMStudio server)
-                lmstudio_url = os.getenv('LMSTUDIO_BASE_URL', 'http://localhost:1234/v1')
-                kwargs["base_url"] = lmstudio_url
-                logger.info(f"🖥️ Using LMStudio at: {lmstudio_url}")
+                # Priority: saved settings > env var > default
+                base_url = base_urls.get('lmstudio') or os.getenv('LMSTUDIO_BASE_URL', 'http://localhost:1234/v1')
+                kwargs["base_url"] = base_url
+                logger.info(f"🖥️ Using LMStudio at: {base_url}")
+
+            # Configure AbstractCore provider before creating LLM (ensures consistent base_url usage)
+            if base_url:
+                from abstractcore.config import configure_provider
+                configure_provider(self.provider.lower(), base_url=base_url)
 
             self.llm = create_llm(
                 self.provider,
