@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.3.1] - 2025-12-05
+
+### Added
+
+- **🗑️ Ollama Model Deletion**: Delete models to free disk space
+  - Trash icon in model dropdown for Ollama models
+  - Confirmation dialog before deletion
+  - Refreshes model list after deletion
+  - Toast notifications for success/error
+
+### Fixed
+
+- **💾 Model Selection Persistence**: Settings now persist across notebooks
+  - Fixed: New notebook creation now reads from user settings (`/api/settings`)
+  - Previously: Used global config which didn't persist user preferences
+  - Model selection now persists across new notebooks, page refresh, and browser sessions
+
+- **🔧 httpx DELETE API Fix**: Fixed model deletion endpoint
+  - Changed from `client.delete(json=...)` to `client.request("DELETE", json=...)`
+  - Resolves: "AsyncClient.delete() got an unexpected keyword argument"
+
+
 ## [0.3.0] - 2025-12-05
 
 ### Fixed

@@ -4,7 +4,7 @@ Version information for Digital Article package.
 This module provides the single source of truth for version information.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 __version_info__ = tuple(map(int, __version__.split(".")))
 
 # Additional version metadata
