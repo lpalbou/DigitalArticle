@@ -242,10 +242,12 @@ async def delete_model(provider: str, model: str):
     base_url = settings.llm.base_urls.get("ollama", "http://localhost:11434")
     
     try:
+        import json
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.delete(
                 f"{base_url}/api/delete",
-                json={"name": model}
+                content=json.dumps({"name": model}),
+                headers={"Content-Type": "application/json"}
             )
             if response.status_code == 200:
                 return {"status": "success", "message": f"Model {model} deleted"}
