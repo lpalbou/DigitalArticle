@@ -186,16 +186,16 @@ const NotebookContainer: React.FC = () => {
       // Get the current user
       const currentUser = await getCurrentUser()
 
-      // Try to get global LLM config, use defaults if it fails
+      // Get user's saved LLM settings (persists across notebooks)
       let llmProvider = 'ollama'
       let llmModel = 'gemma3n:e2b'
 
       try {
-        const llmConfig = await llmAPI.getConfig()
-        llmProvider = llmConfig.provider
-        llmModel = llmConfig.model
-      } catch (configError) {
-        console.warn('Failed to fetch LLM config, using defaults:', configError)
+        const response = await axios.get('/api/settings')
+        llmProvider = response.data.llm?.provider || 'ollama'
+        llmModel = response.data.llm?.model || 'gemma3n:e2b'
+      } catch (settingsError) {
+        console.warn('Failed to fetch user settings, using defaults:', settingsError)
         // Continue with defaults - don't fail notebook creation
       }
 

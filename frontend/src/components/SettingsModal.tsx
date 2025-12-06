@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import {
   X, AlertCircle, CheckCircle, Loader, HelpCircle, Shuffle,
   Download, Settings2, Beaker, ChevronDown, ChevronUp, Eye, EyeOff,
-  Users, ClipboardCheck
+  Users, ClipboardCheck, Trash2
 } from 'lucide-react'
 import axios from 'axios'
 import { useToaster } from '../contexts/ToasterContext'
@@ -99,7 +99,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
   // Model list loading
   const [loadingModels, setLoadingModels] = useState(false)
   const [currentProviderModels, setCurrentProviderModels] = useState<string[]>([])
-  
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
+
   // Reproducibility
   const [useLlmSeed, setUseLlmSeed] = useState(true)
   const [llmSeed, setLlmSeed] = useState<string>('')
@@ -420,6 +421,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
     startDownload('mlx', mlxModelToDownload)
   }
 
+  const handleDeleteModel = async (modelName: string) => {
+    if (!confirm(`Delete model "${modelName}"? This will free disk space.`)) return
+
+    try {
+      await axios.delete(`/api/models/ollama/${encodeURIComponent(modelName)}`)
+      // Refresh model list
+      await fetchModelsForProvider('ollama', baseUrls['ollama'])
+      toaster.success(`Model ${modelName} deleted`)
+    } catch (error: any) {
+      toaster.error(`Failed to delete: ${error.response?.data?.detail || error.message}`)
+    }
+  }
+
   const currentProvider = providers.find(p => p.name === selectedProvider)
   const availableProviders = providers.filter(p => p.available)
   const hasNoAvailableProviders = !loading && availableProviders.length === 0
@@ -606,23 +620,53 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
 
                     {/* Model Selection */}
                     {selectedProvider && (
-                      <div>
+                      <div className="relative">
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                           Model {loadingModels && <span className="text-gray-500 text-xs ml-2">(loading...)</span>}
                         </label>
-                        <select
-                          value={selectedModel}
-                          onChange={(e) => setSelectedModel(e.target.value)}
+
+                        {/* Custom dropdown button */}
+                        <button
+                          type="button"
+                          onClick={() => !loadingModels && setModelDropdownOpen(!modelDropdownOpen)}
                           disabled={loadingModels}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-md bg-white text-left flex items-center justify-between focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <option value="">{loadingModels ? 'Loading models...' : `Select a model... (${currentProviderModels.length} available)`}</option>
-                          {currentProviderModels.map((model) => (
-                            <option key={model} value={model}>
-                              {model}
-                            </option>
-                          ))}
-                        </select>
+                          <span className="truncate">{selectedModel || (loadingModels ? 'Loading models...' : `Select a model... (${currentProviderModels.length} available)`)}</span>
+                          <ChevronDown className={`h-4 w-4 transition-transform ${modelDropdownOpen ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {/* Dropdown menu */}
+                        {modelDropdownOpen && !loadingModels && (
+                          <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                            {currentProviderModels.length === 0 ? (
+                              <div className="px-3 py-2 text-gray-500 text-sm">No models available</div>
+                            ) : (
+                              currentProviderModels.map((model) => (
+                                <div
+                                  key={model}
+                                  className="flex items-center justify-between px-3 py-2 hover:bg-gray-100 cursor-pointer"
+                                  onClick={() => {
+                                    setSelectedModel(model)
+                                    setModelDropdownOpen(false)
+                                  }}
+                                >
+                                  <span className="flex-1 truncate">{model}</span>
+                                  {selectedProvider === 'ollama' && (
+                                    <Trash2
+                                      className="h-4 w-4 text-red-400 hover:text-red-600 ml-2 flex-shrink-0"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleDeleteModel(model)
+                                        setModelDropdownOpen(false)
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
