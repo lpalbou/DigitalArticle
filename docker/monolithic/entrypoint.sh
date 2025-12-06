@@ -24,6 +24,7 @@ export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 export HUGGINGFACE_TOKEN="${HUGGINGFACE_TOKEN:-}"
 
 # Provider base URLs (for external servers)
+export OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://localhost:11434}"
 export LMSTUDIO_BASE_URL="${LMSTUDIO_BASE_URL:-http://localhost:1234/v1}"
 
 echo "📁 Initializing directories..."
@@ -36,12 +37,19 @@ mkdir -p "$NOTEBOOKS_DIR" "$WORKSPACE_DIR" /app/logs /var/log/supervisor
 # ========================================
 # 2. PROVIDER-AWARE STARTUP
 # ========================================
-# Determine if we need Ollama based on provider
-USE_OLLAMA=false
+USE_LOCAL_OLLAMA=false
+
 if [ "$LLM_PROVIDER" = "ollama" ]; then
-    USE_OLLAMA=true
-    mkdir -p "$OLLAMA_MODELS"
-    echo "  Models: $OLLAMA_MODELS"
+    # Check if OLLAMA_BASE_URL points to localhost or external server
+    if echo "$OLLAMA_BASE_URL" | grep -qE "(localhost|127\.0\.0\.1)"; then
+        USE_LOCAL_OLLAMA=true
+        mkdir -p "$OLLAMA_MODELS"
+        echo "📦 Using LOCAL Ollama server"
+        echo "  Models: $OLLAMA_MODELS"
+    else
+        echo "📡 Using EXTERNAL Ollama server: $OLLAMA_BASE_URL"
+        echo "  (Local Ollama will NOT be started)"
+    fi
 fi
 
 echo "✅ Directories initialized"
@@ -58,46 +66,66 @@ SUPERVISOR_PID=$!
 sleep 3
 
 # ========================================
-# 4. OLLAMA SETUP (Only if using Ollama provider)
+# 4. OLLAMA SETUP (Only if using LOCAL Ollama)
 # ========================================
-if [ "$USE_OLLAMA" = true ]; then
-    echo "⏳ Waiting for Ollama to be ready..."
+if [ "$USE_LOCAL_OLLAMA" = true ]; then
+    echo "⏳ Waiting for local Ollama to be ready..."
     MAX_RETRIES=30
     RETRY_COUNT=0
 
     while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
         if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
-            echo "✅ Ollama is ready!"
+            echo "✅ Local Ollama is ready!"
             break
         fi
         RETRY_COUNT=$((RETRY_COUNT + 1))
         if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-            echo "⚠️  Ollama not ready after 60 seconds"
-            echo "   Container will start anyway (check logs with: docker logs <container>)"
+            echo "⚠️  Local Ollama not ready after 60 seconds"
             break
         fi
         sleep 2
     done
     echo ""
 
-    # Auto-pull model if using Ollama
+    # Auto-pull model if using local Ollama
     echo "📦 Checking model availability..."
     echo "  Configured model: $LLM_MODEL"
 
-    # Check if model already exists in volume
     if curl -sf http://localhost:11434/api/tags | grep -q "\"name\":\"$LLM_MODEL\""; then
         echo "  ✅ Model already available (cached in volume)"
     else
         echo "  ⏬ Pulling model (this may take a while)..."
-        /usr/local/bin/ollama pull "$LLM_MODEL" || echo "  ⚠️  Model pull failed (will retry on backend startup)"
+        /usr/local/bin/ollama pull "$LLM_MODEL" || echo "  ⚠️  Model pull failed"
     fi
     echo ""
+
+elif [ "$LLM_PROVIDER" = "ollama" ]; then
+    # External Ollama - verify connectivity
+    echo "🔌 Testing connection to external Ollama..."
+    if curl -sf "$OLLAMA_BASE_URL/api/tags" > /dev/null 2>&1; then
+        echo "✅ External Ollama is reachable at $OLLAMA_BASE_URL"
+
+        # Check if model exists on external server
+        if curl -sf "$OLLAMA_BASE_URL/api/tags" | grep -q "\"name\":\"$LLM_MODEL\""; then
+            echo "✅ Model $LLM_MODEL is available on external server"
+        else
+            echo "⚠️  Model $LLM_MODEL not found on external server"
+            echo "   Available models:"
+            curl -sf "$OLLAMA_BASE_URL/api/tags" | grep -oP '"name":"\K[^"]+' | head -5 | while read m; do
+                echo "   - $m"
+            done
+        fi
+    else
+        echo "⚠️  Cannot reach external Ollama at $OLLAMA_BASE_URL"
+        echo "   Backend will retry on startup"
+    fi
+
+    # Stop local Ollama (not needed)
+    /usr/bin/supervisorctl stop ollama 2>/dev/null || true
+    echo ""
 else
-    # External provider - skip Ollama startup
+    # Non-Ollama provider
     echo "📡 Using external LLM provider: $LLM_PROVIDER"
-    echo "   Skipping Ollama initialization (not needed)"
-    
-    # Stop Ollama if it was auto-started by supervisor
     /usr/bin/supervisorctl stop ollama 2>/dev/null || true
     echo ""
 fi
@@ -147,8 +175,10 @@ echo ""
 echo "Services:"
 echo "  Frontend:    http://localhost:80"
 echo "  Backend API: http://localhost:8000"
-if [ "$USE_OLLAMA" = true ]; then
-    echo "  Ollama API:  http://localhost:11434"
+if [ "$USE_LOCAL_OLLAMA" = true ]; then
+    echo "  Ollama API:  http://localhost:11434 (local)"
+elif [ "$LLM_PROVIDER" = "ollama" ]; then
+    echo "  Ollama API:  $OLLAMA_BASE_URL (external)"
 fi
 echo ""
 echo "Configuration:"
@@ -157,7 +187,7 @@ echo "  LLM Provider: $LLM_PROVIDER"
 echo "  LLM Model:    $LLM_MODEL"
 echo "  Notebooks:    $NOTEBOOKS_DIR"
 echo "  Workspace:    $WORKSPACE_DIR"
-if [ "$USE_OLLAMA" = true ]; then
+if [ "$USE_LOCAL_OLLAMA" = true ]; then
     echo "  Models:       $OLLAMA_MODELS"
 fi
 echo ""
