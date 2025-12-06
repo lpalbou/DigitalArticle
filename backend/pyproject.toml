@@ -42,6 +42,10 @@ dependencies = [
     "umap-learn==0.5.9.post2",
     "scanpy==1.11.5",
 
+    # Modeling & Simulation (PK/PD)
+    "lmfit>=1.3.0",      # Non-linear curve fitting for PK parameter estimation
+    "tellurium>=2.2.0",  # QSP/SBML modeling with Antimony
+
     # Document Generation
     "reportlab==4.4.4",
     "pillow==11.3.0",
