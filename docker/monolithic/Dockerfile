@@ -109,18 +109,28 @@ RUN mkdir -p \
     /models/huggingface \
     /var/log/supervisor
 
+# ============================================
+# BUILD ARGUMENTS
+# Can be set at build time: KEY1=VALUE1;KEY2=VALUE2
+# Example: LLM_PROVIDER=ollama;LLM_MODEL=qwen3:4b;OLLAMA_BASE_URL=http://gpu-server:11434
+# ============================================
+ARG LLM_PROVIDER=ollama
+ARG LLM_MODEL=gemma3n:e2b
+ARG OLLAMA_BASE_URL=http://localhost:11434
+ARG LMSTUDIO_BASE_URL=http://localhost:1234/v1
+
 # Environment variable defaults
 # LLM Configuration (can be overridden at runtime with -e)
-# Note: API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, HUGGINGFACE_TOKEN) 
+# Note: API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, HUGGINGFACE_TOKEN)
 # should be passed at runtime via -e, not baked into image
-ENV LLM_PROVIDER=ollama \
-    LLM_MODEL=gemma3n:e2b \
+ENV LLM_PROVIDER=${LLM_PROVIDER} \
+    LLM_MODEL=${LLM_MODEL} \
     NOTEBOOKS_DIR=/app/data/notebooks \
     WORKSPACE_DIR=/app/data/workspace \
     OLLAMA_MODELS=/models/ollama \
     HF_HOME=/models/huggingface \
-    OLLAMA_BASE_URL=http://localhost:11434 \
-    LMSTUDIO_BASE_URL=http://localhost:1234/v1 \
+    OLLAMA_BASE_URL=${OLLAMA_BASE_URL} \
+    LMSTUDIO_BASE_URL=${LMSTUDIO_BASE_URL} \
     PYTHONUNBUFFERED=1 \
     LOG_LEVEL=INFO \
     DIGITAL_ARTICLE_VARIANT="Standard (CPU)"
