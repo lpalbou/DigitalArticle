@@ -295,8 +295,9 @@ class ErrorAnalyzer:
 
         # Find missing
         missing = referenced_columns - available_columns
-        # Filter out common false positives (methods, keywords)
-        false_positives = {'head', 'tail', 'info', 'describe', 'columns', 'shape', 'index', 'values', 'dtypes'}
+        # Filter out common false positives (methods, keywords, constants)
+        false_positives = {'head', 'tail', 'info', 'describe', 'columns', 'shape', 'index', 'values', 'dtypes',
+                           'nan', 'NaN', 'none', 'None', 'inf', 'Inf'}  # Added np.nan, None, inf
         missing = missing - false_positives
 
         return list(missing)

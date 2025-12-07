@@ -1,6 +1,32 @@
-# M&S Persona - Additional Fixes (2025-12-06)
+# Digital Article - Additional Fixes
 
-## Overview
+## Latest Updates
+
+### 2025-12-07: System Prompt Optimization 🟢 IMPROVEMENT
+
+**Problem**: Open-source LLMs forgot to call `display()` despite 6+ mentions in ~2000 token prompt
+
+**Solution**: Implemented sandwich architecture with few-shot examples based on SOTA 2025 research
+
+**Results**:
+- ✅ Token reduction: ~2000 → ~950 (53% reduction)
+- ✅ `display()` at START and END (position bias mitigation)
+- ✅ 3 concrete few-shot examples showing correct patterns
+- ✅ Condensed analytical framework (500 → 50 tokens)
+- ✅ 4-item final checklist for verification
+
+**File Modified**: `backend/app/services/llm_service.py` (lines 333-523)
+
+**Research Applied**:
+- Position Bias (FAccT 2025): https://dl.acm.org/doi/10.1145/3715275.3732038
+- Few-Shot Learning: https://www.promptingguide.ai/techniques/fewshot
+- Prompt Structure (Lakera): https://www.lakera.ai/blog/prompt-engineering-guide
+
+---
+
+## 2025-12-06: M&S Persona Fixes
+
+### Overview
 
 This document describes fixes applied to the Modeling & Simulation persona after investigation of Workflow 1 (Single Ascending Dose study) execution.
 

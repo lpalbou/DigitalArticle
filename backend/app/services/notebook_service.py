@@ -972,31 +972,35 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                     cell.retry_count < max_retries and  # Allow up to 3 retries
                     not request.force_regenerate
                 )
-                
+
+                # Store original generated code BEFORE retry loop to prevent code mutation bug
+                # CRITICAL FIX: Always pass original code to LLM, not mutated versions from failed retries
+                original_generated_code = cell.code
+
                 # Auto-retry loop with up to max_retries attempts
                 while should_auto_retry:
                     # Set retry status
                     cell.is_retrying = True
                     cell.retry_count += 1
-                    
+
                     logger.info(f"🔄 EXECUTION FAILED - Attempting auto-retry #{cell.retry_count}/{max_retries} with LLM for cell {cell.id}")
                     logger.info(f"🔄 Error: {result.error_message}")
                     print(f"🔄 AUTO-RETRY #{cell.retry_count}/{max_retries}: Attempting to fix execution error for cell {cell.id}")
-                    
+
                     try:
                         # Build context for LLM including the error
                         context = self._build_execution_context(notebook, cell)
-                        
+
                         # Create error context for the LLM
                         error_context = {
                             **context,
-                            'previous_code': cell.code,
+                            'previous_code': original_generated_code,  # Use original code for context
                             'error_message': result.error_message,
                             'error_type': result.error_type,
                             'traceback': result.traceback,
                             'stderr': result.stderr
                         }
-                        
+
                         # Ask LLM to fix the code with enhanced error analysis from ErrorAnalyzer
                         logger.info(f"🔄 Asking LLM to fix the failed code (attempt #{cell.retry_count})...")
                         print(f"🔄 AUTO-RETRY #{cell.retry_count}: Analyzing error and generating corrected code...")
@@ -1009,7 +1013,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
 
                             fixed_code, trace_id, full_trace = self.llm_service.suggest_improvements(
                                 prompt=cell.prompt,
-                                code=cell.code,
+                                code=original_generated_code,  # CRITICAL: Always use original code, not mutated version
                                 error_message=result.error_message,
                                 error_type=result.error_type,
                                 traceback=result.traceback,
@@ -1034,20 +1038,21 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                             logger.error(f"🔄 LLM service failed during retry #{cell.retry_count}: {llm_error}")
                             print(f"🔄 LLM ERROR: LLM service failed on retry #{cell.retry_count}: {llm_error}")
                             # Try basic error-specific fixes when LLM fails
-                            fixed_code = self._apply_basic_error_fixes(cell.code, result.error_message, result.error_type)
-                        
-                        if fixed_code and fixed_code != cell.code:
+                            fixed_code = self._apply_basic_error_fixes(original_generated_code, result.error_message, result.error_type)
+
+                        if fixed_code and fixed_code != original_generated_code:
                             logger.info(f"🔄 LLM provided fixed code ({len(fixed_code)} chars)")
                             print(f"🔄 UPDATED: LLM provided corrected code for retry #{cell.retry_count}")
-                            cell.code = fixed_code
-                            cell.updated_at = datetime.now()
-                            
-                            # Try executing the fixed code
+
+                            # Try executing the fixed code (but don't update cell.code yet!)
                             logger.info("🔄 Executing fixed code...")
                             print(f"🔄 EXECUTING: Testing corrected code...")
-                            retry_result = self.execution_service.execute_code(cell.code, str(cell.id), str(notebook.id))
-                            
+                            retry_result = self.execution_service.execute_code(fixed_code, str(cell.id), str(notebook.id))
+
                             if retry_result.status == ExecutionStatus.SUCCESS:
+                                # ONLY update cell.code on SUCCESS
+                                cell.code = fixed_code
+                                cell.updated_at = datetime.now()
                                 logger.info(f"🔄 ✅ Auto-retry #{cell.retry_count} successful! Fixed code executed successfully")
                                 print(f"🔄 SUCCESS: Auto-retry #{cell.retry_count} fixed the error for cell {cell.id}")
                                 result = retry_result
