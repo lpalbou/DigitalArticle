@@ -6,7 +6,7 @@ Orchestrates scientific review of cells and articles using Reviewer persona temp
 
 import logging
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, AsyncIterator
 
 from ..models.notebook import Cell, Notebook, ExecutionResult
 from ..models.persona import Persona, ReviewPhase, ReviewCapability
@@ -458,6 +458,148 @@ EXAMPLE OF CORRECT FORMAT:
 
             # Return error trace instead of raising (so API can save it)
             return self._empty_article_review(str(notebook.id)), error_trace
+
+    async def review_article_streaming(
+        self,
+        notebook: Notebook,
+        force: bool = False,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Review article with streaming progress updates.
+
+        Streams progress via Server-Sent Events during LLM generation.
+        Yields dictionaries with stage, progress, message, and optional data.
+
+        Args:
+            notebook: Notebook to review
+            force: Force re-review even if cached
+
+        Yields:
+            Dict with keys:
+            - stage: 'reviewing', 'parsing', 'complete', 'error'
+            - progress: 0-100 percentage
+            - message: Human-readable status
+            - tokens: Token count (during reviewing stage)
+            - review: Final review dict (at complete stage)
+            - trace: LLM trace dict (at complete stage)
+        """
+        logger.info(f"🔍 Streaming review for article: {notebook.title}")
+
+        try:
+            # Get reviewer persona
+            reviewer = self.persona_service.get_persona('reviewer')
+            if not reviewer:
+                logger.error("Reviewer persona not found!")
+                yield {'stage': 'error', 'message': 'Reviewer persona not found'}
+                return
+
+            # Find synthesis review template
+            synthesis_capability = next(
+                (c for c in reviewer.review_capabilities if c.phase == ReviewPhase.SYNTHESIS),
+                None
+            )
+            if not synthesis_capability:
+                logger.error("No synthesis review capability found")
+                yield {'stage': 'error', 'message': 'No synthesis review capability found'}
+                return
+
+            # Build COMPLETE article context
+            cells_context = self._build_full_article_context(notebook)
+            context = {
+                'title': notebook.title,
+                'cells_summary': cells_context,
+                'abstract': notebook.abstract or "No abstract generated",
+            }
+
+            # Fill template
+            review_prompt = synthesis_capability.prompt_template.format(**context)
+
+            yield {'stage': 'reviewing', 'progress': 30, 'message': 'Starting AI analysis...'}
+
+            # Stream LLM response using AbstractCore stream=True
+            accumulated_content = ""
+            token_count = 0
+
+            logger.info("🤖 Calling LLM for streaming article review...")
+            response_stream = self.llm_service.llm.generate(
+                review_prompt,
+                system_prompt=self.REVIEW_SYSTEM_PROMPT,
+                temperature=0.3,
+                stream=True,  # Enable streaming
+                trace_metadata={
+                    'step_type': 'article_review_streaming',
+                    'attempt_number': 1,
+                    'notebook_id': str(notebook.id),
+                },
+            )
+
+            # Process streaming chunks
+            for chunk in response_stream:
+                if hasattr(chunk, 'content') and chunk.content:
+                    accumulated_content += chunk.content
+                    token_count += len(chunk.content.split())  # Approximate token count
+
+                    # Report progress every ~100 tokens to avoid too many updates
+                    if token_count % 100 < 10:
+                        progress = min(30 + (token_count / 20), 85)  # Scale from 30% to 85%
+                        yield {
+                            'stage': 'reviewing',
+                            'progress': int(progress),
+                            'message': f'Generating review... ({token_count} tokens)',
+                            'tokens': token_count
+                        }
+
+            logger.info(f"✅ LLM streaming complete: {len(accumulated_content)} characters, ~{token_count} tokens")
+
+            # Parsing stage
+            yield {'stage': 'parsing', 'progress': 90, 'message': 'Processing review results...'}
+
+            # Parse the accumulated response
+            article_review = self._parse_article_review(accumulated_content, str(notebook.id))
+            logger.info(f"✅ Article review parsed: {article_review.rating}/5 stars")
+
+            # Try to capture trace
+            trace_dict = None
+            try:
+                # Get trace from last chunk's metadata
+                if hasattr(response_stream, 'metadata') and response_stream.metadata:
+                    trace_id = response_stream.metadata.get('trace_id')
+                elif hasattr(chunk, 'metadata') and chunk.metadata:
+                    trace_id = chunk.metadata.get('trace_id')
+                else:
+                    trace_id = None
+
+                if trace_id and self.llm_service.llm:
+                    traces = self.llm_service.llm.get_traces(trace_id=trace_id)
+                    trace_dict = traces[0] if isinstance(traces, list) and traces else traces
+                    if trace_dict:
+                        trace_dict['status'] = 'success'
+                        trace_dict['result_summary'] = f"Review complete: {article_review.rating}/5 stars"
+                        logger.info(f"✅ Captured review trace: {trace_id}")
+            except Exception as trace_error:
+                logger.warning(f"Failed to capture review trace: {trace_error}")
+
+            # Complete stage - yield final review
+            yield {
+                'stage': 'complete',
+                'progress': 100,
+                'message': 'Review complete',
+                'review': article_review.model_dump(),
+                'trace': trace_dict
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Article review streaming failed: {type(e).__name__}: {str(e)}")
+            import traceback
+            error_traceback = traceback.format_exc()
+            logger.error(f"Traceback: {error_traceback}")
+
+            # Yield error state
+            yield {
+                'stage': 'error',
+                'message': str(e),
+                'error_type': type(e).__name__,
+                'error_traceback': error_traceback
+            }
 
     # ===== Helper Methods =====
 

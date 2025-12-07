@@ -4,15 +4,37 @@ Review API endpoints for Digital Article.
 Provides REST API for cell-level review, article-level review, and review settings.
 """
 
+import json
 import logging
-from typing import Optional
+from datetime import datetime
+from typing import Optional, AsyncGenerator, Any, Dict
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from ..models.review import CellReview, ArticleReview, ReviewSettings
 from ..services.review_service import ReviewService
 from ..services.shared import notebook_service
 
 logger = logging.getLogger(__name__)
+
+
+def make_json_serializable(obj: Any) -> Any:
+    """Convert objects to JSON-serializable format.
+
+    Handles datetime objects, Pydantic models, and nested structures.
+    """
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {k: make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_json_serializable(item) for item in obj]
+    elif hasattr(obj, 'model_dump'):  # Pydantic model
+        return make_json_serializable(obj.model_dump())
+    elif hasattr(obj, 'dict'):  # Older Pydantic
+        return make_json_serializable(obj.dict())
+    else:
+        return obj
 
 # Initialize router
 router = APIRouter(prefix="/api/review", tags=["review"])
@@ -124,6 +146,93 @@ async def review_article_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to review article: {str(e)}"
         )
+
+
+@router.post("/article/{notebook_id}/stream")
+async def review_article_stream(
+    notebook_id: str,
+    force: bool = False,
+):
+    """Stream article review progress via Server-Sent Events (SSE).
+
+    Returns a stream of progress updates including:
+    - Stage: preparing, building_context, reviewing, parsing, complete, error
+    - Progress: 0-100 percentage
+    - Message: Human-readable status message
+    - Tokens: Token count during LLM generation (reviewing stage)
+    - Review: Final review object (complete stage)
+
+    Args:
+        notebook_id: Notebook UUID
+        force: Force review even if cached review exists
+
+    Returns:
+        StreamingResponse with SSE format (text/event-stream)
+    """
+
+    async def generate_progress() -> AsyncGenerator[str, None]:
+        """Generate SSE progress updates."""
+        try:
+            # Stage 1: Preparing
+            yield f"data: {json.dumps({'stage': 'preparing', 'progress': 5, 'message': 'Loading notebook...'})}\n\n"
+
+            notebook = notebook_service.get_notebook(notebook_id)
+            if not notebook:
+                yield f"data: {json.dumps({'stage': 'error', 'message': 'Notebook not found'})}\n\n"
+                return
+
+            # Stage 2: Building context
+            yield f"data: {json.dumps({'stage': 'building_context', 'progress': 15, 'message': 'Building article context...'})}\n\n"
+
+            # Stage 3: LLM Review with streaming (main work)
+            yield f"data: {json.dumps({'stage': 'reviewing', 'progress': 25, 'message': 'AI reviewer analyzing article...'})}\n\n"
+
+            # Call review service with streaming - this yields progress updates
+            final_review = None
+            final_trace = None
+
+            async for progress_data in review_service.review_article_streaming(notebook, force):
+                # Make data JSON-serializable (handles datetime objects)
+                serializable_data = make_json_serializable(progress_data)
+
+                # Forward progress from review service
+                yield f"data: {json.dumps(serializable_data)}\n\n"
+
+                # Capture final review object
+                if progress_data.get('stage') == 'complete' and 'review' in progress_data:
+                    final_review = progress_data['review']
+                    final_trace = progress_data.get('trace')
+
+            # Save review to notebook metadata
+            if final_review:
+                notebook.metadata['article_review'] = final_review
+
+                # Save trace if available
+                if final_trace:
+                    if 'timestamp' not in final_trace or final_trace['timestamp'] is None:
+                        from datetime import datetime
+                        final_trace['timestamp'] = datetime.now().isoformat()
+
+                    notebook.metadata['review_traces'] = [final_trace]
+
+                notebook_service._save_notebook(notebook)
+                logger.info(f"✅ Article review complete and saved for notebook {notebook_id}")
+
+        except Exception as e:
+            logger.error(f"❌ Error during review streaming: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            yield f"data: {json.dumps({'stage': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
 
 
 @router.get("/notebooks/{notebook_id}/settings", response_model=ReviewSettings)

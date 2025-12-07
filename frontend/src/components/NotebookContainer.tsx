@@ -8,6 +8,7 @@ import NotebookCell from './NotebookCell'
 import PDFGenerationModal from './PDFGenerationModal'
 import ArticleReviewModal from './ArticleReviewModal'
 import SemanticExtractionModal from './SemanticExtractionModal'
+import ReviewProgressModal from './ReviewProgressModal'
 import ExecutionDetailsModal from './ExecutionDetailsModal'
 import ChatFloatingButton from './ChatFloatingButton'
 import ArticleChatPanel from './ArticleChatPanel'
@@ -67,6 +68,12 @@ const NotebookContainer: React.FC = () => {
   const [reviewTraces, setReviewTraces] = useState<LLMTrace[]>([])
   const [isReviewingArticle, setIsReviewingArticle] = useState(false)
   const [showArticleReviewModal, setShowArticleReviewModal] = useState(false)
+
+  // Review streaming progress state
+  const [reviewProgress, setReviewProgress] = useState<number>(0)
+  const [reviewStage, setReviewStage] = useState<'preparing' | 'building_context' | 'reviewing' | 'parsing' | 'complete' | 'error'>('preparing')
+  const [reviewMessage, setReviewMessage] = useState<string>('')
+  const [reviewTokens, setReviewTokens] = useState<number>(0)
 
   // PDF generation state
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
@@ -888,37 +895,115 @@ const NotebookContainer: React.FC = () => {
       return
     }
 
+    // Initialize streaming state
     setIsReviewingArticle(true)
+    setReviewProgress(0)
+    setReviewStage('preparing')
+    setReviewMessage('Starting review...')
+    setReviewTokens(0)
     setError(null)
 
     try {
-      const response = await axios.post(`/api/review/article/${notebook.id}`)
-      setArticleReview(response.data)
+      // Use SSE streaming endpoint
+      const response = await fetch(`/api/review/article/${notebook.id}/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
 
-      // Fetch review traces
-      try {
-        const tracesResponse = await reviewAPI.getTraces(notebook.id)
-        setReviewTraces(tracesResponse.traces || [])
-      } catch (tracesErr) {
-        console.warn('Failed to load review traces:', tracesErr)
-        setReviewTraces([])
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}` }))
+        throw new Error(errorData.detail || `HTTP ${response.status}`)
       }
 
-      // Clear old review chat history (new review makes old chat irrelevant)
-      const chatKey = `reviewer_chat_${notebook.id}`
-      localStorage.removeItem(chatKey)
-      console.log('🗑️ Cleared old review chat history for new review')
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('No response body')
+      }
 
-      setShowArticleReviewModal(true)
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let finalReview = null
+      let finalTraces: any = null
 
-      // Chat is now embedded in the review modal, no need to open separate panel
-      setToast({
-        message: 'Article review completed',
-        type: 'success'
-      })
-    } catch (err) {
+      // Process SSE stream
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+
+              // Update progress state
+              setReviewProgress(data.progress || 0)
+              setReviewStage(data.stage || 'reviewing')
+              setReviewMessage(data.message || '')
+              if (data.tokens !== undefined) {
+                setReviewTokens(data.tokens)
+              }
+
+              // Capture final review object
+              if (data.review) {
+                finalReview = data.review
+              }
+
+              // Capture trace
+              if (data.trace) {
+                finalTraces = [data.trace]
+              }
+
+              // Handle errors
+              if (data.stage === 'error') {
+                throw new Error(data.message || 'Review failed')
+              }
+            } catch (e: any) {
+              console.error('Error parsing SSE data:', e)
+              if (e.message !== 'Unexpected end of JSON input') {
+                throw e
+              }
+            }
+          }
+        }
+      }
+
+      // Set final review and traces
+      if (finalReview) {
+        setArticleReview(finalReview)
+        if (finalTraces) {
+          setReviewTraces(finalTraces)
+        }
+
+        // Clear old review chat history (new review makes old chat irrelevant)
+        const chatKey = `reviewer_chat_${notebook.id}`
+        localStorage.removeItem(chatKey)
+        console.log('🗑️ Cleared old review chat history for new review')
+
+        // Show review modal after brief delay
+        setTimeout(() => {
+          setShowArticleReviewModal(true)
+          setToast({
+            message: 'Article review completed',
+            type: 'success'
+          })
+        }, 500)
+      }
+
+    } catch (err: any) {
+      console.error('Review streaming error:', err)
+      setReviewStage('error')
       const apiError = handleAPIError(err)
       setError(`Failed to review article: ${apiError.message}`)
+      setToast({
+        message: `Review failed: ${apiError.message}`,
+        type: 'error'
+      })
     } finally {
       setIsReviewingArticle(false)
     }
@@ -1070,6 +1155,15 @@ const NotebookContainer: React.FC = () => {
       <PDFGenerationModal
         isVisible={isGeneratingPDF}
         stage={pdfGenerationStage}
+      />
+
+      {/* Review Progress Modal */}
+      <ReviewProgressModal
+        isVisible={isReviewingArticle}
+        progress={reviewProgress}
+        stage={reviewStage}
+        message={reviewMessage}
+        tokens={reviewTokens}
       />
 
       {/* Semantic Extraction Modal */}
