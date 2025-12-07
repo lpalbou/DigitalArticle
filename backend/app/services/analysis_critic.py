@@ -94,34 +94,20 @@ class AnalysisCritic:
                 context
             )
 
-            # Use AbstractCore's BasicSession for multi-criteria assessment
-            session = BasicSession(
-                self.llm,
-                system_prompt=self._build_critique_system_prompt()
-            )
-
-            # Get structured assessment using session.generate_assessment()
-            assessment_raw = session.generate_assessment(
-                criteria=[
-                    "logical_coherence",
-                    "result_plausibility",
-                    "assumption_validity",
-                    "interpretation_quality",
-                    "completeness"
-                ],
-                include_score=True
-            )
-
-            # Also use BasicJudge for additional evaluation
+            # Use BasicJudge for quality assessment
+            # Note: Removed session.generate_assessment() call - it's designed for conversation quality
+            # (clarity, coherence, relevance) not data analysis quality (logical_coherence,
+            # result_plausibility, assumption_validity). BasicJudge with custom focus provides
+            # the domain-specific assessment we need.
             judge_assessment = self.judge.evaluate(
                 text=critique_context,
                 context="data analysis quality assessment",
                 focus="result plausibility, assumption checking, interpretation accuracy"
             )
 
-            # Parse assessments and build critique
+            # Parse assessment and build critique
             critique = self._build_critique_from_assessments(
-                assessment_raw,
+                None,  # assessment_raw - not using session.generate_assessment() for semantic mismatch reasons
                 judge_assessment,
                 user_intent,
                 code,

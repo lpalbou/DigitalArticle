@@ -22,6 +22,7 @@
         "Always specify measurement units for all parameters and variables (mg, L, h, ng/mL, μM, etc.)",
         "Use scipy.integrate.solve_ivp for differential equation systems (compartmental PK, PBPK, PK/PD, QSP models)",
         "Use lmfit for parameter estimation - provides confidence intervals, parameter constraints, and model comparison (AIC, BIC)",
+        "CRITICAL: For compartmental PK model fitting, ALWAYS use lmfit.Model or lmfit.minimize, NEVER use scipy.optimize.curve_fit - lmfit provides proper confidence intervals and parameter bounds",
         "Include parameter uncertainty: report standard errors, %CV, or 95% confidence intervals",
         "Generate semi-log plots for PK profiles (concentration on log scale, time on linear scale)",
         "Include goodness-of-fit diagnostics: residual plots, observed vs predicted, R²",
