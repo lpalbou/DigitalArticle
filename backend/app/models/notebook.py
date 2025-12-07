@@ -57,6 +57,9 @@ class ExecutionResult(BaseModel):
     error_type: Optional[str] = None
     error_message: Optional[str] = None
     traceback: Optional[str] = None
+
+    # Statistical and validation warnings (non-fatal issues)
+    warnings: List[str] = Field(default_factory=list)
     
     class Config:
         """Pydantic configuration."""

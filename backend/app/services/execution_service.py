@@ -587,6 +587,14 @@ class ExecutionService:
             self.execution_count += 1
             logger.info(f"Successfully executed cell {cell_id}")
 
+            # Check for statistical warnings in the output
+            statistical_warnings = self._check_statistical_warnings(result.stdout)
+            if statistical_warnings:
+                result.warnings.extend(statistical_warnings)
+                logger.warning(f"⚠️ Statistical validation found {len(statistical_warnings)} warning(s):")
+                for warning in statistical_warnings:
+                    logger.warning(f"   {warning}")
+
             # Auto-save notebook state after successful execution
             if notebook_id:
                 try:
@@ -640,9 +648,55 @@ class ExecutionService:
         
         finally:
             result.execution_time = time.time() - start_time
-            
+
         return result
-    
+
+    def _check_statistical_warnings(self, stdout: str) -> List[str]:
+        """Check for statistical red flags in execution results.
+
+        Scans stdout for common issues that indicate methodological problems:
+        - Parameters at optimizer bounds (unreliable estimates)
+        - Impossible confidence intervals (negative clearance, etc.)
+        - Poor parameter precision (%CV > 150%)
+
+        Args:
+            stdout: Standard output from code execution
+
+        Returns:
+            List of warning messages
+        """
+        warnings_list = []
+
+        # Check for parameters at optimizer bounds
+        if re.search(r'(?:at|hit|reached|hitting)\s*(?:lower|upper)?\s*bound', stdout, re.I):
+            warnings_list.append("⚠️ STATISTICAL: Parameter(s) may be at optimizer bounds - results unreliable. Consider different initial values or model structure.")
+
+        # Check for impossible confidence intervals (negative values for positive-only parameters)
+        ci_matches = re.findall(r'95%\s*CI[:\s]+\[?([-\d.]+)[,\s]+to[,\s]+([-\d.]+)', stdout, re.I)
+        for lower_str, upper_str in ci_matches:
+            try:
+                lower = float(lower_str)
+                # Check if CI includes negative values for parameters that must be positive
+                if lower < 0:
+                    # Common positive-only parameters in pharmacometrics
+                    if re.search(r'\b(?:clearance|CL|Vd|volume|rate|constant|k)\b', stdout, re.I):
+                        warnings_list.append(f"🚨 CRITICAL: Confidence interval [{lower_str}, {upper_str}] includes impossible negative values for a positive parameter. This indicates severe model misspecification or inappropriate methodology.")
+                        break  # Only report once
+            except ValueError:
+                pass
+
+        # Check for poor parameter precision (%CV > 150%)
+        cv_matches = re.findall(r'%CV[:\s]+([\d.]+)', stdout, re.I)
+        for cv_str in cv_matches:
+            try:
+                cv = float(cv_str)
+                if cv > 150:
+                    warnings_list.append(f"⚠️ STATISTICAL: %CV of {cv}% indicates very poor parameter precision (typically %CV < 50% is acceptable). Consider more data or simpler model.")
+            except ValueError:
+                pass
+
+        return warnings_list
+
     def get_variable_info(self, notebook_id: str) -> Dict[str, Any]:
         """
         Get categorized information about variables in the notebook-specific execution context.

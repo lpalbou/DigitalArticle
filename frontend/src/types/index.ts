@@ -40,6 +40,9 @@ export interface ExecutionResult {
   error_type?: string
   error_message?: string
   traceback?: string
+
+  // Statistical and validation warnings (non-fatal issues)
+  warnings?: string[]
 }
 
 export interface PlotlyData {

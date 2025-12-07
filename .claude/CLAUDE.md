@@ -6,6 +6,134 @@ Digital Article is a computational notebook application that inverts the traditi
 
 ## Recent Investigations
 
+### Task: Statistical Validation & PopPK Methodology Safeguards (2025-12-07)
+
+**Description**: Implemented preventive and detective safeguards to catch methodologically inappropriate code generation, specifically addressing population pharmacokinetics misuse where the LLM applied OLS to pooled multi-subject data instead of proper mixed-effects models.
+
+**Problem Identified**:
+- Article review (MS-DA2 notebook) identified Cell 4 as methodologically flawed
+- Prompt: "Fit one-compartment model to **pooled SAD data**" → "estimate **population CL and Vd**"
+- LLM generated OLS code (`scipy.optimize.curve_fit`) on pooled multi-subject data
+- Result: CL = 0.1 L/h (at bounds!) vs true 5.0 L/h → **50x error**, 95% CI: -269 to +289 L/h (impossible negative clearance)
+- Cell 5 used wrong estimates → scientifically invalid Phase 2 recommendations
+
+**Root Cause Analysis**:
+
+**1. Prompt Conflates Two Incompatible Concepts**:
+- "Pooled data" typically means naive OLS on all observations
+- "Population PK" requires mixed-effects models with random effects for inter-individual variability
+- OLS treats 192 observations as independent → violates assumptions for nested data (subjects within doses)
+
+**2. M&S Persona Had Library Guidance, Not Methodology Guidance**:
+- Existing: "NEVER use scipy.optimize.curve_fit - use lmfit"
+- Missing: When to use mixed-effects vs OLS, how to handle pooled multi-subject data
+
+**3. LLM Ignored Library Constraint Anyway**:
+- Despite "NEVER use curve_fit", LLM used it
+- Lesson: Library preferences unreliable, need methodological safeguards
+
+**4. No Validation of Results**:
+- Parameters at bounds (CL=0.1 at lower bound)
+- Impossible CIs (negative clearance)
+- %CV > 100% (poor precision)
+- System blindly accepted obviously wrong results
+
+**Three-Pronged Solution Implemented**:
+
+**Fix 1: Enhance M&S Persona with PopPK Methodology Safeguards (MEDIUM)**
+
+**File**: `data/personas/system/modeling-simulation.json` (lines 31-33)
+
+Added three explicit constraints:
+```json
+"CRITICAL FOR POPULATION PK: When fitting models to multi-subject data with inter-individual variability, NEVER use simple OLS (scipy.optimize.curve_fit or lmfit.minimize on pooled data) - OLS assumes independent observations which violates core assumptions for repeated measures",
+
+"FOR POPULATION PK USE: (1) Mixed-effects models (statsmodels MixedLM, PyMC) that separate fixed effects (population typical values) from random effects (individual deviations), OR (2) Two-stage approach (fit each subject individually, then calculate population summary statistics), OR (3) Dose-normalized analysis when comparing across dose levels",
+
+"VERIFY AFTER FITTING: Check that parameter estimates are NOT at optimizer bounds, confidence intervals are plausible (e.g., clearance CI should not include negative values), and %CV < 150% indicates acceptable precision. If parameters hit bounds or CIs are impossible, the model is misspecified"
+```
+
+**Fix 2: Add Statistical Validation to Execution Service (MEDIUM)**
+
+**File**: `backend/app/services/execution_service.py` (lines 646-690, 590-596)
+
+Added `_check_statistical_warnings()` method:
+- Scans stdout for parameters at optimizer bounds
+- Detects impossible confidence intervals (negative values for positive-only parameters like clearance)
+- Flags %CV > 150% as poor precision indicator
+- Returns list of warning messages (passive, non-blocking)
+
+Integrated into `execute_code()` after successful execution:
+```python
+# Check for statistical warnings in the output
+statistical_warnings = self._check_statistical_warnings(result.stdout)
+if statistical_warnings:
+    result.warnings.extend(statistical_warnings)
+    logger.warning(f"⚠️ Statistical validation found {len(statistical_warnings)} warning(s)")
+```
+
+**Fix 3: Display Warnings Prominently - Passive Mode (LOW)**
+
+**Files**:
+- `backend/app/models/notebook.py` (lines 61-62): Added `warnings: List[str]` field to ExecutionResult
+- `frontend/src/types/index.ts` (lines 44-45): Added `warnings?: string[]` to TypeScript interface
+- `frontend/src/components/ResultPanel.tsx` (lines 73-115): Added orange warning banner with collapsible display
+
+**Warning UI Features**:
+- Orange banner at top of results (after error display, before analysis results)
+- Collapsible (click to expand/collapse)
+- Shows warning count and individual messages
+- Passive mode note: "You can continue working, but consider reviewing the analysis methodology"
+- Auto-expands on first view (warningsCollapsed state)
+
+**Results**:
+
+✅ **PREVENTIVE + DETECTIVE SAFEGUARDS IMPLEMENTED**
+
+| Issue | Before | After |
+|-------|--------|-------|
+| PopPK methodology | No guidance | Explicit constraints in M&S persona |
+| Results validation | None - accepted anything | Statistical sanity checks |
+| Warning display | Silent failures | Prominent orange banner (passive) |
+| LLM adherence | Unreliable (ignored lmfit) | Layered defense (persona + validation) |
+
+**Example Warnings Generated**:
+- ⚠️ STATISTICAL: Parameter(s) may be at optimizer bounds - results unreliable
+- 🚨 CRITICAL: Confidence interval [-269, 289] includes impossible negative values for a positive parameter
+- ⚠️ STATISTICAL: %CV of 140% indicates very poor parameter precision
+
+**Impact**:
+- **Prevention**: Persona guidance reduces likelihood of methodological errors
+- **Detection**: Objective validation catches errors that slip through
+- **Visibility**: Users see warnings before proceeding to dependent cells
+- **Passive**: Non-blocking - user decides whether to proceed or revise
+
+**Architecture Benefits**:
+- ✅ Clean, simple: ~150 lines total across 3 files
+- ✅ No additional LLM calls (zero latency/cost impact)
+- ✅ Domain-agnostic validation (works beyond PopPK)
+- ✅ Uses existing infrastructure
+- ✅ Backward compatible
+
+**Files Modified**:
+- `data/personas/system/modeling-simulation.json` (lines 31-33): PopPK methodology constraints
+- `backend/app/models/notebook.py` (lines 61-62): Added warnings field
+- `backend/app/services/execution_service.py` (lines 646-690, 590-596): Statistical validation
+- `frontend/src/types/index.ts` (lines 44-45): TypeScript warnings type
+- `frontend/src/components/ResultPanel.tsx` (lines 73-115): Warning banner UI
+
+**Issues/Concerns**: None. The hybrid approach (persona guidance + statistical validation) provides layered defense against methodological errors while keeping code simple and efficient.
+
+**Verification**:
+```bash
+# Test with SAD workflow prompt (will still generate OLS but now warns):
+# "Fit a one-compartment IV bolus model to the pooled SAD data..."
+# Expected: Orange warning banner with bounds/CI/precision warnings
+# User can review and decide to proceed or revise methodology
+```
+
+---
+
 ### Task: Critical Fix - Retry Mechanism Code Truncation Bug (2025-12-07)
 
 **Description**: Fixed critical bug where retry mechanism mutated code after each failed attempt, causing infinite retry loops with progressively truncated code. This bug prevented auto-retry from working correctly on syntax errors like `t1/2` variable names.

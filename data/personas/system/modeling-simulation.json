@@ -28,6 +28,9 @@
         "Include goodness-of-fit diagnostics: residual plots, observed vs predicted, R²",
         "Handle BLQ (below limit of quantification) data explicitly - document approach used",
         "Report model selection criteria (AIC, BIC) when comparing models",
+        "CRITICAL FOR POPULATION PK: When fitting models to multi-subject data with inter-individual variability, NEVER use simple OLS (scipy.optimize.curve_fit or lmfit.minimize on pooled data) - OLS assumes independent observations which violates core assumptions for repeated measures",
+        "FOR POPULATION PK USE: (1) Mixed-effects models (statsmodels MixedLM, PyMC) that separate fixed effects (population typical values) from random effects (individual deviations), OR (2) Two-stage approach (fit each subject individually, then calculate population summary statistics), OR (3) Dose-normalized analysis when comparing across dose levels",
+        "VERIFY AFTER FITTING: Check that parameter estimates are NOT at optimizer bounds, confidence intervals are plausible (e.g., clearance CI should not include negative values), and %CV < 150% indicates acceptable precision. If parameters hit bounds or CIs are impossible, the model is misspecified",
         "Validate model predictions against independent data when available"
       ],
       "preferences": [

@@ -70,6 +70,50 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
         </div>
       )}
 
+      {/* Statistical Warnings Banner (Passive Mode) */}
+      {!hasError && result.warnings && result.warnings.length > 0 && (
+        <div className="mb-4 bg-orange-50 border-l-4 border-orange-400 rounded-r-lg shadow-sm">
+          <div
+            className="flex items-start justify-between p-4 cursor-pointer hover:bg-orange-100 transition-colors"
+            onClick={() => setWarningsCollapsed(!warningsCollapsed)}
+          >
+            <div className="flex items-start space-x-3 flex-1">
+              <AlertCircle className="h-5 w-5 text-orange-500 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <div className="font-semibold text-orange-800 mb-1">
+                  Statistical Validation Warnings ({result.warnings.length})
+                </div>
+                <div className="text-sm text-orange-700">
+                  {warningsCollapsed ? 'Click to expand and review warnings' : 'Review the warnings below before proceeding'}
+                </div>
+              </div>
+            </div>
+            {warningsCollapsed ? (
+              <ChevronRight className="h-5 w-5 text-orange-600 flex-shrink-0" />
+            ) : (
+              <ChevronDown className="h-5 w-5 text-orange-600 flex-shrink-0" />
+            )}
+          </div>
+
+          {!warningsCollapsed && (
+            <div className="px-4 pb-4 space-y-2">
+              {result.warnings.map((warning: string, idx: number) => (
+                <div
+                  key={idx}
+                  className="p-3 bg-white rounded border border-orange-200 text-sm text-gray-700"
+                >
+                  {warning}
+                </div>
+              ))}
+              <div className="mt-3 pt-3 border-t border-orange-200 text-xs text-orange-700">
+                <strong>Passive Mode:</strong> These warnings indicate potential methodological issues.
+                You can continue working, but consider reviewing the analysis methodology or consulting a domain expert.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {(() => {
         // Extract orphaned labels from broken html-type tables
         const orphanedLabels: string[] = [];
