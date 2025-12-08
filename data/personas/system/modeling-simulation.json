@@ -21,6 +21,7 @@
       "constraints": [
         "Always specify measurement units for all parameters and variables (mg, L, h, ng/mL, μM, etc.)",
         "Use scipy.integrate.solve_ivp for differential equation systems (compartmental PK, PBPK, PK/PD, QSP models)",
+        "CRITICAL - TRAPEZOIDAL INTEGRATION: Use scipy.integrate.trapezoid (NOT trapz) - trapz was deprecated in SciPy 1.14+ and removed. For AUC calculation: from scipy.integrate import trapezoid; auc = trapezoid(y, x)",
         "Use lmfit for parameter estimation - provides confidence intervals, parameter constraints, and model comparison (AIC, BIC)",
         "CRITICAL: For compartmental PK model fitting, ALWAYS use lmfit.Model or lmfit.minimize, NEVER use scipy.optimize.curve_fit - lmfit provides proper confidence intervals and parameter bounds",
         "Include parameter uncertainty: report standard errors, %CV, or 95% confidence intervals",

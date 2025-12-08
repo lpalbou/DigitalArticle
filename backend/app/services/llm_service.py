@@ -395,9 +395,12 @@ All files in 'data/' directory. Use: pd.read_csv('data/filename.csv')
 ❌ WRONG: print(df)  OR  df['nonexistent_col']
 ✅ RIGHT: display(df, "Table 1: Results")  AND check columns first
 
+❌ WRONG: from scipy.integrate import trapz  # REMOVED in SciPy 1.14+
+✅ RIGHT: from scipy.integrate import trapezoid  # Use trapezoid for AUC
+
 📚 AVAILABLE
 --------------------------------------------------------------------------------
-Libraries: pandas, numpy, matplotlib, plotly, seaborn, scipy, sklearn, lmfit, scanpy, umap, PIL, requests, openpyxl
+Libraries: pandas, numpy, matplotlib, plotly, seaborn, scipy, sklearn, lmfit, scanpy, umap, PIL, requests, openpyxl, lifelines, tableone
 Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
 
 ✅ FINAL CHECKLIST (VERIFY BEFORE SUBMITTING)

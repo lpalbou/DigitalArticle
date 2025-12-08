@@ -105,6 +105,9 @@ class AnalysisCritic:
                 focus="result plausibility, assumption checking, interpretation accuracy"
             )
 
+            # Store assessment for trace (define variable before use)
+            assessment_raw = judge_assessment
+
             # Parse assessment and build critique
             critique = self._build_critique_from_assessments(
                 None,  # assessment_raw - not using session.generate_assessment() for semantic mismatch reasons

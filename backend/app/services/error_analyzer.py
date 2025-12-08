@@ -1330,6 +1330,32 @@ Quick fix: Convert numpy types to Python types using .item() or int()/float()
         if error_type not in ("ImportError", "ModuleNotFoundError"):
             return None
 
+        # SPECIAL CASE: trapz deprecation (common in PK/PD analysis)
+        if "cannot import name 'trapz'" in error_message or "trapz" in error_message:
+            suggestions = [
+                "🚨 SCIPY.INTEGRATE.TRAPZ DEPRECATED AND REMOVED",
+                "",
+                "CRITICAL FIX - trapz was removed in SciPy 1.14.0+:",
+                "",
+                "❌ OLD (BROKEN):",
+                "   from scipy.integrate import trapz",
+                "   auc = trapz(concentration, time)",
+                "",
+                "✅ NEW (CORRECT):",
+                "   from scipy.integrate import trapezoid",
+                "   auc = trapezoid(concentration, time)",
+                "",
+                "NOTE: The function signature is identical, just rename trapz → trapezoid",
+                "This is the ONLY change needed for AUC calculations in PK analysis.",
+            ]
+
+            return ErrorContext(
+                original_error=error_message,
+                error_type=error_type,
+                enhanced_message="trapz was removed in SciPy 1.14+ - use trapezoid instead",
+                suggestions=suggestions
+            )
+
         # Extract module name
         module_pattern = r"No module named ['\"]([^'\"]+)['\"]"
         match = re.search(module_pattern, error_message)

@@ -34,6 +34,13 @@ from ..models.analysis_critique import AnalysisCritique
 
 logger = logging.getLogger(__name__)
 
+# PERFORMANCE: Disable expensive optional phases to reduce LLM overhead
+# Planning Phase: 4 LLM calls, 15-40s overhead (intent → variables → validation → method)
+# Critique Phase: 1 LLM call, 10-30s overhead (currently broken with str/dict error)
+# Disabling these reduces execution time from 30-120s to 10-30s (70-88% faster)
+ENABLE_PLANNING = False  # Set to True to enable analysis planning before code generation
+ENABLE_CRITIQUE = False  # Set to True to enable post-execution critique (currently broken)
+
 
 class NotebookService:
     """Service for managing notebooks and coordinating cell operations."""
@@ -820,10 +827,10 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
 
             # Generate code if needed
             if not cell.code or request.force_regenerate:
-                if cell.cell_type == CellType.PROMPT and cell.prompt:
-                    # ===================================================================
-                    # PLANNING PHASE - Reason about analysis before generating code
-                    # ===================================================================
+                # ===================================================================
+                # PLANNING PHASE (OPTIONAL) - Reason about analysis before generating code
+                # ===================================================================
+                if ENABLE_PLANNING and cell.cell_type == CellType.PROMPT and cell.prompt:
                     logger.info(f"🧠 PLANNING PHASE: Analyzing request logic for: {cell.prompt[:100]}...")
 
                     try:
@@ -912,71 +919,71 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                         # Continue with code generation even if planning fails (fail-safe)
                         pass
 
-                    # ===================================================================
-                    # CODE GENERATION PHASE - Skip if planning detected critical issues
-                    # ===================================================================
-                    if result is None:  # Only generate code if no planning error
-                        logger.info(f"Generating code for prompt: {cell.prompt[:100]}...")
+                # ===================================================================
+                # CODE GENERATION PHASE - Skip if planning detected critical issues
+                # ===================================================================
+                if result is None:  # Only generate code if no planning error
+                    logger.info(f"Generating code for prompt: {cell.prompt[:100]}...")
 
+                    try:
+                        # Update LLM service configuration
+                        if notebook.llm_provider != self.llm_service.provider or notebook.llm_model != self.llm_service.model:
+                            logger.info(f"Updating LLM service: {notebook.llm_provider}/{notebook.llm_model}")
+                            self.llm_service = LLMService(notebook.llm_provider, notebook.llm_model)
+
+                        # Generate code with full tracing
+                        logger.info("Calling LLM service for code generation...")
+                        generated_code, generation_time, trace_id, full_trace = self.llm_service.generate_code_from_prompt(
+                            cell.prompt,
+                            context,
+                            step_type='code_generation',
+                            attempt_number=1
+                        )
+                        cell.code = generated_code
+                        cell.last_generation_time_ms = generation_time
+                        cell.last_execution_timestamp = datetime.now()
+                        cell.updated_at = datetime.now()
+
+                        # Store trace IDs for backward compatibility
+                        if 'trace_ids' not in cell.metadata:
+                            cell.metadata['trace_ids'] = []
+                        if trace_id:
+                            cell.metadata['trace_ids'].append(trace_id)
+
+                        # Store full trace for persistent observability
+                        if full_trace:
+                            cell.llm_traces.append(full_trace)
+                            logger.info(f"✅ Stored full trace for code generation {trace_id}")
+
+                        logger.info(f"Successfully generated {len(generated_code)} characters of code" +
+                                  (f" in {generation_time}ms" if generation_time else '') +
+                                  (f", trace_id: {trace_id}" if trace_id else ""))
+
+                        # Update notebook's last context tokens from the generation
                         try:
-                            # Update LLM service configuration
-                            if notebook.llm_provider != self.llm_service.provider or notebook.llm_model != self.llm_service.model:
-                                logger.info(f"Updating LLM service: {notebook.llm_provider}/{notebook.llm_model}")
-                                self.llm_service = LLMService(notebook.llm_provider, notebook.llm_model)
+                            # Get the most recent cell usage which should have the input tokens
+                            cell_usage = self.llm_service.token_tracker.get_cell_usage(str(cell.id))
+                            if cell_usage and cell_usage.get('input_tokens', 0) > 0:
+                                notebook.last_context_tokens = cell_usage['input_tokens']
+                                logger.info(f"📊 Updated notebook last_context_tokens: {cell_usage['input_tokens']}")
+                        except Exception as token_err:
+                            logger.warning(f"Could not update last_context_tokens: {token_err}")
 
-                            # Generate code with full tracing
-                            logger.info("Calling LLM service for code generation...")
-                            generated_code, generation_time, trace_id, full_trace = self.llm_service.generate_code_from_prompt(
-                                cell.prompt,
-                                context,
-                                step_type='code_generation',
-                                attempt_number=1
-                            )
-                            cell.code = generated_code
-                            cell.last_generation_time_ms = generation_time
-                            cell.last_execution_timestamp = datetime.now()
-                            cell.updated_at = datetime.now()
+                    except Exception as e:
+                        logger.error(f"❌ LLM code generation failed for cell {cell.id}")
+                        logger.error(f"   Prompt: {cell.prompt[:100]}...")
+                        logger.error(f"   Error type: {type(e).__name__}")
+                        logger.error(f"   Error message: {str(e)}")
+                        import traceback
+                        logger.error(f"   Traceback:\n{traceback.format_exc()}")
+                        logger.error(f"   Check: API keys, rate limits, network connectivity, or LLM service availability")
 
-                            # Store trace IDs for backward compatibility
-                            if 'trace_ids' not in cell.metadata:
-                                cell.metadata['trace_ids'] = []
-                            if trace_id:
-                                cell.metadata['trace_ids'].append(trace_id)
-
-                            # Store full trace for persistent observability
-                            if full_trace:
-                                cell.llm_traces.append(full_trace)
-                                logger.info(f"✅ Stored full trace for code generation {trace_id}")
-
-                            logger.info(f"Successfully generated {len(generated_code)} characters of code" +
-                                      (f" in {generation_time}ms" if generation_time else '') +
-                                      (f", trace_id: {trace_id}" if trace_id else ""))
-
-                            # Update notebook's last context tokens from the generation
-                            try:
-                                # Get the most recent cell usage which should have the input tokens
-                                cell_usage = self.llm_service.token_tracker.get_cell_usage(str(cell.id))
-                                if cell_usage and cell_usage.get('input_tokens', 0) > 0:
-                                    notebook.last_context_tokens = cell_usage['input_tokens']
-                                    logger.info(f"📊 Updated notebook last_context_tokens: {cell_usage['input_tokens']}")
-                            except Exception as token_err:
-                                logger.warning(f"Could not update last_context_tokens: {token_err}")
-
-                        except Exception as e:
-                            logger.error(f"❌ LLM code generation failed for cell {cell.id}")
-                            logger.error(f"   Prompt: {cell.prompt[:100]}...")
-                            logger.error(f"   Error type: {type(e).__name__}")
-                            logger.error(f"   Error message: {str(e)}")
-                            import traceback
-                            logger.error(f"   Traceback:\n{traceback.format_exc()}")
-                            logger.error(f"   Check: API keys, rate limits, network connectivity, or LLM service availability")
-
-                            # DO NOT use fallback code - let the error surface properly
-                            # If LLM is completely unavailable, user needs to know
-                            cell.code = ""  # Empty code, will show error to user
-                            raise  # Re-raise the exception so it's properly handled
-                    else:
-                        logger.info(f"⏭️ Skipping code generation - planning created error result for retry")
+                        # DO NOT use fallback code - let the error surface properly
+                        # If LLM is completely unavailable, user needs to know
+                        cell.code = ""  # Empty code, will show error to user
+                        raise  # Re-raise the exception so it's properly handled
+                else:
+                    logger.info(f"⏭️ Skipping code generation - planning created error result for retry")
             
             # Execute code if available OR handle planning errors
             if cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
@@ -1127,7 +1134,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             # ===================================================================
             # CRITIQUE PHASE - Evaluate completed analysis
             # ===================================================================
-            if result.status == ExecutionStatus.SUCCESS and cell.prompt and cell.code:
+            if ENABLE_CRITIQUE and result.status == ExecutionStatus.SUCCESS and cell.prompt and cell.code:
                 logger.info(f"🔍 CRITIQUE PHASE: Evaluating analysis quality...")
 
                 try:

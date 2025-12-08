@@ -45,6 +45,10 @@ dependencies = [
     # Modeling & Simulation (PK/PD)
     "lmfit>=1.3.0",      # Non-linear curve fitting for PK parameter estimation
     "tellurium>=2.2.0",  # QSP/SBML modeling with Antimony
+    "lifelines>=0.28.0", # Survival analysis (Kaplan-Meier curves)
+
+    # Clinical Data Analysis
+    "tableone>=0.8.0",   # Baseline characteristics tables
 
     # Document Generation
     "reportlab==4.4.4",

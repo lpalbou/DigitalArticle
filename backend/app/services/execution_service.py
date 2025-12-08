@@ -382,7 +382,9 @@ class ExecutionService:
             # Example: random.choice= instead of random.choice()
             if re.search(r'(\w+\.\w+)\s*=(?!=)', stripped):
                 # Check if it's actually trying to call a function (not a variable assignment)
-                match = re.search(r'(random|np|pd|plt|sns|stats)\.\w+\s*=', stripped)
+                # CRITICAL: Use \b word boundary to avoid false positives like "summary_stats.columns"
+                # matching "stats" as a module name
+                match = re.search(r'\b(random|np|pd|plt|sns|stats)\.\w+\s*=', stripped)
                 if match:
                     return (False,
                            f"Anti-pattern detected on line {line_num}: Function call written as assignment",
@@ -406,7 +408,7 @@ class ExecutionService:
                        ])
 
             # Anti-pattern 3: Trying to call built-in functions incorrectly
-            if re.search(r'(int|float|str|list|dict|tuple)\[', stripped) and '=' in stripped:
+            if re.search(r'\b(int|float|str|list|dict|tuple)\[', stripped) and '=' in stripped:
                 return (False,
                        f"Anti-pattern detected on line {line_num}: Type conversion with wrong syntax",
                        [
