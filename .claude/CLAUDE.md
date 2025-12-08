@@ -37,57 +37,49 @@ The reviewer's system prompt (review_service.py:36-153) had ZERO guidance about:
 
 **Implementation**:
 
-Added **"🚨 CRITICAL: DATA PROVENANCE ASSESSMENT"** section at top of reviewer system prompt (lines 74-108):
+Added **"🚨 CRITICAL: THINK ABOUT DATA PROVENANCE"** section to reviewer system prompt (lines 74-86).
 
-**Key Requirements for Reviewer**:
+**Philosophy**: Guide the LLM to think critically, DON'T prescribe exact wording.
 
-1. **Check FIRST**: Determine if data is real or synthetic/mock/test
-   - Look for: `np.random`, `mock_data`, "synthetic", "test", "simulated"
-   - Check: variable names, comments, code patterns, suspiciously perfect distributions
+**The prompt now asks**:
+- "What is the actual source and quality of the data being analyzed?"
+- "Is this real experimental/clinical data, or is it synthetic/simulated/mock data?"
+- "Are the results scientifically meaningful, or just methodology demonstrations?"
 
-2. **IF SYNTHETIC DATA**:
-   - **Overall Assessment**: MUST state "uses SYNTHETIC/MOCK data and is NOT suitable for publication in peer-reviewed journals without validation using REAL data"
-   - **Rating**: Maximum 3/5 stars (synthetic data auto-disqualifies from "excellent")
-   - **Critical Issue Required**: "Use of Synthetic Data - Not Publication-Ready"
-   - **Tone**: Can praise methodology/code BUT always note limitation
+**Key principle stated**:
+> "Synthetic/mock/test data can demonstrate methodological competence, but it is fundamentally different from real scientific data. A technically perfect analysis of fake data is NOT the same as publication-ready science."
 
-3. **Example Correct Assessment**:
-   ```
-   "The computational methodology is well-implemented and follows appropriate
-   statistical practices. However, this work uses SYNTHETIC data for
-   demonstration purposes and would require validation with real clinical data
-   before being suitable for peer-reviewed publication."
-   ```
+**Guidance** (not rules):
+> "Be appropriately critical. Don't claim work is 'publication-ready' or 'meets Nature/Science standards' if it's using synthetic data for demonstration purposes. You can praise the methodology while being honest about the limitations."
 
 **Results**:
 
-✅ **REVIEWER NOW APPROPRIATELY CRITICAL**
+✅ **REVIEWER NOW THINKS CRITICALLY**
 
 **Before**:
-- ❌ "publication-ready in its current form"
-- ❌ "meeting or exceeding standards of Nature, Science, and PLOS"
-- ❌ "No revisions are required"
-- ❌ 5/5 stars for synthetic data
+- ❌ Robotic: "publication-ready in its current form"
+- ❌ Blind: Ignored that data was synthetic
+- ❌ False claims: "meets Nature/Science standards"
+- ❌ No critical thinking about data quality
 
 **After**:
-- ✅ Checks data provenance FIRST
-- ✅ Flags synthetic data as CRITICAL issue
-- ✅ Maximum 3/5 stars for synthetic data
-- ✅ States "NOT suitable for publication without real data"
-- ✅ Can still praise methodology while being realistic about limitations
+- ✅ **Thinks about data source**: Real vs synthetic?
+- ✅ **Understands distinction**: Good code ≠ good science
+- ✅ **Appropriate criticism**: Can praise methodology while noting limitation
+- ✅ **No prescriptive rules**: LLM has flexibility to assess intelligently
 
 **Impact**:
-- **Realistic assessments**: No more false claims of "publication-ready" for test notebooks
-- **Educational**: Users understand that synthetic data ≠ real science
-- **Appropriate tone**: Can praise technical quality while noting scientific limitations
-- **Gatekeeper function**: Reviewer now properly distinguishes demo code from real research
+- **Critical thinking**: Reviewer evaluates data quality, not just code quality
+- **Realistic assessments**: No false "publication-ready" claims for demos
+- **Flexible judgment**: LLM can articulate nuanced assessments
+- **Not robotic**: Avoids formulaic responses
 
 **Files Modified**:
-- `backend/app/services/review_service.py` (lines 74-108): Added critical data provenance section
+- `backend/app/services/review_service.py` (lines 74-86): Simple principle-based guidance
 
-**Issues/Concerns**: None. The fix is simple prompting that makes the reviewer appropriately critical while still being constructive about methodology.
+**Issues/Concerns**: None. This approach treats the LLM as intelligent reviewer, not a script-following robot.
 
-**Verification**: Re-run article review on any notebook with synthetic data - should now receive max 3/5 stars and explicit warning about synthetic data not being publication-ready.
+**Verification**: Re-run article review on synthetic data notebook - should see thoughtful criticism about data limitations, not formulaic responses.
 
 ---
 

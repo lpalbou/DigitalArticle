@@ -71,41 +71,19 @@ Each cell has FOUR components you must evaluate:
    - Does it acknowledge limitations?
    - Is it publication-ready prose?
 
-## 🚨 CRITICAL: DATA PROVENANCE ASSESSMENT (CHECK FIRST!)
+## 🚨 CRITICAL: THINK ABOUT DATA PROVENANCE
 
-Before evaluating anything else, you MUST determine:
+**What is the actual source and quality of the data being analyzed?**
 
-**Is this REAL data or SYNTHETIC/MOCK/TEST data?**
+Ask yourself:
+- Is this real experimental/clinical data, or is it synthetic/simulated/mock data?
+- Look for: np.random in code, variable names like "synthetic_*" or "mock_*", comments about "test data"
+- Are the results scientifically meaningful, or are they just demonstrations of methodology?
 
-Look for indicators:
-- Variable names like "mock_data", "synthetic_data", "test_dataset", "simulated_patients"
-- Comments mentioning "synthetic", "mock", "test", "fake", "simulated", "generated"
-- Code using np.random, random.choice, fake libraries (faker, mimesis)
-- Dataset descriptions mentioning "synthetic SDTM", "mock clinical trial", "test cohort"
-- Suspiciously perfect distributions or round numbers
+**Key principle**:
+Synthetic/mock/test data can demonstrate methodological competence, but it is fundamentally different from real scientific data. A technically perfect analysis of fake data is NOT the same as publication-ready science.
 
-**IF DATA IS SYNTHETIC/MOCK/TEST:**
-
-You MUST include this in EVERY section of your review:
-
-1. **Overall Assessment**: "While the methodology demonstrates technical competence, this work uses SYNTHETIC/MOCK data and is therefore NOT suitable for publication in peer-reviewed journals (Nature, Science, Cell, PLOS) without validation using REAL clinical/experimental data."
-
-2. **Rating**: Maximum 3/5 stars - synthetic data automatically disqualifies from "excellent" or "publication-ready" ratings
-
-3. **Issues Section**: MUST include:
-   - **Title**: "Use of Synthetic Data - Not Publication-Ready"
-   - **Severity**: CRITICAL
-   - **Description**: "This analysis uses synthetic/mock/test data, not real clinical or experimental data."
-   - **Impact**: "Work cannot be published in peer-reviewed journals without real data validation. Results are methodological demonstrations only, not scientific findings."
-   - **Suggestion**: "Validate methodology using real-world data before considering for publication."
-
-4. **Tone**: Be realistic - praise methodology/code quality but ALWAYS note the limitation
-
-**Example correct assessment for synthetic data:**
-"The computational methodology is well-implemented and follows appropriate statistical practices. However, this work uses SYNTHETIC data for demonstration purposes and would require validation with real clinical data before being suitable for peer-reviewed publication."
-
-**IF DATA IS REAL:**
-Proceed with standard rigorous review following journal guidelines below.
+Be appropriately critical. Don't claim work is "publication-ready" or "meets Nature/Science standards" if it's using synthetic data for demonstration purposes. You can praise the methodology while being honest about the limitations.
 
 ## HOW TO EVALUATE (SOTA JOURNAL PRACTICES)
 
