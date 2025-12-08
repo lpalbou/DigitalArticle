@@ -565,51 +565,151 @@
       svg.call(zoom);
       g = svg.append('g');
 
-      // Arrow marker for links
-      svg.append('defs').append('marker')
-        .attr('id', 'arrow')
-        .attr('viewBox', '0 -5 10 10')
-        .attr('refX', 15)
-        .attr('markerWidth', 6)
-        .attr('markerHeight', 6)
-        .attr('orient', 'auto')
-        .append('path')
-        .attr('d', 'M0,-5L10,0L0,5')
-        .attr('fill', '#999');
+      // Create colored arrow markers for each relationship type
+      const arrowColors = {
+        'prov:used': '#2196F3',
+        'prov:wasGeneratedBy': '#7B1FA2',
+        'prov:wasDerivedFrom': '#4CAF50',
+        'da:performsTransformation': '#FF6F00',
+        'da:produces': '#4CAF50',
+        'schema:nextItem': '#FF0000',  // Bright RED for workflow sequence
+        'dcterms:hasPart': '#9E9E9E',
+        'default': '#BDBDBD'
+      };
 
-      // Setup force simulation
-      simulation = d3.forceSimulation(nodes)
-        .force('link', d3.forceLink(links).id(d => d.id).distance(150))
-        .force('charge', d3.forceManyBody().strength(-400))
-        .force('center', d3.forceCenter(width/2, height/2))
-        .force('collide', d3.forceCollide().radius(40));
+      const defs = svg.append('defs');
 
-      // Initial positioning in a circle
-      const radius = Math.min(width, height) / 3;
-      nodes.forEach((d, i) => {
-        const angle = (i / nodes.length) * 2 * Math.PI;
-        d.x = width/2 + radius * Math.cos(angle);
-        d.y = height/2 + radius * Math.sin(angle);
+      Object.entries(arrowColors).forEach(([key, color]) => {
+        const markerId = `arrow-${key.replace(/[^a-zA-Z0-9]/g, '-')}`;
+        defs.append('marker')
+          .attr('id', markerId)
+          .attr('viewBox', '0 -5 10 10')
+          .attr('refX', 20)
+          .attr('markerWidth', 8)
+          .attr('markerHeight', 8)
+          .attr('orient', 'auto')
+          .append('path')
+          .attr('d', 'M0,-5L10,0L0,5')
+          .attr('fill', color);
       });
+
+      // Separate step nodes from other nodes for timeline layout
+      const stepNodes = nodes.filter(n => n.type === 'da:Cell')
+        .sort((a, b) => {
+          const orderA = a.properties['da:executionOrder'] || 0;
+          const orderB = b.properties['da:executionOrder'] || 0;
+          return orderA - orderB;
+        });
+      const otherNodes = nodes.filter(n => n.type !== 'da:Cell');
+
+      // Position step nodes in horizontal zigzag timeline (alternating up/down)
+      const timelineY = height / 2;  // Center line
+      const zigzagOffset = 150;  // Vertical offset for alternating positions
+      const stepStartX = 150;
+      const stepEndX = width - 150;
+      const stepSpacingX = stepNodes.length > 1
+        ? (stepEndX - stepStartX) / (stepNodes.length - 1)
+        : 0;
+
+      stepNodes.forEach((step, i) => {
+        step.fx = stepStartX + i * stepSpacingX;  // Horizontal progression
+        // Alternate: even indices up, odd indices down
+        step.fy = i % 2 === 0 ? timelineY - zigzagOffset : timelineY + zigzagOffset;
+      });
+
+      // Position other nodes around their parent step (clustered)
+      otherNodes.forEach(node => {
+        // Find which step this node belongs to (via da:cellId)
+        const cellId = node.properties['da:cellId'];
+        const parentStep = stepNodes.find(s => s.id === cellId);
+        if (parentStep) {
+          // Cluster entities around parent step with radial offset
+          const angle = Math.random() * Math.PI * 2;  // Random angle
+          const distance = 80 + Math.random() * 100;  // Distance from step
+          node.x = parentStep.fx + Math.cos(angle) * distance;
+          node.y = parentStep.fy + Math.sin(angle) * distance;
+        } else {
+          // Orphan nodes use default positioning
+          node.x = width/2 + (Math.random() - 0.5) * width * 0.5;
+          node.y = height/2 + (Math.random() - 0.5) * height * 0.3;
+        }
+      });
+
+      // Setup force simulation for ALL nodes (step nodes are pinned with fx/fy, so they won't move)
+      const simulatedLinks = links.filter(l => {
+        // Exclude nextItem links from force simulation
+        const pred = l.predicate || l.type || '';
+        return pred !== 'schema:nextItem';
+      });
+
+      simulation = d3.forceSimulation(nodes)  // All nodes, but step nodes are pinned
+        .force('link', d3.forceLink(simulatedLinks).id(d => d.id).distance(100))
+        .force('charge', d3.forceManyBody().strength(-200))
+        .force('y', d3.forceY(height / 2).strength(0.05))  // Gentle pull downward
+        .force('collide', d3.forceCollide().radius(30));
 
       // Function to get link color based on relationship type
       const getLinkColor = d => {
+        // Use d.predicate (full URI with prefix) instead of d.label (which has prefix stripped)
+        const pred = d.predicate || d.type || '';
+
         // Highlight provenance/data flow relationships
-        if (d.label === 'prov:used') return '#2196F3';  // Blue: transformation uses data
-        if (d.label === 'prov:wasGeneratedBy') return '#7B1FA2';  // Purple: asset generated by transformation
-        if (d.label === 'prov:wasDerivedFrom') return '#4CAF50';  // Green: outcome derived from asset
-        if (d.label === 'da:performsTransformation') return '#FF6F00';  // Orange: cell performs transformation
-        if (d.label === 'da:produces') return '#4CAF50';  // Green: produces outcome
-        return '#999';  // Default gray for other relationships
+        if (pred === 'prov:used') return '#2196F3';  // Blue: transformation uses data
+        if (pred === 'prov:wasGeneratedBy') return '#7B1FA2';  // Purple: asset generated by transformation
+        if (pred === 'prov:wasDerivedFrom') return '#4CAF50';  // Green: outcome derived from asset
+        if (pred === 'da:performsTransformation') return '#FF6F00';  // Orange: cell performs transformation
+        if (pred === 'da:produces') return '#4CAF50';  // Green: produces outcome
+        if (pred === 'schema:nextItem') return '#FF0000';  // Bright RED: workflow sequence (very visible!)
+        if (pred === 'dcterms:hasPart') return '#9E9E9E';  // Light gray: structural
+        return '#BDBDBD';  // Default light gray for other relationships
       };
 
       const getLinkWidth = d => {
+        // Use d.predicate for consistent checking
+        const pred = d.predicate || d.type || '';
+
+        // Make workflow sequence VERY prominent
+        if (pred === 'schema:nextItem') return 8;  // Extra thick for visibility
+
         // Make provenance relationships thicker
-        if (d.label && d.label.startsWith('prov:')) return 2;
-        if (d.label === 'da:performsTransformation') return 2;
-        if (d.label === 'da:produces') return 2;
+        if (pred.startsWith('prov:')) return 2;
+        if (pred === 'da:performsTransformation') return 2;
+        if (pred === 'da:produces') return 2;
         return 1;
       };
+
+      const getArrowMarker = d => {
+        // Get the correct arrow marker based on predicate type
+        const pred = d.predicate || d.type || '';
+        const markerId = `arrow-${pred.replace(/[^a-zA-Z0-9]/g, '-')}`;
+        // Check if marker exists, otherwise use default
+        return pred && arrowColors[pred] ? `url(#${markerId})` : 'url(#arrow-default)';
+      };
+
+      // Draw stepped workflow rail connecting all steps (polyline for staircase effect)
+      if (stepNodes.length > 1) {
+        const railPoints = stepNodes.map(s => `${s.fx},${s.fy}`).join(' ');
+        g.insert('polyline', ':first-child')
+          .attr('class', 'timeline-rail')
+          .attr('points', railPoints)
+          .attr('fill', 'none')
+          .attr('stroke', '#E0E0E0')
+          .attr('stroke-width', 4)
+          .attr('stroke-linecap', 'round')
+          .attr('stroke-linejoin', 'round');
+      }
+
+      // Debug: Log nextItem links
+      const nextItemLinks = links.filter(l => {
+        const pred = l.predicate || l.type || '';
+        return pred === 'schema:nextItem';
+      });
+      console.log('=== DEBUG INFO ===');
+      console.log('Total links:', links.length);
+      console.log('NextItem links found:', nextItemLinks.length);
+      console.log('NextItem link details:', nextItemLinks);
+      console.log('Sample link predicates:', links.slice(0, 10).map(l => l.predicate || l.type));
+      console.log('Step nodes:', stepNodes.map(s => ({ id: s.id, label: s.label })));
 
       // Create links
       link = g.append('g')
@@ -619,7 +719,11 @@
         .attr('class', d => `link-item link-${d.id.replace(/[^a-zA-Z0-9]/g, '-')}`)
         .attr('stroke', getLinkColor)
         .attr('stroke-width', getLinkWidth)
-        .attr('marker-end', 'url(#arrow)');
+        .attr('stroke-opacity', d => {
+          const pred = d.predicate || d.type || '';
+          return pred === 'schema:nextItem' ? 1 : 0.6;  // Full opacity for nextItem
+        })
+        .attr('marker-end', getArrowMarker);
 
       // Link labels
       linkText = g.append('g')
@@ -709,14 +813,15 @@
           tooltip.style.left = `${Math.max(10, Math.min(window.innerWidth - tooltipBox.width - 10, left))}px`;
         })
         .on('mouseout', function(event, d) {
-          // Remove highlights
+          // Remove node highlights
           d3.select(this).select('circle')
             .attr('stroke', null)
             .attr('stroke-width', null);
 
+          // Restore original link colors/widths (not hardcoded gray!)
           link
-            .attr('stroke', '#999')
-            .attr('stroke-width', 1);
+            .attr('stroke', getLinkColor)
+            .attr('stroke-width', getLinkWidth);
 
           linkText
             .attr('font-weight', 'normal')
@@ -729,11 +834,38 @@
           }
         });
 
+      // Render node circles with different sizes for steps vs other nodes
       node.append('circle')
-        .attr('r', 8)
-        .attr('fill', getNodeColor);
+        .attr('r', d => d.type === 'da:Cell' ? 24 : 8)  // Step nodes are larger
+        .attr('fill', d => d.type === 'da:Cell' ? '#2c3e50' : getNodeColor(d))
+        .attr('stroke', d => d.type === 'da:Cell' ? '#fff' : null)
+        .attr('stroke-width', d => d.type === 'da:Cell' ? 3 : 0);
 
-      node.append('text')
+      // Add step number for Cell nodes
+      node.filter(d => d.type === 'da:Cell')
+        .append('text')
+        .attr('class', 'step-number')
+        .attr('text-anchor', 'middle')
+        .attr('dy', 6)
+        .attr('fill', 'white')
+        .attr('font-size', '14px')
+        .attr('font-weight', 'bold')
+        .text(d => d.properties['da:executionOrder'] || '?');
+
+      // Add step label below Cell nodes
+      node.filter(d => d.type === 'da:Cell')
+        .append('text')
+        .attr('class', 'step-label')
+        .attr('text-anchor', 'middle')
+        .attr('y', 35)
+        .attr('fill', '#2c3e50')
+        .attr('font-size', '11px')
+        .attr('font-weight', '600')
+        .text(d => d.label);
+
+      // Regular node labels (non-Cell nodes)
+      node.filter(d => d.type !== 'da:Cell')
+        .append('text')
         .attr('font-size', '10px')
         .attr('x', 10)
         .attr('dy', 4)
@@ -799,6 +931,37 @@
         legend.appendChild(item);
       });
 
+      // Timeline workflow section
+      const timelineTitle = document.createElement('div');
+      timelineTitle.style.fontWeight = 'bold';
+      timelineTitle.style.marginTop = '10px';
+      timelineTitle.style.marginBottom = '5px';
+      timelineTitle.style.fontSize = '11px';
+      timelineTitle.textContent = 'Workflow Timeline:';
+      legend.appendChild(timelineTitle);
+
+      const timelineDesc = document.createElement('div');
+      timelineDesc.style.fontSize = '10px';
+      timelineDesc.style.marginBottom = '5px';
+      timelineDesc.style.color = '#666';
+      timelineDesc.textContent = 'Steps alternate up/down along horizontal timeline (zigzag)';
+      legend.appendChild(timelineDesc);
+
+      const timelineFlow = document.createElement('div');
+      timelineFlow.className = 'legend-item';
+      timelineFlow.style.fontSize = '11px';
+      const timelineBox = document.createElement('div');
+      timelineBox.style.width = '30px';
+      timelineBox.style.height = '8px';
+      timelineBox.style.backgroundColor = '#FF0000';  // Bright RED
+      timelineBox.style.marginRight = '8px';
+      const timelineLabel = document.createElement('div');
+      timelineLabel.textContent = 'Step Sequence (8px thick)';
+      timelineLabel.style.fontWeight = 'bold';
+      timelineFlow.appendChild(timelineBox);
+      timelineFlow.appendChild(timelineLabel);
+      legend.appendChild(timelineFlow);
+
       // Data flow relationships section
       const flowTitle = document.createElement('div');
       flowTitle.style.fontWeight = 'bold';
@@ -809,10 +972,10 @@
       legend.appendChild(flowTitle);
 
       const flows = [
-        { color: '#2196F3', label: 'Uses Data', desc: 'prov:used' },
-        { color: '#7B1FA2', label: 'Generated By', desc: 'prov:wasGeneratedBy' },
-        { color: '#4CAF50', label: 'Derived From', desc: 'prov:wasDerivedFrom' },
-        { color: '#FF6F00', label: 'Transformation', desc: 'da:performsTransformation' }
+        { color: '#2196F3', label: 'Uses Data', width: 2, desc: 'prov:used' },
+        { color: '#7B1FA2', label: 'Generated By', width: 2, desc: 'prov:wasGeneratedBy' },
+        { color: '#4CAF50', label: 'Derived From', width: 2, desc: 'prov:wasDerivedFrom' },
+        { color: '#FF6F00', label: 'Transformation', width: 2, desc: 'da:performsTransformation' }
       ];
 
       flows.forEach(flow => {
@@ -822,7 +985,7 @@
 
         const colorBox = document.createElement('div');
         colorBox.style.width = '20px';
-        colorBox.style.height = '2px';
+        colorBox.style.height = `${flow.width}px`;
         colorBox.style.backgroundColor = flow.color;
         colorBox.style.marginRight = '8px';
 
