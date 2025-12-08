@@ -364,14 +364,18 @@ ax.set_xlabel('Age')
 display(fig, "Figure 1: Age Distribution")  # ← REQUIRED, NOT plt.show()
 ```
 
-Example 3 - Analysis with multiple outputs:
+Example 3 - INTERACTIVE 3D plot (use Plotly when user says "interactive"):
 ```python
-summary = df.describe()
-display(summary, "Table 1: Summary Statistics")
-
-fig, ax = plt.subplots()
-ax.boxplot(df['age'])
-display(fig, "Figure 2: Age Boxplot")
+import plotly.graph_objects as go
+fig = go.Figure(data=[go.Scatter3d(
+    x=data[:, 0], y=data[:, 1], z=data[:, 2],
+    mode='markers',
+    marker=dict(size=5, color=labels)
+)])
+fig.update_layout(title="3D Visualization", scene=dict(
+    xaxis_title="X", yaxis_title="Y", zaxis_title="Z"
+))
+display(fig, "Figure 1: Interactive 3D Plot")  # ← Plotly figs are interactive
 ```
 
 📁 DATA FILES
@@ -397,6 +401,12 @@ All files in 'data/' directory. Use: pd.read_csv('data/filename.csv')
 
 ❌ WRONG: from scipy.integrate import trapz  # REMOVED in SciPy 1.14+
 ✅ RIGHT: from scipy.integrate import trapezoid  # Use trapezoid for AUC
+
+❌ WRONG: matplotlib for "interactive" plots
+✅ RIGHT: Use plotly.graph_objects for INTERACTIVE visualizations
+
+❌ WRONG: from sklearn.manifold import UMAP  # UMAP not in sklearn!
+✅ RIGHT: from umap import UMAP  # Separate package
 
 📚 AVAILABLE
 --------------------------------------------------------------------------------
