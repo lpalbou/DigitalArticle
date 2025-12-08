@@ -8,7 +8,11 @@ structure, consistent typography, and LLM-generated content sections.
 import base64
 import io
 import logging
+import math
 from typing import List, Optional, Dict, Any, Tuple
+
+import pandas as pd
+import numpy as np
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -548,19 +552,37 @@ class ScientificPDFService:
             if not cell.last_result:
                 continue
 
-            # 1. Handle static matplotlib plots (existing logic)
+            # 1. Handle static matplotlib plots (both dict and string formats)
             if cell.last_result.plots:
                 for plot_data in cell.last_result.plots:
                     try:
+                        # Handle both formats: dict from display() or string from auto-capture
+                        if isinstance(plot_data, dict):
+                            # Dict format: {'type': 'image', 'data': base64, 'label': '...'}
+                            plot_b64 = plot_data.get('data', '')
+                            plot_label = plot_data.get('label', '')
+                        else:
+                            # String format: plain base64 from auto-captured matplotlib
+                            plot_b64 = plot_data
+                            plot_label = ''
+
+                        # Skip if no actual data
+                        if not plot_b64:
+                            logger.warning(f"Empty plot data for figure {figure_counter}")
+                            continue
+
                         # Create meaningful scientific caption
                         caption = f"Figure {figure_counter}. "
-                        if cell.prompt:
+                        if plot_label:
+                            # Use explicit label from display()
+                            caption += plot_label
+                        elif cell.prompt:
                             # Generate scientific caption based on analysis type
                             caption += self._generate_figure_caption(cell.prompt, cell.code, cell.last_result)
                         else:
                             caption += f"Data visualization from analysis step {i}"
 
-                        self._add_figure_to_story(story, plot_data, f"Figure {figure_counter}", caption)
+                        self._add_figure_to_story(story, plot_b64, f"Figure {figure_counter}", caption)
                         figure_counter += 1
                     except Exception as e:
                         logger.warning(f"Failed to add figure {figure_counter} to results: {e}")
@@ -923,6 +945,53 @@ class ScientificPDFService:
         story.append(Spacer(1, 12))
         self.figure_counter += 1
     
+    def _format_number_for_pdf(self, value) -> str:
+        """Format numbers for clean PDF display (max 3 decimal places)."""
+        # Handle None and NaN
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return ''
+
+        try:
+            # Check for pandas NA/NaN
+            if pd.isna(value):
+                return ''
+        except (TypeError, ValueError):
+            pass  # Not a pandas-compatible type
+
+        # Handle strings - return as-is (with truncation)
+        if isinstance(value, str):
+            return value[:25] if len(value) > 25 else value
+
+        # Handle booleans (before numbers, since bool is subclass of int)
+        if isinstance(value, (bool, np.bool_)):
+            return str(value)
+
+        # Handle integers (including numpy integer types)
+        if isinstance(value, (int, np.integer)):
+            return str(int(value))
+
+        # Handle floats (including numpy float types)
+        if isinstance(value, (float, np.floating)):
+            # Handle infinity
+            if math.isinf(value):
+                return 'inf' if value > 0 else '-inf'
+
+            # Convert to Python float for consistency
+            float_val = float(value)
+
+            # Very large or very small numbers: use scientific notation
+            if abs(float_val) >= 1e6 or (abs(float_val) < 1e-3 and float_val != 0):
+                return f'{float_val:.2e}'
+
+            # Regular numbers: max 3 decimal places, strip trailing zeros
+            if float_val == int(float_val):
+                return str(int(float_val))
+            return f'{float_val:.3f}'.rstrip('0').rstrip('.')
+
+        # Fallback for other types
+        result = str(value)
+        return result[:25] if len(result) > 25 else result
+
     def _add_professional_table(self, story: List, table_data: Dict):
         """Add a professionally formatted table with proper numbering."""
         try:
@@ -958,14 +1027,16 @@ class ScientificPDFService:
                 if isinstance(row, dict):
                     table_row = []
                     for col in columns:
-                        value = str(row.get(col, ''))
-                        # Truncate long values
-                        if len(value) > 25:
-                            value = value[:22] + "..."
-                        table_row.append(Paragraph(value, self.styles['TableCell']))
+                        value = row.get(col, '')
+                        # Format numbers cleanly (max 3 decimals)
+                        formatted_value = self._format_number_for_pdf(value)
+                        table_row.append(Paragraph(formatted_value, self.styles['TableCell']))
                     table_rows.append(table_row)
                 else:
-                    table_row = [Paragraph(str(val)[:25], self.styles['TableCell']) for val in row[:len(columns)]]
+                    table_row = [
+                        Paragraph(self._format_number_for_pdf(val), self.styles['TableCell'])
+                        for val in row[:len(columns)]
+                    ]
                     table_rows.append(table_row)
             
             # Create table with professional styling
@@ -1023,10 +1094,25 @@ class ScientificPDFService:
         """Clean and format text for optimal PDF display."""
         if not text:
             return ""
-        
+
         # Clean up text
         text = text.strip()
-        
+
+        # Convert Unicode subscripts/superscripts to ASCII (Helvetica doesn't support them)
+        subscript_map = {
+            '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4',
+            '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9',
+            '₋': '-', '₊': '+', '₌': '=', '₍': '(', '₎': ')',
+            '∞': 'inf', '∑': 'sum', '∏': 'prod', '√': 'sqrt',
+            '≤': '<=', '≥': '>=', '≠': '!=', '±': '+/-',
+            '×': 'x', '÷': '/', '•': '*', '·': '*',
+            'α': 'alpha', 'β': 'beta', 'γ': 'gamma', 'δ': 'delta',
+            'μ': 'mu', 'σ': 'sigma', 'λ': 'lambda', 'τ': 'tau',
+        }
+
+        for unicode_char, ascii_equiv in subscript_map.items():
+            text = text.replace(unicode_char, ascii_equiv)
+
         # Escape HTML special characters
         text = text.replace('&', '&amp;')
         text = text.replace('<', '&lt;')
