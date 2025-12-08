@@ -189,7 +189,7 @@ class ReasoningStep(BaseModel):
 class ReasoningTrace(BaseModel):
     """Complete trace of the reasoning process that led to an analysis plan."""
     steps: List[ReasoningStep] = Field(default_factory=list)
-    final_plan: AnalysisPlan
+    final_plan: Optional[AnalysisPlan] = None  # Set after planning completes
     total_reasoning_time_ms: float
     llm_provider: str
     llm_model: str
@@ -200,11 +200,12 @@ class ReasoningTrace(BaseModel):
 
     def get_summary(self) -> str:
         """Get human-readable summary of reasoning process."""
+        plan_summary = self.final_plan.get_summary() if self.final_plan else "Plan not yet generated"
         return f"""
 Reasoning Process ({len(self.steps)} steps, {self.total_reasoning_time_ms:.0f}ms):
 
 {chr(10).join(f"{i+1}. {step.step_type}: {step.reasoning}" for i, step in enumerate(self.steps))}
 
 Final Plan:
-{self.final_plan.get_summary()}
+{plan_summary}
 """

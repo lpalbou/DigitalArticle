@@ -133,6 +133,10 @@ class ErrorAnalyzer:
 
         NOTE: This runs even if code succeeds, to catch logical errors.
         """
+        # Don't run logical checks for import errors - those are technical, not logical
+        if error_type in ['ModuleNotFoundError', 'ImportError']:
+            return None
+
         suggestions = []
         error_detected = False
 
@@ -281,46 +285,114 @@ class ErrorAnalyzer:
             matches = re.findall(pattern, code)
             referenced_columns.update(matches)
 
-        # Get available columns from context
+        # Get available columns from context (handle both flat and categorized structure)
         available_columns = set()
-        for var_name, var_info in context['available_variables'].items():
-            if isinstance(var_info, dict) and 'columns' in var_info:
-                available_columns.update(var_info['columns'])
-            elif isinstance(var_info, str) and 'columns:' in var_info.lower():
-                # Parse column list from string representation
-                match = re.search(r'columns:\s*\[([^\]]+)\]', var_info, re.IGNORECASE)
-                if match:
-                    cols = [c.strip().strip("'\"") for c in match.group(1).split(',')]
-                    available_columns.update(cols)
+        vars_info = context['available_variables']
+
+        # Check if this is a categorized structure
+        is_categorized = any(k in vars_info for k in ['dataframes', 'modules', 'numbers', 'arrays', 'dicts', 'other'])
+
+        if is_categorized:
+            # Extract columns from categorized structure
+            if vars_info.get('dataframes'):
+                for df_name, df_info in vars_info['dataframes'].items():
+                    if 'columns' in df_info:
+                        available_columns.update(df_info['columns'])
+        else:
+            # Handle flat structure
+            for var_name, var_info in vars_info.items():
+                if isinstance(var_info, dict) and 'columns' in var_info:
+                    available_columns.update(var_info['columns'])
+                elif isinstance(var_info, str) and 'columns:' in var_info.lower():
+                    # Parse column list from string representation
+                    match = re.search(r'columns:\s*\[([^\]]+)\]', var_info, re.IGNORECASE)
+                    if match:
+                        cols = [c.strip().strip("'\"") for c in match.group(1).split(',')]
+                        available_columns.update(cols)
 
         # Find missing
         missing = referenced_columns - available_columns
-        # Filter out common false positives (methods, keywords, constants)
-        false_positives = {'head', 'tail', 'info', 'describe', 'columns', 'shape', 'index', 'values', 'dtypes',
-                           'nan', 'NaN', 'none', 'None', 'inf', 'Inf'}  # Added np.nan, None, inf
+        # Filter out common false positives (methods, keywords, constants, common variables)
+        false_positives = {
+            # DataFrame methods and attributes
+            'head', 'tail', 'info', 'describe', 'columns', 'shape', 'index', 'values', 'dtypes',
+            # Constants
+            'nan', 'NaN', 'none', 'None', 'inf', 'Inf',
+            # Common variable names that are NOT DataFrame columns
+            't', 'i', 'j', 'k', 'x', 'y', 'z', 'n', 'm',  # Loop variables, coordinates
+            'params', 'result', 'results', 'model', 'fit',  # Modeling variables
+            'CL', 'Vd', 'AUC', 'Cmax', 'Tmax',  # PK parameters (common in M&S)
+            'fig', 'ax', 'axes', 'plt',  # Plotting variables
+        }
         missing = missing - false_positives
 
         return list(missing)
 
     def _format_available_variables(self, context: Dict[str, Any]) -> str:
-        """Format available variables for display."""
+        """Format available variables for display, handling categorized structure."""
         if not context or 'available_variables' not in context:
             return "  No variables available"
 
+        vars_info = context['available_variables']
         lines = []
-        for var_name, var_info in context['available_variables'].items():
-            if isinstance(var_info, dict):
-                lines.append(f"  • {var_name}: {var_info.get('type', 'unknown')}")
-                if 'columns' in var_info:
-                    cols = var_info['columns']
-                    if len(cols) <= 10:
-                        lines.append(f"    Columns: {', '.join(cols)}")
-                    else:
-                        lines.append(f"    Columns ({len(cols)}): {', '.join(cols[:10])}, ...")
-            else:
-                lines.append(f"  • {var_name}: {str(var_info)[:100]}")
 
-        return "\n".join(lines)
+        # Check if this is a categorized structure (from get_variable_info)
+        is_categorized = any(k in vars_info for k in ['dataframes', 'modules', 'numbers', 'arrays', 'dicts', 'other'])
+
+        if is_categorized:
+            # Handle categorized structure
+            if vars_info.get('dataframes'):
+                for name, info in vars_info['dataframes'].items():
+                    cols = info.get('columns', [])
+                    lines.append(f"  • DataFrame '{name}': {len(cols)} columns")
+                    if cols:
+                        if len(cols) <= 10:
+                            lines.append(f"    Columns: {', '.join(str(c) for c in cols)}")
+                        else:
+                            lines.append(f"    Columns ({len(cols)}): {', '.join(str(c) for c in cols[:10])}, ...")
+
+            if vars_info.get('arrays'):
+                for name, info in vars_info['arrays'].items():
+                    var_type = info.get('type', 'array')
+                    shape_info = info.get('shape', info.get('size', 'N/A'))
+                    lines.append(f"  • {var_type} '{name}': {shape_info}")
+
+            if vars_info.get('modules'):
+                module_names = list(vars_info['modules'].keys())
+                if module_names:
+                    lines.append(f"  • Modules: {', '.join(module_names)}")
+
+            if vars_info.get('numbers'):
+                if len(vars_info['numbers']) <= 5:
+                    for name in vars_info['numbers'].keys():
+                        lines.append(f"  • number '{name}'")
+                else:
+                    lines.append(f"  • Numbers: {len(vars_info['numbers'])} variables")
+
+            if vars_info.get('dicts'):
+                for name, info in vars_info['dicts'].items():
+                    size = info.get('size', 'N/A')
+                    lines.append(f"  • dict '{name}': {size} items")
+
+            if vars_info.get('other'):
+                for name, info in vars_info['other'].items():
+                    var_type = info.get('type', 'object') if isinstance(info, dict) else 'unknown'
+                    lines.append(f"  • {var_type} '{name}'")
+        else:
+            # Handle flat structure (legacy)
+            for var_name, var_info in vars_info.items():
+                if isinstance(var_info, dict):
+                    lines.append(f"  • {var_name}: {var_info.get('type', 'unknown')}")
+                    if 'columns' in var_info:
+                        cols = var_info['columns']
+                        if len(cols) <= 10:
+                            lines.append(f"    Columns: {', '.join(str(c) for c in cols)}")
+                        else:
+                            lines.append(f"    Columns ({len(cols)}): {', '.join(str(c) for c in cols[:10])}, ...")
+                else:
+                    lines.append(f"  • {var_name}: {str(var_info)[:100]}")
+
+        return "\n".join(lines) if lines else "  No variables available"
 
     def _check_sample_size_adequacy(
         self,
@@ -1278,9 +1350,9 @@ Quick fix: Convert numpy types to Python types using .item() or int()/float()
         suggestions.extend([
             "📚 AVAILABLE LIBRARIES:",
             "  - pandas (pd), numpy (np), matplotlib.pyplot (plt)",
-            "  - plotly.express (px), seaborn (sns), scipy.stats (stats)",
-            "  - sklearn (machine learning), scanpy (sc), umap",
-            "  - PIL (images), requests (web), openpyxl (Excel)",
+            "  - plotly.express (px), seaborn (sns), scipy (stats, optimize)",
+            "  - sklearn (machine learning), lmfit (curve fitting)",
+            "  - scanpy (sc), umap, PIL (images), requests (web), openpyxl (Excel)",
             "",
             "💡 SOLUTIONS:",
             f"1. Check spelling: '{module}'",
@@ -1299,9 +1371,36 @@ Quick fix: Convert numpy types to Python types using .item() or int()/float()
         """Simple keyword matching for common import issues."""
         module_lower = module.lower()
         suggestions = []
-        
+
         # Common substitutions
-        if 'tensorflow' in module_lower or 'torch' in module_lower or 'keras' in module_lower:
+        if 'lmfit' in module_lower:
+            suggestions.extend([
+                "🔬 NONLINEAR FITTING → Use scipy.optimize instead:",
+                "   from scipy.optimize import curve_fit, minimize",
+                "   # For curve fitting with bounds:",
+                "   from scipy.optimize import curve_fit",
+                "   popt, pcov = curve_fit(func, x_data, y_data, bounds=([min_CL, min_Vd], [max_CL, max_Vd]))",
+                "   # For minimization with constraints:",
+                "   from scipy.optimize import minimize",
+                "   result = minimize(objective_func, initial_guess, bounds=[(min_val, max_val), ...])"
+            ])
+        elif 'statsmodels' in module_lower:
+            suggestions.extend([
+                "📊 STATISTICS → Use scipy.stats instead:",
+                "   from scipy import stats",
+                "   # t-test: stats.ttest_ind(group1, group2)",
+                "   # ANOVA: stats.f_oneway(group1, group2, group3)",
+                "   # Linear regression: from sklearn.linear_model import LinearRegression"
+            ])
+        elif 'seaborn' in module_lower:
+            suggestions.extend([
+                "📈 PLOTTING → Use matplotlib instead:",
+                "   import matplotlib.pyplot as plt",
+                "   # For histograms: plt.hist(data)",
+                "   # For scatter: plt.scatter(x, y)",
+                "   # For heatmaps: plt.imshow(data, cmap='viridis')"
+            ])
+        elif 'tensorflow' in module_lower or 'torch' in module_lower or 'keras' in module_lower:
             suggestions.extend([
                 "🔄 DEEP LEARNING → Use sklearn instead:",
                 "   from sklearn.neural_network import MLPClassifier",
@@ -1329,7 +1428,7 @@ Quick fix: Convert numpy types to Python types using .item() or int()/float()
                 "   df = pd.read_excel('data/file.xlsx')",
                 "   import openpyxl  # (available)"
             ])
-        
+
         return suggestions
 
     # ============================================================================

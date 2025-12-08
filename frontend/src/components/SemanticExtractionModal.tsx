@@ -120,7 +120,7 @@ const SemanticExtractionModal: React.FC<SemanticExtractionModalProps> = ({
               {stage === 'extracting' && (
                 <div className="mt-4 text-xs text-gray-400 text-center">
                   <p>Using LLM to extract structured semantic information...</p>
-                  <p className="mt-1">This may take 30-60 seconds depending on notebook size</p>
+                  <p className="mt-1">This may take a few minutes depending on notebook size</p>
                 </div>
               )}
             </div>

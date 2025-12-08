@@ -139,7 +139,7 @@ const ReviewProgressModal: React.FC<ReviewProgressModalProps> = ({
               {stage === 'reviewing' && tokens !== undefined && tokens > 0 && (
                 <div className="mt-4 text-xs text-gray-400 text-center">
                   <p>Processing: {tokens} tokens generated</p>
-                  <p className="mt-1">This may take 30-60 seconds depending on article size</p>
+                  <p className="mt-1">This may take a few minutes depending on article size</p>
                 </div>
               )}
 

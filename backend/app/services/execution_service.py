@@ -587,8 +587,8 @@ class ExecutionService:
             self.execution_count += 1
             logger.info(f"Successfully executed cell {cell_id}")
 
-            # Check for statistical warnings in the output
-            statistical_warnings = self._check_statistical_warnings(result.stdout)
+            # Check for statistical warnings in the output (stdout and tables)
+            statistical_warnings = self._check_statistical_warnings(result.stdout, result.tables)
             if statistical_warnings:
                 result.warnings.extend(statistical_warnings)
                 logger.warning(f"⚠️ Statistical validation found {len(statistical_warnings)} warning(s):")
@@ -651,16 +651,17 @@ class ExecutionService:
 
         return result
 
-    def _check_statistical_warnings(self, stdout: str) -> List[str]:
+    def _check_statistical_warnings(self, stdout: str, tables: List[Dict[str, Any]] = None) -> List[str]:
         """Check for statistical red flags in execution results.
 
-        Scans stdout for common issues that indicate methodological problems:
+        Scans stdout and displayed tables for common issues that indicate methodological problems:
         - Parameters at optimizer bounds (unreliable estimates)
         - Impossible confidence intervals (negative clearance, etc.)
         - Poor parameter precision (%CV > 150%)
 
         Args:
             stdout: Standard output from code execution
+            tables: Optional list of displayed tables to scan for statistical warnings
 
         Returns:
             List of warning messages
@@ -694,6 +695,54 @@ class ExecutionService:
                     warnings_list.append(f"⚠️ STATISTICAL: %CV of {cv}% indicates very poor parameter precision (typically %CV < 50% is acceptable). Consider more data or simpler model.")
             except ValueError:
                 pass
+
+        # NEW: Also scan displayed tables for statistical red flags
+        if tables:
+            for table in tables:
+                columns = table.get('columns', [])
+                data = table.get('data', [])
+
+                # Find %CV column (case-insensitive, look for %CV, CV, or coefficient of variation)
+                cv_col = None
+                for col in columns:
+                    col_lower = str(col).lower()
+                    if '%cv' in col_lower or col_lower == 'cv' or 'coefficient' in col_lower:
+                        cv_col = col
+                        break
+
+                # Check %CV values in table
+                if cv_col and data:
+                    for row in data:
+                        cv_value = row.get(cv_col)
+                        if isinstance(cv_value, (int, float)) and cv_value > 100:
+                            # Try to get parameter name from row
+                            param_name = row.get('Parameter', row.get('parameter', row.get('param', 'Unknown')))
+                            if cv_value > 1000:
+                                warnings_list.append(f"🚨 CRITICAL: {param_name} has %CV = {cv_value:.1f}% - parameter is essentially unidentifiable. Model cannot be reliably estimated from this data.")
+                            else:
+                                warnings_list.append(f"⚠️ STATISTICAL: {param_name} has %CV = {cv_value:.1f}% (>100%) - poor parameter precision. Consider more data or simpler model.")
+
+                # Check for parameters at common optimizer bounds
+                estimate_col = None
+                for col in columns:
+                    col_lower = str(col).lower()
+                    if 'estimate' in col_lower or 'value' in col_lower or 'fitted' in col_lower:
+                        estimate_col = col
+                        break
+
+                if estimate_col and data:
+                    # Common optimizer bounds in PK/PD modeling
+                    common_bounds = {0.1, 1.0, 10.0, 100.0, 0.01, 0.001, 1000.0, 0.0001, 10000.0}
+                    for row in data:
+                        est_value = row.get(estimate_col)
+                        if isinstance(est_value, (int, float)):
+                            # Try to get parameter name
+                            param_name = row.get('Parameter', row.get('parameter', row.get('param', 'Unknown')))
+                            # Check if value matches a common bound (within floating point tolerance)
+                            for bound in common_bounds:
+                                if abs(est_value - bound) < 1e-6:
+                                    warnings_list.append(f"⚠️ STATISTICAL: {param_name} = {est_value} appears to be at optimizer bounds. Parameter estimates at bounds are unreliable - consider different initial values or bounds.")
+                                    break
 
         return warnings_list
 

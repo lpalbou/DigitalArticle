@@ -815,6 +815,9 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 logger.warning(f"Context building failed: {context_error}, using empty context")
                 context = {}
 
+            # Initialize result for cases where code generation fails (planning errors, LLM errors)
+            result = None
+
             # Generate code if needed
             if not cell.code or request.force_regenerate:
                 if cell.cell_type == CellType.PROMPT and cell.prompt:
@@ -874,96 +877,118 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                                 for issue in critical_issues
                             ]
 
-                            # Create error result
-                            error_result = ExecutionResult(
-                                status=ExecutionStatus.ERROR,
-                                error_type="PlanningCriticalIssue",
-                                error_message=f"Planning detected critical logical issues: {critical_issues[0].message}",
-                                traceback=analysis_plan.get_summary()
+                            # Build comprehensive error message from all critical issues
+                            issues_details = "\n\n".join(
+                                f"{i+1}. {issue.message}\n   {issue.explanation}\n   Suggestion: {issue.suggestion}"
+                                for i, issue in enumerate(critical_issues)
                             )
-                            cell.last_result = error_result
-                            cell.is_executing = False
-                            self._save_notebook(notebook)
 
-                            logger.warning("🚫 Execution blocked due to critical planning issues")
-                            return cell, error_result
+                            # Raise exception to trigger retry mechanism with planning feedback
+                            # This allows LLM to revise the approach based on planning analysis
+                            error_msg = (
+                                f"CRITICAL PLANNING ISSUES - Approach has fundamental logical flaws:\n\n"
+                                f"{issues_details}\n\n"
+                                f"PLANNING ANALYSIS:\n{analysis_plan.get_summary()}\n\n"
+                                f"Please REVISE your analytical approach to address these logical issues, "
+                                f"then generate code implementing the corrected approach."
+                            )
 
+                            logger.warning(f"🚫 Planning detected critical issues - will trigger retry with planning feedback")
+                            raise ValueError(error_msg)
+
+                    except ValueError as planning_critical_error:
+                        # Planning detected critical issues - create error result for retry mechanism
+                        logger.warning(f"🔄 Planning critical issues detected - preparing for retry mechanism")
+                        result = ExecutionResult(
+                            status=ExecutionStatus.ERROR,
+                            error_type="PlanningCriticalIssue",
+                            error_message=str(planning_critical_error),
+                            traceback=""
+                        )
+                        cell.code = ""  # No code generated - planning blocked it
+                        # DON'T re-raise - continue to retry logic with error result
                     except Exception as planning_error:
                         logger.warning(f"⚠️ Planning phase failed (non-critical): {planning_error}")
                         # Continue with code generation even if planning fails (fail-safe)
                         pass
 
                     # ===================================================================
-                    # CODE GENERATION PHASE
+                    # CODE GENERATION PHASE - Skip if planning detected critical issues
                     # ===================================================================
-                    logger.info(f"Generating code for prompt: {cell.prompt[:100]}...")
-                    
-                    try:
-                        # Update LLM service configuration
-                        if notebook.llm_provider != self.llm_service.provider or notebook.llm_model != self.llm_service.model:
-                            logger.info(f"Updating LLM service: {notebook.llm_provider}/{notebook.llm_model}")
-                            self.llm_service = LLMService(notebook.llm_provider, notebook.llm_model)
-                        
-                        # Generate code with full tracing
-                        logger.info("Calling LLM service for code generation...")
-                        generated_code, generation_time, trace_id, full_trace = self.llm_service.generate_code_from_prompt(
-                            cell.prompt,
-                            context,
-                            step_type='code_generation',
-                            attempt_number=1
-                        )
-                        cell.code = generated_code
-                        cell.last_generation_time_ms = generation_time
-                        cell.last_execution_timestamp = datetime.now()
-                        cell.updated_at = datetime.now()
+                    if result is None:  # Only generate code if no planning error
+                        logger.info(f"Generating code for prompt: {cell.prompt[:100]}...")
 
-                        # Store trace IDs for backward compatibility
-                        if 'trace_ids' not in cell.metadata:
-                            cell.metadata['trace_ids'] = []
-                        if trace_id:
-                            cell.metadata['trace_ids'].append(trace_id)
-
-                        # Store full trace for persistent observability
-                        if full_trace:
-                            cell.llm_traces.append(full_trace)
-                            logger.info(f"✅ Stored full trace for code generation {trace_id}")
-
-                        logger.info(f"Successfully generated {len(generated_code)} characters of code" +
-                                  (f" in {generation_time}ms" if generation_time else '') +
-                                  (f", trace_id: {trace_id}" if trace_id else ""))
-
-                        # Update notebook's last context tokens from the generation
                         try:
-                            # Get the most recent cell usage which should have the input tokens
-                            cell_usage = self.llm_service.token_tracker.get_cell_usage(str(cell.id))
-                            if cell_usage and cell_usage.get('input_tokens', 0) > 0:
-                                notebook.last_context_tokens = cell_usage['input_tokens']
-                                logger.info(f"📊 Updated notebook last_context_tokens: {cell_usage['input_tokens']}")
-                        except Exception as token_err:
-                            logger.warning(f"Could not update last_context_tokens: {token_err}")
+                            # Update LLM service configuration
+                            if notebook.llm_provider != self.llm_service.provider or notebook.llm_model != self.llm_service.model:
+                                logger.info(f"Updating LLM service: {notebook.llm_provider}/{notebook.llm_model}")
+                                self.llm_service = LLMService(notebook.llm_provider, notebook.llm_model)
 
-                    except Exception as e:
-                        logger.error(f"❌ LLM code generation failed for cell {cell.id}")
-                        logger.error(f"   Prompt: {cell.prompt[:100]}...")
-                        logger.error(f"   Error type: {type(e).__name__}")
-                        logger.error(f"   Error message: {str(e)}")
-                        import traceback
-                        logger.error(f"   Traceback:\n{traceback.format_exc()}")
-                        logger.error(f"   Check: API keys, rate limits, network connectivity, or LLM service availability")
+                            # Generate code with full tracing
+                            logger.info("Calling LLM service for code generation...")
+                            generated_code, generation_time, trace_id, full_trace = self.llm_service.generate_code_from_prompt(
+                                cell.prompt,
+                                context,
+                                step_type='code_generation',
+                                attempt_number=1
+                            )
+                            cell.code = generated_code
+                            cell.last_generation_time_ms = generation_time
+                            cell.last_execution_timestamp = datetime.now()
+                            cell.updated_at = datetime.now()
 
-                        # DO NOT use fallback code - let the error surface properly
-                        # The retry mechanism will attempt to fix real errors
-                        # If LLM is completely unavailable, user needs to know
-                        cell.code = ""  # Empty code, will show error to user
-                        raise  # Re-raise the exception so it's properly handled
+                            # Store trace IDs for backward compatibility
+                            if 'trace_ids' not in cell.metadata:
+                                cell.metadata['trace_ids'] = []
+                            if trace_id:
+                                cell.metadata['trace_ids'].append(trace_id)
+
+                            # Store full trace for persistent observability
+                            if full_trace:
+                                cell.llm_traces.append(full_trace)
+                                logger.info(f"✅ Stored full trace for code generation {trace_id}")
+
+                            logger.info(f"Successfully generated {len(generated_code)} characters of code" +
+                                      (f" in {generation_time}ms" if generation_time else '') +
+                                      (f", trace_id: {trace_id}" if trace_id else ""))
+
+                            # Update notebook's last context tokens from the generation
+                            try:
+                                # Get the most recent cell usage which should have the input tokens
+                                cell_usage = self.llm_service.token_tracker.get_cell_usage(str(cell.id))
+                                if cell_usage and cell_usage.get('input_tokens', 0) > 0:
+                                    notebook.last_context_tokens = cell_usage['input_tokens']
+                                    logger.info(f"📊 Updated notebook last_context_tokens: {cell_usage['input_tokens']}")
+                            except Exception as token_err:
+                                logger.warning(f"Could not update last_context_tokens: {token_err}")
+
+                        except Exception as e:
+                            logger.error(f"❌ LLM code generation failed for cell {cell.id}")
+                            logger.error(f"   Prompt: {cell.prompt[:100]}...")
+                            logger.error(f"   Error type: {type(e).__name__}")
+                            logger.error(f"   Error message: {str(e)}")
+                            import traceback
+                            logger.error(f"   Traceback:\n{traceback.format_exc()}")
+                            logger.error(f"   Check: API keys, rate limits, network connectivity, or LLM service availability")
+
+                            # DO NOT use fallback code - let the error surface properly
+                            # If LLM is completely unavailable, user needs to know
+                            cell.code = ""  # Empty code, will show error to user
+                            raise  # Re-raise the exception so it's properly handled
+                    else:
+                        logger.info(f"⏭️ Skipping code generation - planning created error result for retry")
             
-            # Execute code if available
+            # Execute code if available OR handle planning errors
             if cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
                 # Set up notebook-specific context for execution
                 result = self.execution_service.execute_code(cell.code, str(cell.id), str(notebook.id))
                 cell.execution_count += 1
-                
-                # Auto-retry logic: if execution failed and we have a prompt or generated code, try to fix it with LLM
+            elif result is None:
+                # No code and no planning error - empty cell or markdown
+                result = ExecutionResult(status=ExecutionStatus.SUCCESS)
+
+            # Auto-retry logic: if execution/planning failed and we have a prompt, try to fix it with LLM
+            if result and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
                 max_retries = 5
                 should_auto_retry = (
                     result.status == ExecutionStatus.ERROR and 
@@ -1093,10 +1118,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                         
                         # Continue to next retry attempt
                         should_auto_retry = (cell.retry_count < max_retries)
-            else:
-                # For markdown cells or empty cells
-                result = ExecutionResult(status=ExecutionStatus.SUCCESS)
-            
+
             # Update cell with result
             cell.last_result = result
             cell.is_executing = False

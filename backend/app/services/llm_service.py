@@ -397,7 +397,7 @@ All files in 'data/' directory. Use: pd.read_csv('data/filename.csv')
 
 📚 AVAILABLE
 --------------------------------------------------------------------------------
-Libraries: pandas, numpy, matplotlib, plotly, seaborn, scipy, sklearn, scanpy, umap, PIL, requests, openpyxl
+Libraries: pandas, numpy, matplotlib, plotly, seaborn, scipy, sklearn, lmfit, scanpy, umap, PIL, requests, openpyxl
 Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
 
 ✅ FINAL CHECKLIST (VERIFY BEFORE SUBMITTING)
@@ -532,7 +532,33 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
         # Add context-specific information
         if context:
             if 'available_variables' in context:
-                base_prompt += f"\n\nAVAILABLE VARIABLES:\n{context['available_variables']}"
+                base_prompt += "\n\nAVAILABLE VARIABLES:\n"
+                base_prompt += "Note: Use these variable names directly in your code.\n"
+                vars_info = context['available_variables']
+
+                # Check if categorized structure
+                is_categorized = any(k in vars_info for k in ['dataframes', 'modules', 'numbers', 'arrays', 'dicts', 'other'])
+
+                if is_categorized:
+                    # Format categorized structure - just list the variable names
+                    if vars_info.get('dataframes'):
+                        base_prompt += "DataFrames: " + ", ".join(vars_info['dataframes'].keys()) + "\n"
+                    if vars_info.get('arrays'):
+                        base_prompt += "Arrays: " + ", ".join(vars_info['arrays'].keys()) + "\n"
+                    if vars_info.get('modules'):
+                        base_prompt += "Modules: " + ", ".join(vars_info['modules'].keys()) + "\n"
+                    if vars_info.get('dicts'):
+                        base_prompt += "Dicts: " + ", ".join(vars_info['dicts'].keys()) + "\n"
+                    if vars_info.get('numbers'):
+                        if len(vars_info['numbers']) <= 10:
+                            base_prompt += "Numbers: " + ", ".join(vars_info['numbers'].keys()) + "\n"
+                    if vars_info.get('other'):
+                        if len(vars_info['other']) <= 5:
+                            base_prompt += "Other: " + ", ".join(vars_info['other'].keys()) + "\n"
+                else:
+                    # Format flat structure
+                    base_prompt += ", ".join(vars_info.keys())
+
             if 'data_info' in context:
                 base_prompt += f"\n\nDATA INFO:\n{context['data_info']}"
 

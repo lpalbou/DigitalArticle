@@ -100,7 +100,7 @@ class AnalysisCritic:
             # result_plausibility, assumption_validity). BasicJudge with custom focus provides
             # the domain-specific assessment we need.
             judge_assessment = self.judge.evaluate(
-                text=critique_context,
+                content=critique_context,  # Renamed from 'text' to match AbstractCore API
                 context="data analysis quality assessment",
                 focus="result plausibility, assumption checking, interpretation accuracy"
             )

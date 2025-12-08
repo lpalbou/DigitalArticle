@@ -214,7 +214,7 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
               {stage === 'extracting' && operationType === 'semantic-analysis' && (
                 <div className="mt-4 text-xs text-gray-400 text-center">
                   <p>LLM-based extraction in progress</p>
-                  <p className="mt-1">This may take 30-60 seconds depending on notebook size</p>
+                  <p className="mt-1">This may take a few minutes depending on notebook size</p>
                 </div>
               )}
 
