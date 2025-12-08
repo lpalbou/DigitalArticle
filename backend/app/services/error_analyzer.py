@@ -1356,6 +1356,31 @@ Quick fix: Convert numpy types to Python types using .item() or int()/float()
                 suggestions=suggestions
             )
 
+        # SPECIAL CASE: UMAP wrong import (common mistake - it's NOT in sklearn)
+        if "cannot import name 'UMAP' from 'sklearn" in error_message or \
+           ("UMAP" in error_message and "sklearn" in error_message):
+            suggestions = [
+                "🚨 UMAP IS NOT IN SKLEARN",
+                "",
+                "UMAP is a separate package, not part of scikit-learn:",
+                "",
+                "❌ WRONG:",
+                "   from sklearn.manifold import UMAP",
+                "",
+                "✅ CORRECT:",
+                "   from umap import UMAP",
+                "",
+                "NOTE: The umap-learn package is already installed.",
+                "UMAP is NOT in sklearn.manifold - it's a standalone package.",
+            ]
+
+            return ErrorContext(
+                original_error=error_message,
+                error_type=error_type,
+                enhanced_message="UMAP is not in sklearn - use 'from umap import UMAP'",
+                suggestions=suggestions
+            )
+
         # Extract module name
         module_pattern = r"No module named ['\"]([^'\"]+)['\"]"
         match = re.search(module_pattern, error_message)

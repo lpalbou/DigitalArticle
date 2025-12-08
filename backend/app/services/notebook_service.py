@@ -998,12 +998,12 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             if result and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
                 max_retries = 5
                 should_auto_retry = (
-                    result.status == ExecutionStatus.ERROR and 
-                    (cell.cell_type == CellType.PROMPT or 
+                    result.status == ExecutionStatus.ERROR and
+                    (cell.cell_type == CellType.PROMPT or
                      (cell.cell_type in (CellType.CODE, CellType.METHODOLOGY) and cell.prompt)) and
-                    cell.prompt and 
-                    cell.retry_count < max_retries and  # Allow up to 3 retries
-                    not request.force_regenerate
+                    cell.prompt and
+                    cell.retry_count < max_retries  # Allow up to 3 retries
+                    # Removed: not request.force_regenerate - regenerated code should ALSO get retries if it fails
                 )
 
                 # Store original generated code BEFORE retry loop to prevent code mutation bug
