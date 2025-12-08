@@ -6,6 +6,91 @@ Digital Article is a computational notebook application that inverts the traditi
 
 ## Recent Investigations
 
+### Task: Make Reviewer Stringent on Synthetic Data (2025-12-08)
+
+**Description**: Fixed critical issue where reviewer gave "publication-ready" and "meets Nature/Science standards" assessments for notebooks using synthetic/mock/test data.
+
+**Problem Identified**:
+
+User showed reviewer output saying:
+```
+"This digital article represents a model of modern computational pharmacology...
+meeting or exceeding standards of Nature, Science, and PLOS for computational
+biology publications. No revisions are required; it is publication-ready in
+its current form."
+```
+
+**For a notebook using SYNTHETIC data!**
+
+This is completely inappropriate because:
+- Synthetic data ≠ real clinical/experimental data
+- Technically correct code ≠ scientifically publication-ready
+- Test scenarios ≠ validated scientific findings
+- Mock data = NOT suitable for peer-reviewed journals
+
+**Root Cause**:
+
+The reviewer's system prompt (review_service.py:36-153) had ZERO guidance about:
+- Checking data provenance (real vs synthetic)
+- Being critical about synthetic/mock/test data
+- Understanding that synthetic data disqualifies work from publication
+
+**Implementation**:
+
+Added **"🚨 CRITICAL: DATA PROVENANCE ASSESSMENT"** section at top of reviewer system prompt (lines 74-108):
+
+**Key Requirements for Reviewer**:
+
+1. **Check FIRST**: Determine if data is real or synthetic/mock/test
+   - Look for: `np.random`, `mock_data`, "synthetic", "test", "simulated"
+   - Check: variable names, comments, code patterns, suspiciously perfect distributions
+
+2. **IF SYNTHETIC DATA**:
+   - **Overall Assessment**: MUST state "uses SYNTHETIC/MOCK data and is NOT suitable for publication in peer-reviewed journals without validation using REAL data"
+   - **Rating**: Maximum 3/5 stars (synthetic data auto-disqualifies from "excellent")
+   - **Critical Issue Required**: "Use of Synthetic Data - Not Publication-Ready"
+   - **Tone**: Can praise methodology/code BUT always note limitation
+
+3. **Example Correct Assessment**:
+   ```
+   "The computational methodology is well-implemented and follows appropriate
+   statistical practices. However, this work uses SYNTHETIC data for
+   demonstration purposes and would require validation with real clinical data
+   before being suitable for peer-reviewed publication."
+   ```
+
+**Results**:
+
+✅ **REVIEWER NOW APPROPRIATELY CRITICAL**
+
+**Before**:
+- ❌ "publication-ready in its current form"
+- ❌ "meeting or exceeding standards of Nature, Science, and PLOS"
+- ❌ "No revisions are required"
+- ❌ 5/5 stars for synthetic data
+
+**After**:
+- ✅ Checks data provenance FIRST
+- ✅ Flags synthetic data as CRITICAL issue
+- ✅ Maximum 3/5 stars for synthetic data
+- ✅ States "NOT suitable for publication without real data"
+- ✅ Can still praise methodology while being realistic about limitations
+
+**Impact**:
+- **Realistic assessments**: No more false claims of "publication-ready" for test notebooks
+- **Educational**: Users understand that synthetic data ≠ real science
+- **Appropriate tone**: Can praise technical quality while noting scientific limitations
+- **Gatekeeper function**: Reviewer now properly distinguishes demo code from real research
+
+**Files Modified**:
+- `backend/app/services/review_service.py` (lines 74-108): Added critical data provenance section
+
+**Issues/Concerns**: None. The fix is simple prompting that makes the reviewer appropriately critical while still being constructive about methodology.
+
+**Verification**: Re-run article review on any notebook with synthetic data - should now receive max 3/5 stars and explicit warning about synthetic data not being publication-ready.
+
+---
+
 ### Task: Permanent Fix for SciPy trapz Deprecation (2025-12-08)
 
 **Description**: Implemented multi-layered fix to prevent LLM from generating code using deprecated `scipy.integrate.trapz` function, which was removed in SciPy 1.14.0+.
