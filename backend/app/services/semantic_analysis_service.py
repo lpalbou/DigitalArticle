@@ -46,7 +46,10 @@ class SemanticAnalysisService:
         """
         cache_data = {
             "notebook_id": str(notebook.id),
-            "updated_at": notebook.updated_at.isoformat(),
+            # NOTE: We exclude updated_at from cache key because it changes
+            # on every save, which would invalidate cache unnecessarily.
+            # The cache should only invalidate when semantic content changes
+            # (cells, code, results, prompts, etc.), not metadata timestamps.
             "cells": []
         }
 
@@ -349,8 +352,8 @@ class SemanticAnalysisService:
             f"{len(triples)} relationships"
         )
 
-        # Cache the generated graph
-        if use_cache:
-            self._cache_graph(notebook, 'analysis', analysis)
+        # ALWAYS cache the generated graph (even if use_cache=False for reading)
+        # use_cache=False only means "don't read from cache", NOT "don't write to cache"
+        self._cache_graph(notebook, 'analysis', analysis)
 
         return analysis

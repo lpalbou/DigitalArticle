@@ -5,9 +5,12 @@ This module provides REST endpoints for creating, reading, updating,
 and deleting notebooks.
 """
 
-from typing import List
-from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import Response
+import json
+import logging
+from typing import List, AsyncGenerator, Any, Dict
+from datetime import datetime
+from fastapi import APIRouter, HTTPException, status, Query
+from fastapi.responses import Response, StreamingResponse
 
 from ..models.notebook import (
     Notebook, NotebookCreateRequest, NotebookUpdateRequest, CellState
@@ -15,6 +18,26 @@ from ..models.notebook import (
 from ..services.shared import notebook_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def make_json_serializable(obj: Any) -> Any:
+    """Convert objects to JSON-serializable format.
+
+    Handles datetime objects, Pydantic models, and nested structures.
+    """
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {k: make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_json_serializable(item) for item in obj]
+    elif hasattr(obj, 'model_dump'):  # Pydantic model
+        return make_json_serializable(obj.model_dump())
+    elif hasattr(obj, 'dict'):  # Older Pydantic
+        return make_json_serializable(obj.dict())
+    else:
+        return obj
 
 
 @router.post("/", response_model=Notebook, status_code=status.HTTP_201_CREATED)
@@ -281,6 +304,109 @@ async def generate_abstract(notebook_id: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate abstract: {str(e)}"
         )
+
+
+# ============================================================================
+# EXPORT STREAMING ENDPOINTS (SSE)
+# ============================================================================
+
+@router.post("/{notebook_id}/export/semantic/stream")
+async def stream_semantic_export(
+    notebook_id: str,
+    type: str = Query(..., regex="^(analysis|profile)$"),
+    action: str = Query("download", regex="^(download|view)$"),
+):
+    """Stream semantic graph extraction progress via SSE.
+
+    Args:
+        notebook_id: Notebook UUID
+        type: Graph type ('analysis' for LLM-based, 'profile' for regex-based)
+        action: What to do with result ('download' or 'view')
+
+    Returns:
+        StreamingResponse with progress updates
+    """
+    async def generate() -> AsyncGenerator[str, None]:
+        """Generate SSE progress updates."""
+        try:
+            logger.info(f"🔍 SSE: Starting semantic export for {notebook_id}, type={type}, action={action}")
+
+            # Stage 1: Loading
+            yield f"data: {json.dumps(make_json_serializable({'stage': 'loading', 'progress': 5, 'message': 'Loading notebook...'}))}\n\n"
+
+            notebook = notebook_service.get_notebook(notebook_id)
+            if not notebook:
+                logger.error(f"❌ SSE: Notebook {notebook_id} not found")
+                yield f"data: {json.dumps({'stage': 'error', 'message': 'Notebook not found'})}\n\n"
+                return
+
+            logger.info(f"✅ SSE: Loaded notebook '{notebook.title}'")
+
+            # Stream extraction progress
+            async for progress_data in notebook_service.export_semantic_streaming(notebook, type):
+                logger.debug(f"📊 SSE: Progress update: stage={progress_data.get('stage')} progress={progress_data.get('progress')}%")
+                serializable_data = make_json_serializable(progress_data)
+                yield f"data: {json.dumps(serializable_data)}\n\n"
+
+            logger.info(f"✅ SSE: Completed semantic export for {notebook_id}")
+
+        except Exception as e:
+            logger.error(f"❌ SSE: Error during semantic export: {e}")
+            yield f"data: {json.dumps({'stage': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@router.post("/{notebook_id}/export/pdf/stream")
+async def stream_pdf_export(
+    notebook_id: str,
+    include_code: bool = Query(False),
+):
+    """Stream PDF generation progress via SSE.
+
+    Args:
+        notebook_id: Notebook UUID
+        include_code: Whether to include code in PDF
+
+    Returns:
+        StreamingResponse with progress updates and final PDF
+    """
+    async def generate() -> AsyncGenerator[str, None]:
+        """Generate SSE progress updates."""
+        try:
+            # Stage 1: Loading
+            yield f"data: {json.dumps({'stage': 'loading', 'progress': 5, 'message': 'Loading notebook...'})}\n\n"
+
+            notebook = notebook_service.get_notebook(notebook_id)
+            if not notebook:
+                yield f"data: {json.dumps({'stage': 'error', 'message': 'Notebook not found'})}\n\n"
+                return
+
+            # Stream PDF generation progress
+            async for progress_data in notebook_service.export_pdf_streaming(notebook, include_code):
+                serializable_data = make_json_serializable(progress_data)
+                yield f"data: {json.dumps(serializable_data)}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'stage': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 # ============================================================================

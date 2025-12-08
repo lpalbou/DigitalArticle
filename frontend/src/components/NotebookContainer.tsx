@@ -5,9 +5,8 @@ import axios from 'axios'
 import Header from './Header'
 import FileContextPanel from './FileContextPanel'
 import NotebookCell from './NotebookCell'
-import PDFGenerationModal from './PDFGenerationModal'
+import ExportProgressModal from './ExportProgressModal'
 import ArticleReviewModal from './ArticleReviewModal'
-import SemanticExtractionModal from './SemanticExtractionModal'
 import ReviewProgressModal from './ReviewProgressModal'
 import ExecutionDetailsModal from './ExecutionDetailsModal'
 import ChatFloatingButton from './ChatFloatingButton'
@@ -84,6 +83,11 @@ const NotebookContainer: React.FC = () => {
   const [semanticExtractionStage, setSemanticExtractionStage] = useState<'analyzing' | 'extracting' | 'building_graph' | 'complete'>('analyzing')
   const [semanticGraphType, setSemanticGraphType] = useState<'analysis' | 'profile'>('analysis')
 
+  // Unified export progress state (shared by PDF and Semantic exports)
+  const [exportProgress, setExportProgress] = useState<number>(0)
+  const [exportMessage, setExportMessage] = useState<string>('')
+  const [isCached, setIsCached] = useState(false)
+
   // LLM trace modal state
   const [isViewingTraces, setIsViewingTraces] = useState(false)
   const [tracesCellId, setTracesCellId] = useState<string>('')
@@ -130,6 +134,47 @@ const NotebookContainer: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  // Unified SSE consumer helper for export streaming
+  const consumeSSE = useCallback(async (
+    url: string,
+    onProgress: (data: any) => void
+  ): Promise<any> => {
+    const response = await fetch(url, { method: 'POST' })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('No response body')
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let result: any = null
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6))
+            onProgress(data)
+            if (data.result) result = data.result
+            if (data.pdf_base64) result = data
+            if (data.stage === 'error') throw new Error(data.message)
+          } catch (e) {
+            if (e instanceof SyntaxError) continue // Incomplete JSON
+            throw e
+          }
+        }
+      }
+    }
+    return result
   }, [])
 
   const loadNotebook = useCallback(async (id: string) => {
@@ -286,103 +331,64 @@ const NotebookContainer: React.FC = () => {
     }
   }, [notebook])
 
-  const exportSemantic = useCallback(async () => {
+  // Unified function for semantic export and knowledge graph viewing
+  const exportOrViewSemantic = useCallback(async (
+    type: 'analysis' | 'profile',
+    action: 'download' | 'view'
+  ) => {
     if (!notebook) return
 
     try {
       setIsExtractingSemantics(true)
-      setSemanticGraphType('analysis') // Default to analysis for export
+      setSemanticGraphType(type)
+      setExportProgress(0)
+      setExportMessage('')
+      setIsCached(false)
       setError(null)
 
-      // Stage 1: Analyzing notebook
-      setSemanticExtractionStage('analyzing')
-      await new Promise(resolve => setTimeout(resolve, 500))
+      const url = `/api/notebooks/${notebook.id}/export/semantic/stream?type=${type}&action=${action}`
 
-      // Stage 2: Extracting semantics with LLM
-      setSemanticExtractionStage('extracting')
-
-      const jsonldContent = await notebookAPI.export(notebook.id, 'jsonld')
-
-      // Stage 3: Building graph
-      setSemanticExtractionStage('building_graph')
-      await new Promise(resolve => setTimeout(resolve, 800))
-
-      downloadFile(jsonldContent, `${notebook.title}-semantic.jsonld`, 'application/ld+json')
-
-      // Stage 4: Complete
-      setSemanticExtractionStage('complete')
-      await new Promise(resolve => setTimeout(resolve, 500))
-
-      setError(null)
-      setToast({
-        message: `Digital Article "${notebook.title}" exported as JSON-LD successfully`,
-        type: 'success'
+      const result = await consumeSSE(url, (data) => {
+        setExportProgress(data.progress || 0)
+        setExportMessage(data.message || '')
+        // Preserve 'cached' stage for proper modal display
+        const mappedStage = data.stage === 'loading' ? 'analyzing' :
+                           data.stage === 'extracting' ? 'extracting' :
+                           data.stage === 'building_graph' ? 'building_graph' :
+                           data.stage === 'cached' ? 'complete' :  // Map to complete for stage indicators
+                           data.stage === 'complete' ? 'complete' : 'analyzing'
+        setSemanticExtractionStage(mappedStage)
+        if (data.stage === 'cached') setIsCached(true)
       })
 
-      // Close modal after brief delay
+      if (action === 'download') {
+        // Download JSON-LD file
+        downloadFile(JSON.stringify(result, null, 2), `${notebook.title}-${type}.jsonld`, 'application/ld+json')
+        setToast({ message: `Exported ${type} graph as JSON-LD`, type: 'success' })
+      } else {
+        // Open knowledge graph viewer
+        const storageKey = `kg-data-${type}-${notebook.id}-${Date.now()}`
+        localStorage.setItem(storageKey, JSON.stringify(result))
+        window.open(`/knowledge-graph-explorer.html?key=${storageKey}`, '_blank')
+      }
+
       setTimeout(() => {
         setIsExtractingSemantics(false)
-        setSemanticExtractionStage('analyzing')
+        setExportProgress(0)
+        setIsCached(false)
       }, 1000)
 
     } catch (err) {
       const apiError = handleAPIError(err)
       setError(`Semantic export failed: ${apiError.message}`)
       setIsExtractingSemantics(false)
-      setSemanticExtractionStage('analyzing')
     }
-  }, [notebook])
+  }, [notebook, consumeSSE])
 
-  const viewKnowledgeGraph = useCallback(async (graphType: 'analysis' | 'profile') => {
-    if (!notebook) return
-
-    try {
-      setIsExtractingSemantics(true)
-      setSemanticGraphType(graphType)
-      setError(null)
-
-      // Stage 1: Analyzing notebook
-      setSemanticExtractionStage('analyzing')
-      await new Promise(resolve => setTimeout(resolve, 800))
-
-      // Stage 2: Extracting semantics with LLM (this is the real work)
-      setSemanticExtractionStage('extracting')
-
-      // Get graph data based on type (this calls the backend which does LLM extraction)
-      const graphData = await notebookAPI.export(notebook.id, graphType)
-      const parsedData = JSON.parse(graphData)
-
-      // Stage 3: Building knowledge graph
-      setSemanticExtractionStage('building_graph')
-      await new Promise(resolve => setTimeout(resolve, 1000))
-
-      // Store in localStorage with a unique key
-      const storageKey = `kg-data-${graphType}-${notebook.id}-${Date.now()}`
-      localStorage.setItem(storageKey, JSON.stringify(parsedData))
-
-      // Stage 4: Complete
-      setSemanticExtractionStage('complete')
-      await new Promise(resolve => setTimeout(resolve, 500))
-
-      // Open knowledge graph viewer in new tab with storage key
-      const kgUrl = `/knowledge-graph-explorer.html?key=${storageKey}`
-      window.open(kgUrl, '_blank')
-
-      setError(null)
-
-      // Close modal after a brief delay
-      setTimeout(() => {
-        setIsExtractingSemantics(false)
-        setSemanticExtractionStage('analyzing')
-      }, 1000)
-
-    } catch (err) {
-      const apiError = handleAPIError(err)
-      setError(`Failed to open knowledge graph: ${apiError.message}`)
-      setIsExtractingSemantics(false)
-      setSemanticExtractionStage('analyzing')
-    }
-  }, [notebook])
+  // Wrapper functions for backward compatibility with Header
+  const exportSemantic = useCallback(() => exportOrViewSemantic('analysis', 'download'), [exportOrViewSemantic])
+  const viewKnowledgeGraph = useCallback((graphType: 'analysis' | 'profile') =>
+    exportOrViewSemantic(graphType, 'view'), [exportOrViewSemantic])
 
   const viewCellTraces = useCallback(async (cellId: string) => {
     try {
@@ -424,71 +430,53 @@ const NotebookContainer: React.FC = () => {
 
     try {
       setIsGeneratingPDF(true)
+      setExportProgress(0)
+      setExportMessage('')
       setError(null)
-      
-      // Stage 1: Analyzing
-      setPdfGenerationStage('analyzing')
-      await new Promise(resolve => setTimeout(resolve, 800))
-      
-      // Stage 2: Regenerating Abstract
-      setPdfGenerationStage('regenerating_abstract')
-      await new Promise(resolve => setTimeout(resolve, 1200))
-      
-      // Stage 3: Planning Article
-      setPdfGenerationStage('planning_article')
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      
-      // Stage 4: Writing Introduction
-      setPdfGenerationStage('writing_introduction')
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      
-      // Stage 5: Writing Methodology
-      setPdfGenerationStage('writing_methodology')
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      
-      // Stage 6: Writing Results
-      setPdfGenerationStage('writing_results')
-      await new Promise(resolve => setTimeout(resolve, 1800))
-      
-      // Stage 7: Writing Discussion
-      setPdfGenerationStage('writing_discussion')
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      
-      // Stage 8: Writing Conclusions
-      setPdfGenerationStage('writing_conclusions')
-      await new Promise(resolve => setTimeout(resolve, 1200))
-      
-      // Stage 9: Creating PDF
-      setPdfGenerationStage('creating_pdf')
-      const pdfBlob = await notebookAPI.exportPDF(notebook.id, includeCode)
-      
-      // Stage 10: Complete
-      setPdfGenerationStage('complete')
-      
-      // Create download link
-      const url = window.URL.createObjectURL(pdfBlob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `${notebook.title.replace(/[^a-z0-9]/gi, '_')}_scientific.pdf`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
 
-      setToast({
-        message: `Scientific PDF generated successfully${includeCode ? ' (with code)' : ''}`,
-        type: 'success'
+      const url = `/api/notebooks/${notebook.id}/export/pdf/stream?include_code=${includeCode}`
+
+      const result = await consumeSSE(url, (data) => {
+        setExportProgress(data.progress || 0)
+        setExportMessage(data.message || '')
+        setPdfGenerationStage(data.stage || 'analyzing')
       })
+
+      if (result?.pdf_base64) {
+        // Convert base64 to blob and download
+        const binaryString = atob(result.pdf_base64)
+        const bytes = new Uint8Array(binaryString.length)
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i)
+        }
+        const blob = new Blob([bytes], { type: 'application/pdf' })
+
+        const blobUrl = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = blobUrl
+        link.download = `${notebook.title.replace(/[^a-z0-9]/gi, '_')}_scientific.pdf`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        window.URL.revokeObjectURL(blobUrl)
+
+        setToast({
+          message: `Scientific PDF generated successfully${includeCode ? ' (with code)' : ''}`,
+          type: 'success'
+        })
+      }
+
       setTimeout(() => {
         setIsGeneratingPDF(false)
+        setExportProgress(0)
       }, 2000)
 
     } catch (err) {
       const apiError = handleAPIError(err)
-      setError(`PDF generation failed: ${apiError.message}`)
+      setError(`PDF export failed: ${apiError.message}`)
       setIsGeneratingPDF(false)
     }
-  }, [notebook])
+  }, [notebook, consumeSSE])
 
   const addCell = useCallback(async (cellType: CellType = CellType.PROMPT, afterCellId?: string) => {
     if (!notebook) return
@@ -1151,10 +1139,23 @@ const NotebookContainer: React.FC = () => {
         currentNotebookTitle={notebook?.title}
       />
 
-      {/* PDF Generation Modal */}
-      <PDFGenerationModal
+      {/* PDF Export Progress Modal */}
+      <ExportProgressModal
         isVisible={isGeneratingPDF}
+        operationType="pdf"
+        progress={exportProgress}
         stage={pdfGenerationStage}
+        message={exportMessage}
+      />
+
+      {/* Semantic Export Progress Modal */}
+      <ExportProgressModal
+        isVisible={isExtractingSemantics}
+        operationType={semanticGraphType === 'analysis' ? 'semantic-analysis' : 'semantic-profile'}
+        progress={exportProgress}
+        stage={semanticExtractionStage}
+        message={exportMessage}
+        isCached={isCached}
       />
 
       {/* Review Progress Modal */}
@@ -1164,13 +1165,6 @@ const NotebookContainer: React.FC = () => {
         stage={reviewStage}
         message={reviewMessage}
         tokens={reviewTokens}
-      />
-
-      {/* Semantic Extraction Modal */}
-      <SemanticExtractionModal
-        isVisible={isExtractingSemantics}
-        stage={semanticExtractionStage}
-        graphType={semanticGraphType}
       />
 
       {/* Execution Details Modal */}

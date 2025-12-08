@@ -102,7 +102,9 @@ class SemanticProfileService:
         """Generate a cache key based on notebook content state."""
         cache_data = {
             "notebook_id": str(notebook.id),
-            "updated_at": notebook.updated_at.isoformat(),
+            # NOTE: We exclude updated_at from cache key because it changes
+            # on every save, which would invalidate cache unnecessarily.
+            # The cache should only invalidate when semantic content changes.
             "cells": []
         }
 
@@ -117,8 +119,13 @@ class SemanticProfileService:
         cache_json = json.dumps(cache_data, sort_keys=True)
         return hashlib.sha256(cache_json.encode()).hexdigest()
 
-    def _get_cached_graph(self, notebook: Notebook) -> Optional[Dict[str, Any]]:
-        """Get cached profile graph if valid."""
+    def _get_cached_graph(self, notebook: Notebook, graph_type: str = 'profile') -> Optional[Dict[str, Any]]:
+        """Get cached profile graph if valid.
+
+        Args:
+            notebook: Notebook to get cache for
+            graph_type: Type of graph (unused, for API compatibility)
+        """
         cache_key = self._generate_cache_key(notebook)
 
         if hasattr(notebook, 'metadata') and isinstance(notebook.metadata, dict):
@@ -281,9 +288,9 @@ class SemanticProfileService:
         profile["@graph"] = graph_nodes
         profile["triples"] = triples
 
-        # Cache the generated graph
-        if use_cache:
-            self._cache_graph(notebook, profile)
+        # ALWAYS cache the generated graph (even if use_cache=False for reading)
+        # use_cache=False only means "don't read from cache", NOT "don't write to cache"
+        self._cache_graph(notebook, profile)
 
         return profile
 

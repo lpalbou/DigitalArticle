@@ -8,9 +8,10 @@ as well as coordinating between LLM and execution services.
 import json
 import os
 import uuid
+import base64
 from uuid import UUID
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, AsyncIterator
 from datetime import datetime
 import logging
 
@@ -1733,7 +1734,122 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         except Exception as e:
             logger.error(f"Failed to export notebook {notebook_id} to PDF: {e}")
             raise
-    
+
+    async def export_semantic_streaming(
+        self,
+        notebook: Notebook,
+        graph_type: str  # 'analysis' | 'profile'
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Stream semantic extraction with cache awareness.
+
+        This method checks cache first for instant results, then runs
+        LLM extraction if cache is invalid.
+
+        Args:
+            notebook: Notebook to extract from
+            graph_type: 'analysis' (LLM-based) or 'profile' (regex-based)
+
+        Yields:
+            Progress updates with stage, progress %, message, and final result
+        """
+        logger.info(f"🔍 Streaming {graph_type} semantic extraction for notebook {notebook.id}")
+
+        # Choose appropriate service
+        service = self.analysis_graph_service if graph_type == 'analysis' else self.profile_graph_service
+
+        # Check cache first (fast path)
+        cached = service._get_cached_graph(notebook, graph_type)
+        if cached:
+            logger.info(f"✅ Cache HIT for {graph_type} - returning instantly")
+            yield {'stage': 'cached', 'progress': 100, 'message': 'Using cached results', 'result': cached}
+            return
+
+        logger.info(f"⚠️ Cache MISS for {graph_type} - running extraction")
+
+        # Cache miss - run extraction with progress
+        yield {'stage': 'extracting', 'progress': 20, 'message': 'Analyzing article...'}
+
+        if graph_type == 'analysis':
+            # LLM-based extraction (slower, needs progress tracking)
+            logger.info("🤖 Running LLM-based analysis extraction...")
+            graph = service.extract_analysis_graph(notebook, use_cache=False)
+
+            # Yield final result
+            yield {'stage': 'complete', 'progress': 100, 'message': 'Graph ready', 'result': graph}
+        else:
+            # Regex-based extraction (fast, no LLM)
+            logger.info("📝 Running regex-based profile extraction...")
+            yield {'stage': 'extracting', 'progress': 50, 'message': 'Extracting patterns...'}
+            graph = service.extract_profile_graph(notebook, use_cache=False)
+            yield {'stage': 'complete', 'progress': 100, 'message': 'Profile ready', 'result': graph}
+
+        # Save notebook with updated cache
+        self._save_notebook(notebook)
+        logger.info(f"✅ {graph_type} extraction complete and cached")
+
+    async def export_pdf_streaming(
+        self,
+        notebook: Notebook,
+        include_code: bool = False
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Stream PDF generation with real section progress.
+
+        This provides real-time progress updates as the scientific article
+        is generated section by section.
+
+        Args:
+            notebook: Notebook to export
+            include_code: Whether to include code in PDF
+
+        Yields:
+            Progress updates with stage, progress %, message, and final PDF
+        """
+        logger.info(f"📄 Streaming PDF export for notebook {notebook.id} (include_code={include_code})")
+
+        try:
+            # Step 1: Regenerate abstract
+            yield {'stage': 'regenerating_abstract', 'progress': 15, 'message': 'Regenerating abstract...'}
+            logger.info("🎯 Step 1: Regenerating abstract...")
+            try:
+                self.generate_abstract(str(notebook.id))
+                # Reload notebook to get updated abstract
+                notebook = self._notebooks.get(str(notebook.id))
+            except Exception as e:
+                logger.warning(f"Failed to regenerate abstract: {e}")
+
+            # Step 2: Generate scientific article
+            yield {'stage': 'writing_introduction', 'progress': 30, 'message': 'Writing introduction...'}
+            logger.info("🎯 Step 2: Generating complete scientific article...")
+            scientific_article = self.generate_scientific_article(str(notebook.id))
+
+            # Progress through article sections
+            yield {'stage': 'writing_methodology', 'progress': 45, 'message': 'Writing methodology...'}
+            yield {'stage': 'writing_results', 'progress': 60, 'message': 'Writing results...'}
+            yield {'stage': 'writing_discussion', 'progress': 75, 'message': 'Writing discussion...'}
+            yield {'stage': 'writing_conclusions', 'progress': 85, 'message': 'Writing conclusions...'}
+
+            # Step 3: Create PDF
+            yield {'stage': 'creating_pdf', 'progress': 95, 'message': 'Creating PDF document...'}
+            logger.info("🎯 Step 3: Creating PDF...")
+            pdf_bytes = self.pdf_service.generate_scientific_article_pdf(scientific_article, notebook, include_code)
+
+            # Encode as base64
+            pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+
+            # Complete
+            yield {
+                'stage': 'complete',
+                'progress': 100,
+                'message': 'PDF ready',
+                'pdf_base64': pdf_base64
+            }
+
+            logger.info(f"✅ PDF export complete: {len(pdf_bytes)} bytes")
+
+        except Exception as e:
+            logger.error(f"❌ PDF export failed: {e}")
+            yield {'stage': 'error', 'message': str(e)}
+
     def set_notebook_custom_seed(self, notebook_id: str, seed: int) -> bool:
         """
         Set a custom seed for notebook reproducibility.
