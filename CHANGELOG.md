@@ -6,6 +6,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.3.3] - 2025-12-08
+
+### Fixed
+
+- **🔧 Anti-Pattern Validation**: Fixed false positives blocking valid pandas code
+  - Fixed regex to use word boundaries preventing substring matches
+  - `summary_stats.columns = [...]` no longer incorrectly flagged
+  - Comprehensive test suite added to prevent regression
+  - Files: `backend/app/services/execution_service.py`, `backend/tests/validation/test_antipattern_false_positives.py`
+
+- **🔄 Auto-Retry on Regenerate**: Fixed auto-retry mechanism not working when force_regenerate=True
+  - Removed blocking condition preventing retries on regenerated code
+  - Regenerated code that fails now gets full 5 retry attempts
+  - Files: `backend/app/services/notebook_service.py`
+
+### Enhanced
+
+- **📊 M&S Persona Tuning**: Enhanced Modeling & Simulation persona with modern SciPy API guidance
+  - Added critical constraint for trapezoid vs deprecated trapz
+  - Three-layer defense: persona guidance + error analyzer + system prompt
+  - Files: `data/personas/system/modeling-simulation.json`, `backend/app/services/error_analyzer.py`, `backend/app/services/llm_service.py`
+
+- **📈 Interactive Visualization**: Improved LLM guidance for interactive 3D visualizations
+  - Added explicit Plotly 3D example with proper usage
+  - Common mistakes section clarifying matplotlib vs Plotly for interactive plots
+  - UMAP import error handler added to error analyzer
+  - Files: `backend/app/services/llm_service.py`, `backend/app/services/error_analyzer.py`
+
+- **🔍 Critical Reviewer**: Enhanced article reviewer to be appropriately stringent
+  - Principle-based critical thinking guidance vs prescriptive rules
+  - Emphasis on data quality and scientific rigor
+  - Appropriate skepticism for synthetic/test data vs real research
+  - Files: `backend/app/services/review_service.py`
+
+- **🔬 Semantic Extraction & Caching**: Improved semantic graph extraction with LLM-based analysis
+  - Smart caching of semantic extraction results
+  - Rich provenance tracking across cells
+  - Progress modal for extraction feedback
+  - Files: `backend/app/services/semantic_analysis_service.py`, `backend/app/services/llm_semantic_extractor.py`, `frontend/src/components/SemanticExtractionModal.tsx`
+
+- **⚡ Async Progress Feedback**: Real-time modal feedback for long-running operations
+  - Progress modals for PDF export, semantic extraction
+  - Stage-based progress indicators
+  - Files: `frontend/src/components/PDFExportModal.tsx`, `frontend/src/components/SemanticExtractionModal.tsx`
+
+### Technical Details
+
+**Ongoing Work - Logical Retry System**:
+- Foundation laid for enhanced retry logic with better context passing
+- LLM now receives full execution context during retries (available variables, DataFrames, previous cells)
+- Error analyzer enhanced to show actual available data vs generic guidance
+- Future enhancements planned for domain-specific retry strategies
+
 ## [0.3.1] - 2025-12-05
 
 ### Added
