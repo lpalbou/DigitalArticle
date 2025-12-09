@@ -312,10 +312,17 @@ class ErrorAnalyzer:
 
         # Find missing
         missing = referenced_columns - available_columns
+
         # Filter out common false positives (methods, keywords, constants, common variables)
+        # CRITICAL: Pandas methods/indexers are NOT column names!
         false_positives = {
+            # Pandas indexers - CRITICAL: These are methods, not columns
+            'loc', 'iloc', 'at', 'iat',
             # DataFrame methods and attributes
             'head', 'tail', 'info', 'describe', 'columns', 'shape', 'index', 'values', 'dtypes',
+            'mean', 'std', 'min', 'max', 'sum', 'count',  # Aggregation methods
+            'groupby', 'pivot_table', 'merge', 'join', 'concat',  # Operations
+            'to_csv', 'to_dict', 'to_json', 'to_string', 'to_html',  # Export methods
             # Constants
             'nan', 'NaN', 'none', 'None', 'inf', 'Inf',
             # Common variable names that are NOT DataFrame columns

@@ -546,9 +546,280 @@
         return;
       }
 
+      // Detect graph type from metadata
+      const isProfileGraph = knowledgeGraph.metadata?.graph_type === 'profile';
+      const layoutHint = knowledgeGraph.metadata?.layout_hint;
+
+      console.log("Graph type:", isProfileGraph ? "Profile (hierarchical)" : "Analysis (force-directed)");
+
       const container = document.getElementById('graph-container');
       const width = container.offsetWidth;
       const height = container.offsetHeight;
+
+      // Use hierarchical layout for profile graphs, force-directed for others
+      if (isProfileGraph && layoutHint === 'hierarchical') {
+        createHierarchicalVisualization(container, width, height);
+      } else {
+        createForceDirectedVisualization(container, width, height);
+      }
+    }
+
+    function createHierarchicalVisualization(container, width, height) {
+      console.log("Creating hierarchical tree visualization for profile");
+
+      // Clear previous
+      const existingSvg = container.querySelector('svg');
+      if (existingSvg) existingSvg.remove();
+
+      // Build hierarchy from flat graph structure
+      const hierarchy = buildHierarchyFromGraph();
+
+      // Setup SVG
+      svg = d3.select('#graph-container')
+        .append('svg')
+        .attr('width', '100%')
+        .attr('height', '100%')
+        .attr('viewBox', [0, 0, width, height]);
+
+      // Add zoom
+      zoom = d3.zoom()
+        .scaleExtent([0.1, 3])
+        .on('zoom', event => g.attr('transform', event.transform));
+
+      svg.call(zoom);
+      g = svg.append('g');
+
+      // Create tree layout (left-to-right orientation)
+      const treeLayout = d3.tree()
+        .size([height - 100, width - 400])
+        .separation((a, b) => a.parent == b.parent ? 1 : 1.5);
+
+      // Convert to d3 hierarchy and apply layout
+      const root = d3.hierarchy(hierarchy);
+      treeLayout(root);
+
+      // Draw links (edges between nodes)
+      const link = g.append('g')
+        .attr('fill', 'none')
+        .attr('stroke', '#999')
+        .attr('stroke-opacity', 0.4)
+        .attr('stroke-width', 2)
+        .selectAll('path')
+        .data(root.links())
+        .enter().append('path')
+        .attr('d', d3.linkHorizontal()
+          .x(d => d.y + 200)
+          .y(d => d.x + 50));
+
+      // Draw nodes
+      const node = g.append('g')
+        .selectAll('g')
+        .data(root.descendants())
+        .enter().append('g')
+        .attr('transform', d => `translate(${d.y + 200},${d.x + 50})`)
+        .on('click', function(event, d) {
+          if (d.data.entity) {
+            showDetails(event, d.data.entity);
+          }
+        });
+
+      // Color by level
+      const getLevelColor = d => {
+        if (d.depth === 0) return '#1a237e'; // User (darkest blue)
+        if (d.depth === 1) return '#303f9f'; // Domain (dark blue)
+        if (d.depth === 2) return '#5c6bc0'; // Category (medium blue)
+        return '#7986cb';  // Skill (light blue)
+      };
+
+      // Size by proficiency
+      const getProficiencySize = d => {
+        if (!d.data.entity || !d.data.entity.properties) return 8;
+        const proficiency = d.data.entity.properties['da:proficiency'];
+        if (proficiency === 'Expert') return 16;
+        if (proficiency === 'Advanced') return 12;
+        if (proficiency === 'Intermediate') return 8;
+        return 5; // Basic
+      };
+
+      // Node circles
+      node.append('circle')
+        .attr('r', getProficiencySize)
+        .attr('fill', getLevelColor)
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 2);
+
+      // Node labels
+      node.append('text')
+        .attr('dy', '0.31em')
+        .attr('x', d => d.children ? -12 : 12)
+        .attr('text-anchor', d => d.children ? 'end' : 'start')
+        .text(d => d.data.name)
+        .style('font-size', d => d.depth === 0 ? '14px' : d.depth === 1 ? '12px' : '10px')
+        .style('font-weight', d => d.depth <= 1 ? 'bold' : 'normal')
+        .style('fill', '#333');
+
+      // Create hierarchical legend
+      createHierarchicalLegend();
+
+      document.getElementById('debug-info').textContent = `Hierarchical profile: ${nodes.length} entities`;
+    }
+
+    function buildHierarchyFromGraph() {
+      // Find the user/author node (root)
+      const userNode = nodes.find(n => n.type === 'schema:Person');
+
+      if (!userNode) {
+        console.error("No user/author node found");
+        return {name: "Unknown User", children: []};
+      }
+
+      // Find domains (linked from user or have type da:Domain)
+      const domainNodes = nodes.filter(n => n.type === 'da:Domain');
+
+      // Build hierarchical structure
+      const hierarchy = {
+        name: userNode.label,
+        entity: userNode,
+        children: []
+      };
+
+      domainNodes.forEach(domain => {
+        const domainObj = {
+          name: domain.label,
+          entity: domain,
+          children: []
+        };
+
+        // Find categories under this domain
+        const categoryLinks = links.filter(l =>
+          l.predicate === 'da:contains' &&
+          l.source === domain.id
+        );
+
+        categoryLinks.forEach(catLink => {
+          const category = nodes.find(n => n.id === catLink.target);
+          if (category) {
+            const categoryObj = {
+              name: category.label,
+              entity: category,
+              children: []
+            };
+
+            // Find skills under this category
+            const skillLinks = links.filter(l =>
+              l.predicate === 'da:contains' &&
+              l.source === category.id
+            );
+
+            skillLinks.forEach(skillLink => {
+              const skill = nodes.find(n => n.id === skillLink.target);
+              if (skill) {
+                categoryObj.children.push({
+                  name: skill.label,
+                  entity: skill
+                });
+              }
+            });
+
+            domainObj.children.push(categoryObj);
+          }
+        });
+
+        hierarchy.children.push(domainObj);
+      });
+
+      return hierarchy;
+    }
+
+    function createHierarchicalLegend() {
+      const legend = document.getElementById('legend');
+      legend.innerHTML = '';
+
+      // Title
+      const title = document.createElement('div');
+      title.style.fontWeight = 'bold';
+      title.style.marginBottom = '8px';
+      title.style.fontSize = '13px';
+      title.textContent = 'Profile Graph Legend';
+      legend.appendChild(title);
+
+      // Hierarchy levels
+      const levelsTitle = document.createElement('div');
+      levelsTitle.style.fontWeight = 'bold';
+      levelsTitle.style.marginTop = '10px';
+      levelsTitle.style.marginBottom = '5px';
+      levelsTitle.style.fontSize = '11px';
+      levelsTitle.textContent = 'Hierarchy Levels:';
+      legend.appendChild(levelsTitle);
+
+      const levels = [
+        { color: '#1a237e', label: 'User' },
+        { color: '#303f9f', label: 'Domain (Field)' },
+        { color: '#5c6bc0', label: 'Category (Specialization)' },
+        { color: '#7986cb', label: 'Skill (Competency)' }
+      ];
+
+      levels.forEach(level => {
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.style.fontSize = '11px';
+
+        const colorBox = document.createElement('div');
+        colorBox.className = 'legend-color';
+        colorBox.style.backgroundColor = level.color;
+
+        const label = document.createElement('div');
+        label.textContent = level.label;
+
+        item.appendChild(colorBox);
+        item.appendChild(label);
+        legend.appendChild(item);
+      });
+
+      // Proficiency levels
+      const profTitle = document.createElement('div');
+      profTitle.style.fontWeight = 'bold';
+      profTitle.style.marginTop = '10px';
+      profTitle.style.marginBottom = '5px';
+      profTitle.style.fontSize = '11px';
+      profTitle.textContent = 'Proficiency:';
+      legend.appendChild(profTitle);
+
+      const proficiencies = [
+        { size: 16, label: 'Expert' },
+        { size: 12, label: 'Advanced' },
+        { size: 8, label: 'Intermediate' },
+        { size: 5, label: 'Basic' }
+      ];
+
+      proficiencies.forEach(prof => {
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.style.fontSize = '11px';
+
+        const circle = document.createElement('div');
+        circle.style.width = `${prof.size}px`;
+        circle.style.height = `${prof.size}px`;
+        circle.style.borderRadius = '50%';
+        circle.style.backgroundColor = '#7986cb';
+        circle.style.marginRight = '8px';
+        circle.style.flexShrink = '0';
+
+        const label = document.createElement('div');
+        label.textContent = prof.label;
+
+        item.appendChild(circle);
+        item.appendChild(label);
+        legend.appendChild(item);
+      });
+    }
+
+    function createForceDirectedVisualization(container, width, height) {
+      console.log("Creating force-directed visualization");
+
+      // Clear previous
+      const existingSvg = container.querySelector('svg');
+      if (existingSvg) existingSvg.remove();
 
       // Setup SVG
       svg = d3.select('#graph-container')

@@ -289,7 +289,7 @@ Digital Article is built on the belief that **analytical tools should adapt to h
 
 ## Current Status
 
-**Version**: 0.3.3 (Beta)
+**Version**: 0.3.5 (Beta)
 
 **Working Features**:
 - ✅ Natural language to code generation

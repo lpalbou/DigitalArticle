@@ -280,53 +280,137 @@ class ExecutionInsightsExtractor:
     def format_for_methodology_prompt(cls, insights: Dict) -> str:
         """
         Format extracted insights for inclusion in methodology generation prompt.
+
+        CRITICAL: This method must NEVER raise exceptions - methodology generation
+        depends on it. All formatting operations are wrapped in defensive try-except.
         """
         sections = []
 
-        # Table details
-        if insights['tables']:
-            sections.append("## TABLES GENERATED:")
-            for table in insights['tables']:
-                shape = table['shape']
-                cols = table['columns'][:10]  # First 10 columns
-                table_desc = f"\n- **{table['label']}**"
-                table_desc += f"\n  - Shape: {shape[0]} rows × {shape[1]} columns"
-                table_desc += f"\n  - Columns: {', '.join(cols)}"
+        try:
+            # Table details - wrap entire section for safety
+            if insights.get('tables'):
+                sections.append("## TABLES GENERATED:")
+                for table in insights['tables']:
+                    try:
+                        # Defensive extraction with fallbacks
+                        shape = table.get('shape', ['?', '?'])
+                        cols = table.get('columns', [])[:10]  # First 10 columns
+                        label = table.get('label', 'Unnamed Table')
 
-                if table.get('statistics'):
-                    table_desc += "\n  - Key Statistics:"
-                    for col, stats in list(table['statistics'].items())[:3]:
-                        stat_str = ", ".join(f"{k}={v}" for k, v in stats.items())
-                        table_desc += f"\n    - {col}: {stat_str}"
+                        table_desc = f"\n- **{label}**"
+                        table_desc += f"\n  - Shape: {shape[0]} rows × {shape[1]} columns"
 
-                if table.get('categorical_distributions'):
-                    table_desc += "\n  - Categorical Distributions:"
-                    for col, dist in table.get('categorical_distributions', {}).items():
-                        dist_str = ", ".join(f"{k}: {v}" for k, v in list(dist.items())[:3])
-                        table_desc += f"\n    - {col}: {dist_str}"
+                        # Robust column formatting: handle any type
+                        if cols:
+                            try:
+                                # Convert all to strings safely
+                                col_strs = [str(c) if c is not None else 'None' for c in cols]
+                                table_desc += f"\n  - Columns: {', '.join(col_strs)}"
+                            except Exception as col_err:
+                                table_desc += f"\n  - Columns: [formatting error: {type(cols).__name__}]"
 
-                sections.append(table_desc)
+                        # Statistics - defensive extraction
+                        if table.get('statistics'):
+                            try:
+                                table_desc += "\n  - Key Statistics:"
+                                for col, stats in list(table['statistics'].items())[:3]:
+                                    try:
+                                        # Safely format each statistic
+                                        stat_pairs = []
+                                        for k, v in stats.items():
+                                            try:
+                                                stat_pairs.append(f"{k}={v:.2f}" if isinstance(v, float) else f"{k}={v}")
+                                            except:
+                                                stat_pairs.append(f"{k}={v}")
+                                        stat_str = ", ".join(stat_pairs)
+                                        table_desc += f"\n    - {col}: {stat_str}"
+                                    except Exception:
+                                        continue  # Skip malformed statistics
+                            except Exception:
+                                pass  # Skip statistics section if corrupted
 
-        # Plot details
-        if insights['plots']:
-            sections.append("\n## FIGURES GENERATED:")
-            for plot in insights['plots']:
-                plot_desc = f"\n- **{plot['label']}** (from {plot['source']})"
-                sections.append(plot_desc)
+                        # Categorical distributions - defensive extraction
+                        if table.get('categorical_distributions'):
+                            try:
+                                table_desc += "\n  - Categorical Distributions:"
+                                for col, dist in table.get('categorical_distributions', {}).items():
+                                    try:
+                                        dist_pairs = [f"{k}: {v}" for k, v in list(dist.items())[:3]]
+                                        dist_str = ", ".join(dist_pairs)
+                                        table_desc += f"\n    - {col}: {dist_str}"
+                                    except Exception:
+                                        continue  # Skip malformed distributions
+                            except Exception:
+                                pass  # Skip distributions section if corrupted
 
-        # Statistical findings
-        if insights['statistical_findings']:
-            sections.append("\n## STATISTICAL FINDINGS:")
-            for finding in insights['statistical_findings']:
-                sections.append(f"\n- {finding['type']}: {finding['value']}")
+                        sections.append(table_desc)
 
-        # Code insights
-        if insights['code_insights']['libraries_imported']:
-            libs = insights['code_insights']['libraries_imported']
-            sections.append(f"\n## LIBRARIES USED: {', '.join(libs)}")
+                    except Exception as table_err:
+                        # Log error but continue - don't let one bad table break everything
+                        sections.append(f"\n- [Table formatting error: {str(table_err)[:50]}]")
 
-        if insights['code_insights']['methods_called']:
-            methods = insights['code_insights']['methods_called']
-            sections.append(f"\n## ANALYSIS METHODS: {', '.join(methods)}")
+        except Exception as tables_err:
+            # Even if entire tables section fails, continue with other sections
+            sections.append(f"## TABLES: [Section error: {str(tables_err)[:50]}]")
 
-        return "\n".join(sections)
+        try:
+            # Plot details - robust formatting
+            if insights.get('plots'):
+                sections.append("\n## FIGURES GENERATED:")
+                for plot in insights['plots']:
+                    try:
+                        label = plot.get('label', 'Unnamed Figure')
+                        source = plot.get('source', 'unknown')
+                        plot_desc = f"\n- **{label}** (from {source})"
+                        sections.append(plot_desc)
+                    except Exception:
+                        sections.append(f"\n- [Figure formatting error]")
+        except Exception:
+            sections.append("\n## FIGURES: [Section error]")
+
+        try:
+            # Statistical findings - include full context from stdout
+            if insights.get('statistical_findings'):
+                sections.append("\n## STATISTICAL FINDINGS:")
+                for finding in insights['statistical_findings']:
+                    try:
+                        finding_type = finding.get('type', 'unknown')
+                        finding_value = finding.get('value', 'N/A')
+                        finding_context = finding.get('context', '')  # Full line context from regex match
+
+                        # If we have rich context and it's not just the value, show the full line
+                        if finding_context and finding_context != finding_value:
+                            sections.append(f"\n- {finding_context}")
+                        else:
+                            # Fallback to type: value format
+                            sections.append(f"\n- {finding_type}: {finding_value}")
+                    except Exception:
+                        continue  # Skip malformed findings
+        except Exception:
+            pass  # Statistical findings are optional
+
+        try:
+            # Code insights - libraries
+            if insights.get('code_insights', {}).get('libraries_imported'):
+                libs = insights['code_insights']['libraries_imported']
+                if libs:
+                    # Ensure all are strings
+                    lib_strs = [str(lib) for lib in libs]
+                    sections.append(f"\n## LIBRARIES USED: {', '.join(lib_strs)}")
+        except Exception:
+            pass  # Libraries are nice-to-have
+
+        try:
+            # Code insights - methods
+            if insights.get('code_insights', {}).get('methods_called'):
+                methods = insights['code_insights']['methods_called']
+                if methods:
+                    # Ensure all are strings
+                    method_strs = [str(m) for m in methods]
+                    sections.append(f"\n## ANALYSIS METHODS: {', '.join(method_strs)}")
+        except Exception:
+            pass  # Methods are nice-to-have
+
+        # GUARANTEE: Always return a string, even if empty
+        result = "\n".join(sections) if sections else "## EXECUTION COMPLETED\nCode executed successfully."
+        return result

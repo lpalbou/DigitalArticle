@@ -705,3 +705,11 @@ Others
 - include a "plan" tab ? (that's an expert mode, i don't want to clutter the UI)
 
 - have better "claude skills" like for different scenarios; eg single cell, spatial transcriptomics analysis
+
+- give model ability to ask refining questions (when needed)
+
+- starting point : "I am interested in xxx" => would create a bibliography that could help further guide the LLM
+
+- create R environment
+
+- retry with comments

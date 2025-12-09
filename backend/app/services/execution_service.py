@@ -1591,7 +1591,7 @@ class ExecutionService:
 
     def _dataframe_to_table_data(self, df: pd.DataFrame, name: str = "table") -> Dict[str, Any]:
         """
-        Convert a pandas DataFrame to TableData format.
+        Convert a pandas DataFrame to TableData format with robust shape validation.
 
         Args:
             df: DataFrame to convert
@@ -1634,17 +1634,47 @@ class ExecutionService:
                 return type(obj)([make_json_serializable(item) for item in obj])
             return obj
 
+        # CRITICAL: Extract shape BEFORE any serialization (prevent silent failures)
+        actual_shape = [int(df.shape[0]), int(df.shape[1])]  # [rows, cols] as Python ints
+        actual_columns = df.columns.tolist()
+
+        logger.info(f"📊 Table '{name}': {actual_shape[0]} rows × {actual_shape[1]} cols")
+
         # Safely convert DataFrame data
         safe_data = []
-        for record in df.to_dict('records'):
-            safe_record = make_json_serializable(record)
-            safe_data.append(safe_record)
+        try:
+            for record in df.to_dict('records'):
+                safe_record = make_json_serializable(record)
+                safe_data.append(safe_record)
+        except Exception as e:
+            logger.error(f"❌ Serialization failed for table '{name}': {e}")
+            # Fallback: try different serialization strategy
+            try:
+                logger.warning(f"⚠️ Attempting fallback serialization with head(100)...")
+                for record in df.head(100).to_dict('records'):
+                    safe_record = make_json_serializable(record)
+                    safe_data.append(safe_record)
+            except Exception as fallback_e:
+                logger.error(f"❌ Fallback serialization also failed: {fallback_e}")
+                safe_data = []  # Last resort: empty data
+
+        # VALIDATION: Check if serialization produced expected number of records
+        if actual_shape[0] > 0 and len(safe_data) == 0:
+            logger.error(
+                f"❌ CRITICAL: Table '{name}' has {actual_shape[0]} rows but serialization produced 0 records! "
+                f"Shape will be preserved but data is missing."
+            )
+        elif len(safe_data) != actual_shape[0]:
+            logger.warning(
+                f"⚠️ Shape mismatch for '{name}': DataFrame has {actual_shape[0]} rows "
+                f"but serialized data has {len(safe_data)} records"
+            )
 
         # Use make_json_serializable for all potentially-numpy data
         table_data = {
             'name': name,
-            'shape': make_json_serializable(df.shape),  # Handles any numpy types in shape
-            'columns': df.columns.tolist(),
+            'shape': actual_shape,  # Use validated shape extracted BEFORE serialization
+            'columns': actual_columns,
             'data': safe_data,
             'html': df.to_html(classes='table table-striped'),
             'info': {

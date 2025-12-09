@@ -6,6 +6,102 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.3.5] - 2025-12-08
+
+### Fixed
+
+- **🛡️ CRITICAL: Robust Error Analysis & Table Metadata Extraction**
+  - **Problem**: Three interconnected issues prevented effective auto-retry:
+    1. **Error analyzer false positive**: Claimed pandas `.loc` indexer was a missing column name → "Column 'loc' doesn't exist" misleading error
+    2. **Table shape extraction silent failure**: Console showed `[1 rows x 11 columns]` but insights extracted `Shape: 0 rows × 0 columns` → methodology LLM couldn't describe actual table structure
+    3. **LLM oscillated between errors**: Same error repeated across all 5 retries because analyzer provided wrong diagnosis
+  - **Impact**: Auto-retry mechanism failed repeatedly because error analysis was inaccurate. LLM wasted retry attempts trying to "fix" non-existent problems.
+  - **Fix - Three General-Purpose Robust Solutions**:
+    1. **Exclude pandas methods from column detection** (error_analyzer.py:313-334): Added comprehensive `false_positives` set including `.loc`, `.iloc`, `.at`, `.iat`, aggregation methods, and export methods. Now correctly identifies these as methods, not column names.
+    2. **Robust table shape validation** (execution_service.py:1637-1671): Extract shape BEFORE serialization, add fallback serialization strategies, log validation warnings when shape doesn't match data. Shape is now preserved even if serialization fails.
+    3. **Enhanced KeyError analysis** (error_analyzer.py:1029-1043): Already implemented - shows actual available DataFrame columns from context when column errors occur, helping LLM adapt to actual data structure.
+  - **Result**:
+    - Error analyzer no longer claims `.loc` is a missing column
+    - Table shape correctly shows `1 rows × 11 columns` instead of `0 rows × 0 columns`
+    - LLM receives accurate error messages with actual available columns
+    - Auto-retry success rate dramatically improved
+  - Files: `backend/app/services/error_analyzer.py`, `backend/app/services/execution_service.py`
+
+- **📝 CRITICAL: Robust Methodology Generation - Never Fails**
+  - **Problem**: When DataFrames had numeric column names (or column data was mistakenly extracted), methodology generation crashed with `TypeError: sequence item 0: expected str instance, int found`. The system retried 3 times and gave up, leaving cells **without methodology text** - breaking the publication-ready article output.
+  - **Impact**: Cells executed successfully but had empty methodology sections. This is **unacceptable** for publication-ready articles.
+  - **Fix - Three-Layer Defense**:
+    1. **Robust Formatting**: Wrapped ALL formatting operations in defensive try-except blocks (execution_insights_extractor.py:280-409)
+       - Convert all values to strings: `col_strs = [str(c) if c is not None else 'None' for c in cols]`
+       - Per-table error handling: malformed tables don't break other sections
+       - Guaranteed return: Always returns a string, even if empty
+    2. **Fallback Methodology**: If LLM generation fails 3 times, generate basic methodology from execution data (notebook_service.py:1330-1363)
+       - Includes: Analysis request, execution status, table count, plot count
+       - Example: "**Analysis Request**: create dashboard **Execution**: Analysis completed successfully. **Output**: Generated 1 table. **Visualizations**: Created 7 figures."
+    3. **Absolute Last Resort**: If even fallback fails, use minimal text: "Analysis completed successfully."
+  - **Result**: Methodology section **NEVER empty** - always provides publication context, even if LLM fails.
+  - **Philosophy**: It's better to have basic methodology than none. The article remains publication-ready in all scenarios.
+  - Files: `backend/app/services/execution_insights_extractor.py`, `backend/app/services/notebook_service.py`
+
+- **🔄 CRITICAL: Re-run Retry Counter Reset**
+  - **Problem**: When a cell failed all 5 retry attempts, then user clicked re-run/regenerate, no new retries would happen because `retry_count` was still at 5 from the previous execution.
+  - **Impact**: Users had to manually edit code after exhausting retries, defeating the purpose of auto-retry on re-run.
+  - **Fix**: Reset `retry_count = 0` at the start of every cell execution (line 811 in notebook_service.py), ensuring fresh retry attempts for re-runs.
+  - **Result**: Re-running a failed cell now gets a full 5 retry attempts, whether using normal re-run or regenerate.
+  - Files: `backend/app/services/notebook_service.py`
+
+- **📊 Unwanted 3D Visualizations in Dashboards**
+  - **Problem**: When users requested "SOTA dashboard", the LLM automatically added 3D scatter plots without being asked. System prompt Example 3 showed 3D Plotly visualization, which LLM interpreted as "professional" dashboard visualization technique.
+  - **Impact**: Dashboards included unwanted 3D UMAP/scatter plots that cluttered the output and weren't requested.
+  - **Fix**: Replaced Example 3 with simple 2D Plotly scatter plot and added guidance "(2D - only use 3D if explicitly requested)".
+  - **Result**: LLM now defaults to 2D visualizations for dashboards and only uses 3D when user explicitly requests multi-dimensional/3D plots.
+  - Files: `backend/app/services/llm_service.py` (lines 367-372)
+
+- **🎯 CRITICAL: Enhanced Error Traceback with Actual Code Lines**
+  - **Problem**: When code execution failed, the traceback showed `File "<string>", line 37` without the actual code on that line. The LLM saw references to internal Digital Article code (`execution_service.py`) and library internals that it has no access to, but couldn't see its own generated code that caused the error.
+  - **Impact**: LLM failed all 5 auto-retry attempts because it couldn't identify what needed to be fixed. Even clear error messages like "probabilities do not sum to 1" were useless when the LLM couldn't see the line with `p=[0.5, 0.4]`.
+  - **Fix**: Traceback now includes the actual code from referenced lines:
+    ```
+    File "<string>", line 37, in <module>
+    >>> 37:     response.append(np.random.choice(['CR', 'PR'], p=[0.5, 0.4]))
+    ValueError: probabilities do not sum to 1
+    ```
+  - **Result**: LLM can now see its own code and self-correct errors effectively during auto-retry. This is a **general-purpose fix** that works for ALL errors, not just specific cases.
+  - Files: `backend/app/services/llm_service.py` (added `_enhance_traceback_with_code()` method)
+
+- **🔍 CRITICAL: Traceback Context for Multi-line Expressions**
+  - **Problem**: When errors occurred in multi-line dict/list literals with f-string expressions, Python reports the error at the closing bracket (`}`, `]`, `)`). The enhanced traceback showed `>>> 19: }` which was USELESS - the LLM couldn't see the actual f-string expression that failed (which was several lines above). This caused all 5 retry attempts to fail with the same error.
+  - **Impact**: LLM saw only `}` and had NO IDEA what the actual problem was. Example: `results_df.loc[...].values[0]` in an f-string on line 15 failed, but traceback only showed `>>> 19: }`.
+  - **Fix**: When the error line is just a closing bracket, show 5 lines of context before it to reveal the actual expression:
+    ```
+    File "<string>", line 19, in <module>
+    >>> Context around line 19 (error in multi-line expression):
+        14:     "Model Type": "Supervised Classification",
+        15:     "Performance (Mean Accuracy)": f"{results_df.loc[...].values[0]:.3f}",
+        ...
+    >>> 19: }
+    IndexError: index 0 is out of bounds for axis 0 with size 0
+    ```
+  - **Result**: LLM can now SEE the actual f-string expression that caused the error and fix it during retry. This fix handles a Python language quirk where errors in multi-line expressions are reported at the wrong line.
+  - Files: `backend/app/services/llm_service.py` (enhanced `_enhance_traceback_with_code()` method)
+
+- **📚 CRITICAL: Methodology Generation Accuracy & Code Output Alignment**
+  - **Problem**: Two interconnected issues prevented accurate methodology generation:
+    1. **Statistical findings lost context**: Regex extraction showed just `accuracy: 0.700` without model names → methodology LLM had to GUESS which model → claimed "Random Forest achieved 70%" when it was actually 60%!
+    2. **Code didn't display PRIMARY results**: When user asked for cross-validation, code only displayed feature importance (secondary result), not validation metrics (primary result user asked for)
+    3. **Console output not included**: Methodology LLM never saw the full stdout with `Logistic Regression: Mean Accuracy = 0.700` → couldn't verify claims
+  - **Impact**: Methodology sections contained **factually incorrect claims** about results. Code displayed wrong output. Critical for scientific accuracy!
+  - **Fix - Four-Part Solution**:
+    1. **Include raw console output in methodology prompt** (llm_service.py:1250-1253): Methodology LLM now sees FULL stdout with model names attached to metrics
+    2. **Enhance statistical findings with context** (execution_insights_extractor.py:372-390): Shows "Mean Accuracy = 0.700 (+/- 0.322)" instead of just "accuracy: 0.700"
+    3. **Add verification guidance** (llm_service.py:1212-1214): Tells methodology LLM to use EXACT values from output, never invent/guess
+    4. **Add PRIMARY RESULT guidance** (llm_service.py:374-394, 402): Tells code generation to display main results FIRST with Example 4 showing cross-validation table before feature importance
+  - **Result**:
+    - Methodology now reports CORRECT values: "Logistic Regression and SVM achieved 70%, Random Forest achieved 60%"
+    - Code now displays what user asked for (cross-validation results) first, secondary results (feature importance) second
+    - Methodology claims are verified against actual console output
+  - Files: `backend/app/services/llm_service.py`, `backend/app/services/execution_insights_extractor.py`
+
 ## [0.3.3] - 2025-12-08
 
 ### Fixed

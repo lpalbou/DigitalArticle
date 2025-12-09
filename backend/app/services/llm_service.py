@@ -364,18 +364,33 @@ ax.set_xlabel('Age')
 display(fig, "Figure 1: Age Distribution")  # ← REQUIRED, NOT plt.show()
 ```
 
-Example 3 - INTERACTIVE 3D plot (use Plotly when user says "interactive"):
+Example 3 - Plotly interactive plot (2D - only use 3D if explicitly requested):
 ```python
-import plotly.graph_objects as go
-fig = go.Figure(data=[go.Scatter3d(
-    x=data[:, 0], y=data[:, 1], z=data[:, 2],
-    mode='markers',
-    marker=dict(size=5, color=labels)
-)])
-fig.update_layout(title="3D Visualization", scene=dict(
-    xaxis_title="X", yaxis_title="Y", zaxis_title="Z"
-))
-display(fig, "Figure 1: Interactive 3D Plot")  # ← Plotly figs are interactive
+import plotly.express as px
+fig = px.scatter(df, x='age', y='value', color='category', title='Interactive Scatter')
+display(fig, "Figure 1: Interactive Plot")  # ← Plotly figs are interactive
+```
+
+Example 4 - Cross-validation results (display PRIMARY results):
+```python
+from sklearn.model_selection import cross_val_score
+# When user asks for model validation, display the validation metrics FIRST
+results = {}
+for name, model in models.items():
+    scores = cross_val_score(model, X, y, cv=10)
+    results[name] = scores
+    print(f"{name}: {scores.mean():.3f} ± {scores.std():.3f}")  # Console info
+
+# Display PRIMARY result (what user asked for)
+results_df = pd.DataFrame({
+    'Model': list(results.keys()),
+    'Mean Accuracy': [s.mean() for s in results.values()],
+    'Std': [s.std() for s in results.values()]
+})
+display(results_df, "Table 1: 10-Fold Cross-Validation Results")  # ← PRIMARY
+
+# THEN display secondary/supporting results
+display(feature_importance, "Table 2: Feature Importance")  # ← SECONDARY
 ```
 
 📁 DATA FILES
@@ -384,6 +399,7 @@ All files in 'data/' directory. Use: pd.read_csv('data/filename.csv')
 
 🚨 ANALYTICAL FLAGS (Stop if you detect these)
 --------------------------------------------------------------------------------
+• PRIMARY RESULT: The MAIN result answering the user's request must be display()'ed FIRST
 • CIRCULAR REASONING: Don't predict X from variables derived from X
 • DATA MISMATCH: Check df.columns.tolist() before accessing columns
 • MISSING display(): Every DataFrame/figure must be displayed
@@ -1038,6 +1054,75 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
             logger.error(f"Code improvement failed: {e}")
             raise LLMError(f"Failed to improve code: {e}")
 
+    def _enhance_traceback_with_code(self, traceback: str, code: str) -> str:
+        """
+        Enhance traceback by showing actual code lines from generated code.
+
+        Python's exec() with '<string>' source doesn't provide source code context
+        in tracebacks. This method extracts line numbers and shows the actual code.
+
+        When the error line is just a closing bracket (}, ], )), shows context
+        lines to reveal the actual expression that caused the error (Python reports
+        errors at closing brackets for multi-line expressions).
+
+        Transforms:
+          File "<string>", line 37, in <module>
+
+        Into:
+          File "<string>", line 37, in <module>
+        >>> 37:     response.append(np.random.choice(['CR', 'PR'], p=[0.5, 0.4]))
+
+        Or for closing brackets:
+          File "<string>", line 19, in <module>
+        >>> Context around line 19:
+            15:     "key": f"{df.loc[condition].values[0]}"
+        >>> 19: }
+
+        Args:
+            traceback: Original Python traceback
+            code: The generated code that was executed
+
+        Returns:
+            Enhanced traceback with actual code lines and context shown
+        """
+        import re
+
+        # Extract all line numbers from traceback that reference generated code
+        pattern = r'File "<string>", line (\d+)'
+        matches = list(re.finditer(pattern, traceback))
+
+        if not matches:
+            return traceback  # No <string> references, return as-is
+
+        code_lines = code.split('\n')
+        enhanced_lines = []
+
+        for line in traceback.split('\n'):
+            enhanced_lines.append(line)
+
+            # Check if this line references generated code
+            match = re.search(pattern, line)
+            if match:
+                line_num = int(match.group(1))
+                if 1 <= line_num <= len(code_lines):
+                    actual_code = code_lines[line_num - 1].strip()
+
+                    # Check if line is just a closing bracket (likely end of multi-line expression)
+                    # Python reports errors at closing brackets for dict/list literals
+                    if actual_code in ['}', ']', ')', '},', '],', '),', '})', '})']:
+                        # Show context: 5 lines before and the bracket line
+                        enhanced_lines.append(f">>> Context around line {line_num} (error in multi-line expression):")
+                        start = max(0, line_num - 6)  # 5 lines before
+                        for i in range(start, line_num):
+                            ctx_line = code_lines[i]
+                            marker = ">>>" if i == line_num - 1 else "   "
+                            enhanced_lines.append(f"{marker} {i + 1}: {ctx_line}")
+                    else:
+                        # Normal case: show just the error line
+                        enhanced_lines.append(f">>> {line_num}: {code_lines[line_num - 1]}")
+
+        return '\n'.join(enhanced_lines)
+
     def _enhance_error_context(
         self,
         error_message: str,
@@ -1062,12 +1147,15 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
         Returns:
             Enhanced error message with guidance
         """
+        # First, enhance traceback to show actual code lines
+        enhanced_traceback = self._enhance_traceback_with_code(traceback, code)
+
         try:
             from .error_analyzer import ErrorAnalyzer
 
             analyzer = ErrorAnalyzer()
-            error_context = analyzer.analyze_error(error_message, error_type, traceback, code, context)
-            formatted = analyzer.format_for_llm(error_context, traceback)
+            error_context = analyzer.analyze_error(error_message, error_type, enhanced_traceback, code, context)
+            formatted = analyzer.format_for_llm(error_context, enhanced_traceback)
 
             logger.info(f"Error enhanced with {len(error_context.suggestions)} suggestions")
 
@@ -1076,7 +1164,7 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
         except Exception as e:
             logger.warning(f"Error analysis failed, using original error: {e}")
             # Fallback to original error message if analysis fails
-            return f"{error_type}: {error_message}\n\nTraceback:\n{traceback}"
+            return f"{error_type}: {error_message}\n\nTraceback:\n{enhanced_traceback}"
     
     def generate_scientific_explanation(
         self,
@@ -1166,6 +1254,9 @@ GUIDELINES:
 - Mention statistical measures and sample sizes
 - Connect findings to the analysis objective
 - Maintain objective, analytical tone
+- VERIFY claims against data: If console output shows specific results, use EXACT values from the output
+- Never invent or guess values - only report what is explicitly shown in the data
+- When multiple models are compared, report results for EACH model accurately
 - Length: 3-5 sentences, maximum 200 words for complex analyses"""
 
         # Inject persona guidance for methodology if available
@@ -1203,6 +1294,11 @@ CODE EXECUTED:
 ```
 
 {formatted_insights}
+
+## CONSOLE OUTPUT (full context for statistical results):
+```
+{execution_result.get('stdout', '')}
+```
 
 EXECUTION STATUS: {'Success' if execution_result.get('status') == 'success' else 'Error'}
 {previous_context}
