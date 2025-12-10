@@ -1,10 +1,11 @@
 {
   "llm": {
     "provider": "lmstudio",
-    "model": "qwen/qwen3-next-80b"
+    "model": "openai/gpt-oss-20b"
   },
   "paths": {
     "notebooks_dir": "data/notebooks",
-    "workspace_dir": "data/workspace"
+    "workspace_dir": "data/workspace",
+    "validators_dir": "../data/validators"
   }
 }

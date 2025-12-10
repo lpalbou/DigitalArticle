@@ -55,15 +55,15 @@ class ErrorAnalyzer:
     def __init__(self):
         """Initialize the error analyzer with registered analyzers."""
         # Ordered list of analyzer methods to try
+        # NOTE: Logical coherence checks moved to ValidationService (YAML validators)
         self.analyzers = [
-            self._analyze_logical_coherence_error,  # NEW: Highest priority - check logical issues first
-            self._analyze_matplotlib_color_error,  # NEW: Handle color mapping errors
+            self._analyze_matplotlib_color_error,  # Handle color mapping errors
             self._analyze_matplotlib_subplot_error,
             self._analyze_matplotlib_figure_error,
             self._analyze_numpy_timedelta_error,
             self._analyze_numpy_type_conversion_error,
             self._analyze_file_not_found_error,
-            self._analyze_pandas_length_mismatch_error,  # NEW: Handle pandas length mismatch
+            self._analyze_pandas_length_mismatch_error,  # Handle pandas length mismatch
             self._analyze_pandas_key_error,
             self._analyze_pandas_merge_error,
             self._analyze_numpy_shape_error,
@@ -114,6 +114,21 @@ class ErrorAnalyzer:
     # LOGICAL COHERENCE ANALYZER (Highest Priority)
     # ============================================================================
 
+    # ==========================================================================
+    # LEGACY CODE - MOVED TO YAML VALIDATION SYSTEM
+    # ==========================================================================
+    # The following methods (_analyze_logical_coherence_error and its helpers)
+    # have been REPLACED by the two-path validation architecture.
+    #
+    # Logical validation is now handled by:
+    # - backend/app/services/validation_service.py (orchestration)
+    # - backend/app/services/validators/yaml_loader.py (YAML rule execution)
+    # - data/validators/default.yaml (validation rules)
+    #
+    # These methods are kept for reference but are NO LONGER CALLED.
+    # They were removed from self.analyzers list in __init__().
+    # ==========================================================================
+
     def _analyze_logical_coherence_error(
         self,
         error_message: str,
@@ -123,6 +138,8 @@ class ErrorAnalyzer:
         context: Optional[Dict[str, Any]] = None
     ) -> Optional[ErrorContext]:
         """
+        LEGACY METHOD - NO LONGER USED
+
         Detect logical/analytical errors using domain-agnostic reasoning.
 
         This analyzer checks for conceptual issues rather than technical errors:
@@ -131,7 +148,7 @@ class ErrorAnalyzer:
         - Temporal logic violations
         - Sample size adequacy issues
 
-        NOTE: This runs even if code succeeds, to catch logical errors.
+        NOTE: This has been replaced by the YAML validation system.
         """
         # Don't run logical checks for import errors - those are technical, not logical
         if error_type in ['ModuleNotFoundError', 'ImportError']:
@@ -220,6 +237,8 @@ class ErrorAnalyzer:
         context: Optional[Dict[str, Any]]
     ) -> bool:
         """
+        LEGACY METHOD - NO LONGER USED (part of _analyze_logical_coherence_error)
+
         Detect if code is attempting to predict a grouping/assignment variable.
 
         Red flags:
@@ -267,7 +286,11 @@ class ErrorAnalyzer:
         code: str,
         context: Dict[str, Any]
     ) -> List[str]:
-        """Find columns referenced in code that don't exist in available data."""
+        """
+        LEGACY METHOD - NO LONGER USED (part of _analyze_logical_coherence_error)
+
+        Find columns referenced in code that don't exist in available data.
+        """
         if not context or 'available_variables' not in context:
             return []
 
@@ -406,7 +429,11 @@ class ErrorAnalyzer:
         code: str,
         context: Dict[str, Any]
     ) -> Optional[str]:
-        """Check if sample size is adequate for the analysis being performed."""
+        """
+        LEGACY METHOD - NO LONGER USED (part of _analyze_logical_coherence_error)
+
+        Check if sample size is adequate for the analysis being performed.
+        """
         # Get sample size from context
         sample_size = None
         for var_info in context.get('available_variables', {}).values():

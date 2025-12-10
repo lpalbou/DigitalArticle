@@ -1054,6 +1054,142 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
             logger.error(f"Code improvement failed: {e}")
             raise LLMError(f"Failed to improve code: {e}")
 
+    def fix_logical_issues(
+        self,
+        prompt: str,
+        code: str,
+        logical_issues: str,
+        context: Optional[Dict[str, Any]] = None,
+        step_type: str = 'logical_fix',
+        attempt_number: int = 1
+    ) -> Tuple[str, Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Fix logical/methodological issues in code that executed successfully.
+
+        This is different from suggest_improvements() which handles execution errors.
+        This method focuses on domain correctness, not technical correctness.
+
+        Args:
+            prompt: Original user request
+            code: Code that executed successfully but has logical issues
+            logical_issues: Validation failures and suggestions from validators
+            context: Additional context (available variables, previous cells, etc.)
+            step_type: Type of step for tracing
+            attempt_number: Attempt number for tracing
+
+        Returns:
+            Tuple of (fixed Python code, trace_id or None, full_trace or None)
+        """
+        if not self.llm:
+            raise LLMError("LLM not initialized")
+
+        # Build system prompt for logical fixes
+        system_prompt = """You are fixing LOGICAL issues in data analysis code.
+
+The code executed successfully (no Python errors), but has methodological problems.
+
+CRITICAL: Your fix must:
+1. Address the logical issues listed below
+2. Maintain code that still executes successfully
+3. Follow domain best practices
+4. Use only available data (see context)
+
+Output ONLY the complete fixed Python code."""
+
+        # Build user prompt with context
+        fix_prompt = f"""
+ORIGINAL USER REQUEST:
+{prompt}
+
+CURRENT CODE (executes successfully but has logical issues):
+```python
+{code}
+```
+
+LOGICAL ISSUES TO FIX:
+{logical_issues}
+"""
+
+        # Add available variables context if present
+        if context and 'available_variables' in context:
+            fix_prompt += "\n\nAVAILABLE DATA:\n"
+            fix_prompt += self._format_context(context)
+
+        fix_prompt += "\n\nGenerate the corrected code that addresses these logical issues while maintaining successful execution:"
+
+        try:
+            response = self.llm.generate(
+                fix_prompt,
+                system_prompt=system_prompt,
+                trace_metadata={
+                    'step_type': step_type,
+                    'attempt_number': attempt_number,
+                    'notebook_id': context.get('notebook_id') if context else None,
+                    'cell_id': context.get('cell_id') if context else None,
+                    'validation_type': 'logical'
+                },
+                max_tokens=32000,
+                max_output_tokens=8192,
+                temperature=0.1  # Low temperature for consistent logical fixes
+            )
+
+            # Extract trace_id and full trace
+            trace_id = None
+            full_trace = None
+            if hasattr(response, 'metadata') and response.metadata:
+                trace_id = response.metadata.get('trace_id')
+                logger.info(f"📝 Logical fix trace ID: {trace_id}")
+
+                if trace_id and self.llm:
+                    try:
+                        traces = self.llm.get_traces(trace_id=trace_id)
+                        if traces:
+                            full_trace = traces if isinstance(traces, dict) else traces[0] if isinstance(traces, list) else None
+                            logger.info(f"✅ Retrieved full trace for logical fix {trace_id}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Could not retrieve full trace: {e}")
+
+            fixed_code = self._extract_code_from_response(response.content)
+            return fixed_code, trace_id, full_trace
+
+        except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
+            logger.error(f"LLM API error during logical fix: {e}")
+            raise LLMError(f"LLM API error: {e}")
+        except Exception as e:
+            logger.error(f"Logical fix failed: {e}")
+            raise LLMError(f"Failed to fix logical issues: {e}")
+
+    def _format_context(self, context: Dict[str, Any]) -> str:
+        """
+        Format context dict as readable text for LLM.
+
+        Args:
+            context: Context dict with available_variables, previous_cells, etc.
+
+        Returns:
+            Formatted string describing the context
+        """
+        lines = []
+
+        # Format available variables
+        if 'available_variables' in context:
+            lines.append("Available Variables:")
+            for var_name, var_info in context['available_variables'].items():
+                if isinstance(var_info, dict):
+                    var_type = var_info.get('type', 'unknown')
+                    if var_type == 'DataFrame':
+                        shape = var_info.get('shape', [0, 0])
+                        columns = var_info.get('columns', [])
+                        lines.append(f"  - {var_name}: DataFrame ({shape[0]} rows, {shape[1]} columns)")
+                        if columns:
+                            lines.append(f"    Columns: {', '.join(columns[:10])}")
+                    else:
+                        lines.append(f"  - {var_name}: {var_type}")
+                else:
+                    lines.append(f"  - {var_name}: {var_info}")
+
+        return "\n".join(lines)
+
     def _enhance_traceback_with_code(self, traceback: str, code: str) -> str:
         """
         Enhance traceback by showing actual code lines from generated code.

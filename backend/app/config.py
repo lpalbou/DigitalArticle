@@ -142,7 +142,22 @@ class Config:
         # Default last
         return 'backend/notebook_workspace'
 
-    def set_paths(self, notebooks_dir: str = None, workspace_dir: str = None) -> None:
+    def get_validators_dir(self) -> str:
+        """Get validators directory path (ENV > config.json > default)."""
+        # Environment variable takes precedence
+        env_path = os.getenv('VALIDATORS_DIR')
+        if env_path:
+            return env_path
+
+        # Config file second
+        config_path = self.data.get('paths', {}).get('validators_dir')
+        if config_path:
+            return config_path
+
+        # Default last
+        return 'data/validators'
+
+    def set_paths(self, notebooks_dir: str = None, workspace_dir: str = None, validators_dir: str = None) -> None:
         """Set custom paths in config.json."""
         if 'paths' not in self.data:
             self.data['paths'] = {}
@@ -151,6 +166,8 @@ class Config:
             self.data['paths']['notebooks_dir'] = notebooks_dir
         if workspace_dir:
             self.data['paths']['workspace_dir'] = workspace_dir
+        if validators_dir:
+            self.data['paths']['validators_dir'] = validators_dir
 
         self.save()
 

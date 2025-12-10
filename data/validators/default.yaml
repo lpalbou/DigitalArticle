@@ -1,0 +1,177 @@
+# ==============================================================================
+# Digital Article - LLM-Based Validation Rules (Version 2.0)
+# ==============================================================================
+#
+# This file defines LLM-based semantic validation rules for data analysis.
+# Rules are natural language criteria that the LLM evaluates against code execution.
+#
+# TWO TYPES OF CHECKS:
+# - ENSURE: Things that MUST be present/valid/happen (positive assertions)
+# - PREVENT: Things that MUST NOT be present/valid/happen (anti-patterns)
+#
+# The LLM receives:
+#   - Code that was generated
+#   - Execution results (stdout, tables)
+#   - Available variables from previous cells
+#   - These rules
+#
+# And returns structured validation results with reasoning and evidence.
+#
+# ==============================================================================
+
+version: "2.0"  # LLM-based validation
+
+# ==============================================================================
+# ENSURE CHECKS - Things that MUST be present/valid/happen
+# ==============================================================================
+ensure:
+  - name: "uses_existing_variables"
+    description: "Code should reuse existing DataFrames and variables when appropriate"
+    check: |
+      Verify that the code intelligently uses available variables from previous cells
+      instead of recreating data unnecessarily. If a DataFrame already exists with the
+      needed data (same source file, same data), the code should reference it rather
+      than loading/creating a duplicate.
+
+      Check the available variables context and verify the code uses them when appropriate.
+    severity: warning
+    suggestion: "Use existing variables instead of recreating data to maintain workflow continuity"
+
+  - name: "correct_column_references"
+    description: "All DataFrame column references must exist in the actual data"
+    check: |
+      Verify that all DataFrame column references in the code (df['column'], df.column, df[['col1', 'col2']])
+      match actual columns shown in the available variables context.
+
+      Flag any reference to columns that don't exist in the DataFrames.
+      This includes references in operations like groupby, filter, merge, etc.
+    severity: error
+    suggestion: "Check available DataFrame columns before referencing them"
+
+  - name: "statistical_reliability"
+    description: "Parameter estimates should be statistically reliable (if applicable)"
+    check: |
+      IF the code performs statistical or mathematical parameter estimation
+      (curve fitting, model fitting, optimization), verify:
+
+      1. Parameters are NOT exactly at optimizer bounds (0.1, 1.0, 10.0, 100.0, etc.)
+      2. Confidence intervals don't include impossible values (e.g., negative for positive-only params like clearance)
+      3. %CV < 100% indicates acceptable precision (if %CV is shown in tables)
+      4. Standard errors are smaller than estimates (SE < estimate)
+
+      Look for evidence in stdout, tables, or code comments.
+      ONLY flag if you see ACTUAL evidence of unreliable estimates.
+    severity: error
+    suggestion: "Review model specification, check data quality, try different initial values, or increase sample size"
+
+  - name: "appropriate_methodology"
+    description: "Analysis method should match data characteristics and research question"
+    check: |
+      Verify the chosen statistical/analytical method is appropriate for:
+
+      1. The sample size (e.g., don't use chi-square test with expected frequency <5)
+      2. The data type (categorical vs continuous)
+      3. The research question stated in the user's original prompt
+
+      Consider:
+      - Is the test/method suitable for the data distribution?
+      - Is the sample size adequate for the chosen method?
+      - Does the analysis actually answer the question asked?
+
+      Be reasonable - only flag if there's a clear mismatch.
+    severity: error
+    suggestion: "Consider alternative statistical approaches better suited to the data characteristics"
+
+# ==============================================================================
+# PREVENT CHECKS - Things that MUST NOT be present/valid/happen
+# ==============================================================================
+prevent:
+  - name: "circular_reasoning"
+    description: "Should not predict grouping/assignment variables from outcomes"
+    check: |
+      Ensure the code does NOT try to predict variables that define
+      group assignment or experimental conditions. Common examples:
+
+      - arm (treatment arm)
+      - treatment (treatment type)
+      - cohort (patient cohort)
+      - condition (experimental condition)
+      - group (study group)
+      - assignment (randomization assignment)
+
+      Predicting these FROM outcomes is circular reasoning.
+      The code should predict OUTCOMES from these variables, not the reverse.
+
+      Check if target variable (y, dependent variable) is one of these grouping variables.
+    severity: error
+    suggestion: "Predict outcomes (response, survival, biomarker levels) from group assignments, not the reverse"
+
+  - name: "data_leakage"
+    description: "Test data should not be used during model training"
+    check: |
+      Ensure the code does NOT violate train/test separation:
+
+      1. NO fitting on X_test or y_test (model.fit(X_test, ...) is wrong)
+      2. NO transforming/scaling test data before fitting scaler on train data
+      3. Proper train/test split is maintained throughout
+      4. NO using future information to predict past events (time series leakage)
+
+      Look for patterns like:
+      - fit() called on test variables
+      - transform() on test before fit() on train
+      - Data leakage in time series (using future to predict past)
+    severity: error
+    suggestion: "Maintain strict train/test separation - fit only on training data, then transform and predict on test data"
+
+  - name: "duplicate_data_loading"
+    description: "Should not reload data that already exists in variables"
+    check: |
+      Ensure the code does NOT reload data files (pd.read_csv, pd.read_excel, etc.)
+      when equivalent DataFrames already exist in the available variables.
+
+      Check if:
+      1. Code loads a file (e.g., pd.read_csv('data.csv'))
+      2. Available variables already contain data from the same file
+
+      This is wasteful and breaks workflow continuity.
+      ONLY flag if there's a clear duplicate load, not if the code intentionally reloads for a reason.
+    severity: warning
+    suggestion: "Use existing DataFrames from previous cells instead of reloading files"
+
+  - name: "hardcoded_values"
+    description: "Should not hardcode values that should be computed from data"
+    check: |
+      Ensure the code does NOT hardcode values that should be
+      computed from the data, such as:
+
+      - Sample sizes (n=50) when they should be computed (len(df))
+      - Means, medians, or statistics that exist in the data
+      - Thresholds that should be data-driven
+
+      Exception: Constants and documented parameters (alpha=0.05, pi=3.14) are fine.
+
+      ONLY flag if there's clear hardcoding of values that should come from data.
+    severity: warning
+    suggestion: "Compute values from data instead of hardcoding them"
+
+# ==============================================================================
+# HOW TO ADD CUSTOM VALIDATORS
+# ==============================================================================
+# 1. Create a new .yaml file in data/validators/ (e.g., clinical_trials.yaml)
+# 2. Follow the structure above with ensure/prevent lists
+# 3. Write clear, natural language criteria in the 'check' field
+# 4. Specify severity: error (blocks & retries) or warning (shows but allows)
+# 5. Restart backend to load new validators
+#
+# Example custom validator:
+#
+# prevent:
+#   - name: "inappropriate_test"
+#     description: "Don't use t-test on non-normal data"
+#     check: |
+#       If the code uses t-test (scipy.stats.ttest_*), verify the data
+#       appears normally distributed or sample size is large (n>30).
+#       Flag if using t-test on clearly skewed data with small n.
+#     severity: warning
+#     suggestion: "Consider non-parametric tests for non-normal data"
+# ==============================================================================

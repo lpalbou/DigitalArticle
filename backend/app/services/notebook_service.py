@@ -9,6 +9,7 @@ import json
 import os
 import uuid
 import base64
+import traceback
 from uuid import UUID
 from pathlib import Path
 from typing import Dict, List, Optional, Any, AsyncIterator
@@ -26,20 +27,23 @@ from .pdf_service_scientific import ScientificPDFService
 from .semantic_service import SemanticExtractionService
 from .semantic_analysis_service import SemanticAnalysisService
 from .semantic_profile_service import SemanticProfileService
-from .analysis_planner import AnalysisPlanner
-from .analysis_critic import AnalysisCritic
 from .review_service import ReviewService
-from ..models.analysis_plan import AnalysisPlan
-from ..models.analysis_critique import AnalysisCritique
+from ..models.validation import ValidationSeverity
+# Legacy imports removed (analysis_planner, analysis_critic, AnalysisPlan, AnalysisCritique)
+# These were part of the old ENABLE_PLANNING/ENABLE_CRITIQUE system that has been replaced
+# by the two-path validation architecture (execution + logical validation)
 
 logger = logging.getLogger(__name__)
 
-# PERFORMANCE: Disable expensive optional phases to reduce LLM overhead
-# Planning Phase: 4 LLM calls, 15-40s overhead (intent → variables → validation → method)
-# Critique Phase: 1 LLM call, 10-30s overhead (currently broken with str/dict error)
-# Disabling these reduces execution time from 30-120s to 10-30s (70-88% faster)
-ENABLE_PLANNING = False  # Set to True to enable analysis planning before code generation
-ENABLE_CRITIQUE = False  # Set to True to enable post-execution critique (currently broken)
+# ============================================================================
+# RETRY AND VALIDATION CONFIGURATION
+# ============================================================================
+# Two-path self-correction system:
+# - Path 1 (Execution): Fix code that fails to run (syntax, imports, types)
+# - Path 2 (Logical): Fix code that runs but produces invalid results
+MAX_EXECUTION_RETRIES = 5  # Up to 5 attempts to fix execution errors
+MAX_LOGICAL_RETRIES = 3    # Up to 3 attempts to fix logical/methodological issues
+ENABLE_LOGICAL_VALIDATION = True  # Run logical validators after successful execution
 
 
 class NotebookService:
@@ -101,6 +105,12 @@ class NotebookService:
             logger.info("🔄 Initializing review service...")
             self.review_service = ReviewService(self.llm_service)
             logger.info("✅ Review service initialized")
+
+            logger.info("🔄 Initializing validation service...")
+            from .validation_service import ValidationService
+            self.validation_service = ValidationService(llm_service=self.llm_service)
+            logger.info("✅ Validation service initialized")
+            logger.info(f"   Loaded {self.validation_service.get_validator_stats()['total_logical_validators']} logical validators")
 
             # Get data manager for file context
             logger.info("🔄 Getting data manager...")
@@ -191,6 +201,60 @@ class NotebookService:
         logger.info(f"Notebooks in cache: {list(self._notebooks.keys())}")
         return notebook
     
+    def _format_validation_summary(
+        self,
+        validation_report: 'ValidationReport',
+        validator_groups: List[str],
+        total_groups: int
+    ) -> str:
+        """
+        Format a comprehensive validation summary for UI display.
+
+        Shows what validators ran and their results, even when all pass.
+        """
+        lines = []
+
+        # BUG FIX 4: Show "N/M checks passed" format for visibility
+        # Calculate passed vs total checks
+        total_checks = total_groups
+        failed_checks = len([r for r in validation_report.results if not r.passed])
+        passed_checks = total_checks - failed_checks
+
+        # Header - show check counts prominently
+        lines.append(f"**Validation**: {passed_checks}/{total_checks} checks passed")
+
+        # Show first few validator names (to avoid clutter)
+        if validator_groups:
+            if len(validator_groups) <= 5:
+                lines.append(f"**Rules Checked**: {', '.join(validator_groups)}")
+            else:
+                first_five = ', '.join(validator_groups[:5])
+                lines.append(f"**Rules Checked**: {first_five}, ... (and {len(validator_groups) - 5} more)")
+        lines.append("")
+
+        # Results summary
+        if validation_report.passed:
+            lines.append(f"✅ **All validations passed** (no issues found)")
+        else:
+            findings = len(validation_report.results)
+            errors = sum(1 for r in validation_report.results
+                        if not r.passed and r.severity in (ValidationSeverity.ERROR, ValidationSeverity.CRITICAL))
+            warnings = sum(1 for r in validation_report.results
+                         if not r.passed and r.severity == ValidationSeverity.WARNING)
+
+            lines.append(f"⚠️ **{findings} finding(s)**: {errors} error(s), {warnings} warning(s)")
+            lines.append("")
+
+            # List failures with LLM reasoning if available
+            for result in validation_report.results:
+                if not result.passed:
+                    icon = "❌" if result.severity in (ValidationSeverity.ERROR, ValidationSeverity.CRITICAL) else "⚠️"
+                    lines.append(f"{icon} **{result.validator_name}**: {result.message}")
+                    if result.suggestion:
+                        lines.append(f"   💡 {result.suggestion}")
+
+        return "\n".join(lines)
+
     def _build_execution_context(self, notebook: Notebook, current_cell: Cell) -> Dict[str, Any]:
         """
         Build comprehensive execution context for LLM code generation.
@@ -833,182 +897,91 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             # Generate code if needed
             if not cell.code or request.force_regenerate:
                 # ===================================================================
-                # PLANNING PHASE (OPTIONAL) - Reason about analysis before generating code
+                # CODE GENERATION PHASE
                 # ===================================================================
-                if ENABLE_PLANNING and cell.cell_type == CellType.PROMPT and cell.prompt:
-                    logger.info(f"🧠 PLANNING PHASE: Analyzing request logic for: {cell.prompt[:100]}...")
+                # NOTE: Legacy ENABLE_PLANNING and ENABLE_CRITIQUE phases removed
+                # Replaced by two-path validation system:
+                # - Path 1: Execution correction (syntax/runtime errors)
+                # - Path 2: Logical validation (methodology/domain correctness)
+                logger.info(f"Generating code for prompt: {cell.prompt[:100]}...")
 
+                try:
+                    # Update LLM service configuration
+                    if notebook.llm_provider != self.llm_service.provider or notebook.llm_model != self.llm_service.model:
+                        logger.info(f"Updating LLM service: {notebook.llm_provider}/{notebook.llm_model}")
+                        self.llm_service = LLMService(notebook.llm_provider, notebook.llm_model)
+
+                    # Generate code with full tracing
+                    logger.info("Calling LLM service for code generation...")
+                    generated_code, generation_time, trace_id, full_trace = self.llm_service.generate_code_from_prompt(
+                        cell.prompt,
+                        context,
+                        step_type='code_generation',
+                        attempt_number=1
+                    )
+                    cell.code = generated_code
+                    cell.last_generation_time_ms = generation_time
+                    cell.last_execution_timestamp = datetime.now()
+                    cell.updated_at = datetime.now()
+
+                    # Store trace IDs for backward compatibility
+                    if 'trace_ids' not in cell.metadata:
+                        cell.metadata['trace_ids'] = []
+                    if trace_id:
+                        cell.metadata['trace_ids'].append(trace_id)
+
+                    # Store full trace for persistent observability
+                    if full_trace:
+                        cell.llm_traces.append(full_trace)
+                        logger.info(f"✅ Stored full trace for code generation {trace_id}")
+
+                    logger.info(f"Successfully generated {len(generated_code)} characters of code" +
+                              (f" in {generation_time}ms" if generation_time else '') +
+                              (f", trace_id: {trace_id}" if trace_id else ""))
+
+                    # Update notebook's last context tokens from the generation
                     try:
-                        # Initialize planner with notebook-specific LLM config
-                        planner = AnalysisPlanner(
-                            llm_provider=notebook.llm_provider,
-                            llm_model=notebook.llm_model
-                        )
+                        # Get the most recent cell usage which should have the input tokens
+                        cell_usage = self.llm_service.token_tracker.get_cell_usage(str(cell.id))
+                        if cell_usage and cell_usage.get('input_tokens', 0) > 0:
+                            notebook.last_context_tokens = cell_usage['input_tokens']
+                            logger.info(f"📊 Updated notebook last_context_tokens: {cell_usage['input_tokens']}")
+                    except Exception as token_err:
+                        logger.warning(f"Could not update last_context_tokens: {token_err}")
 
-                        # Plan analysis with full context
-                        analysis_plan, reasoning_trace = planner.plan_analysis(
-                            user_prompt=cell.prompt,
-                            available_data=context,
-                            previous_cells=context.get('previous_cells', [])
-                        )
+                except Exception as e:
+                    logger.error(f"❌ LLM code generation failed for cell {cell.id}")
+                    logger.error(f"   Prompt: {cell.prompt[:100]}...")
+                    logger.error(f"   Error type: {type(e).__name__}")
+                    logger.error(f"   Error message: {str(e)}")
+                    logger.error(f"   Traceback:\n{traceback.format_exc()}")
+                    logger.error(f"   Check: API keys, rate limits, network connectivity, or LLM service availability")
 
-                        # Store plan in cell metadata
-                        cell.metadata['analysis_plan'] = analysis_plan.to_dict()
-                        cell.metadata['reasoning_trace'] = reasoning_trace.model_dump()
+                    # DO NOT use fallback code - let the error surface properly
+                    # If LLM is completely unavailable, user needs to know
+                    cell.code = ""  # Empty code, will show error to user
+                    raise  # Re-raise the exception so it's properly handled
 
-                        logger.info(
-                            f"✅ Planning complete: method={analysis_plan.suggested_method}, "
-                            f"issues={len(analysis_plan.validation_issues)}, "
-                            f"confidence={analysis_plan.confidence_level}"
-                        )
-
-                        # ADD ANALYSIS PLAN TO CONTEXT for code generation guidance
-                        # This ensures the LLM sees the planning results when generating code
-                        context['analysis_plan'] = cell.metadata['analysis_plan']
-                        logger.info("📋 Added analysis plan to context for code generation")
-
-                        # CHECK FOR CRITICAL ISSUES
-                        if analysis_plan.has_critical_issues():
-                            critical_issues = analysis_plan.get_critical_issues()
-                            logger.warning(
-                                f"🚨 CRITICAL ISSUES DETECTED ({len(critical_issues)}): "
-                                f"{[issue.message for issue in critical_issues]}"
-                            )
-
-                            # Store critical issues for UI display
-                            cell.metadata['planning_blocked'] = True
-                            cell.metadata['critical_issues'] = [
-                                {
-                                    'severity': issue.severity.value,
-                                    'type': issue.type.value,
-                                    'message': issue.message,
-                                    'explanation': issue.explanation,
-                                    'suggestion': issue.suggestion,
-                                    'affected_variables': issue.affected_variables
-                                }
-                                for issue in critical_issues
-                            ]
-
-                            # Build comprehensive error message from all critical issues
-                            issues_details = "\n\n".join(
-                                f"{i+1}. {issue.message}\n   {issue.explanation}\n   Suggestion: {issue.suggestion}"
-                                for i, issue in enumerate(critical_issues)
-                            )
-
-                            # Raise exception to trigger retry mechanism with planning feedback
-                            # This allows LLM to revise the approach based on planning analysis
-                            error_msg = (
-                                f"CRITICAL PLANNING ISSUES - Approach has fundamental logical flaws:\n\n"
-                                f"{issues_details}\n\n"
-                                f"PLANNING ANALYSIS:\n{analysis_plan.get_summary()}\n\n"
-                                f"Please REVISE your analytical approach to address these logical issues, "
-                                f"then generate code implementing the corrected approach."
-                            )
-
-                            logger.warning(f"🚫 Planning detected critical issues - will trigger retry with planning feedback")
-                            raise ValueError(error_msg)
-
-                    except ValueError as planning_critical_error:
-                        # Planning detected critical issues - create error result for retry mechanism
-                        logger.warning(f"🔄 Planning critical issues detected - preparing for retry mechanism")
-                        result = ExecutionResult(
-                            status=ExecutionStatus.ERROR,
-                            error_type="PlanningCriticalIssue",
-                            error_message=str(planning_critical_error),
-                            traceback=""
-                        )
-                        cell.code = ""  # No code generated - planning blocked it
-                        # DON'T re-raise - continue to retry logic with error result
-                    except Exception as planning_error:
-                        logger.warning(f"⚠️ Planning phase failed (non-critical): {planning_error}")
-                        # Continue with code generation even if planning fails (fail-safe)
-                        pass
-
-                # ===================================================================
-                # CODE GENERATION PHASE - Skip if planning detected critical issues
-                # ===================================================================
-                if result is None:  # Only generate code if no planning error
-                    logger.info(f"Generating code for prompt: {cell.prompt[:100]}...")
-
-                    try:
-                        # Update LLM service configuration
-                        if notebook.llm_provider != self.llm_service.provider or notebook.llm_model != self.llm_service.model:
-                            logger.info(f"Updating LLM service: {notebook.llm_provider}/{notebook.llm_model}")
-                            self.llm_service = LLMService(notebook.llm_provider, notebook.llm_model)
-
-                        # Generate code with full tracing
-                        logger.info("Calling LLM service for code generation...")
-                        generated_code, generation_time, trace_id, full_trace = self.llm_service.generate_code_from_prompt(
-                            cell.prompt,
-                            context,
-                            step_type='code_generation',
-                            attempt_number=1
-                        )
-                        cell.code = generated_code
-                        cell.last_generation_time_ms = generation_time
-                        cell.last_execution_timestamp = datetime.now()
-                        cell.updated_at = datetime.now()
-
-                        # Store trace IDs for backward compatibility
-                        if 'trace_ids' not in cell.metadata:
-                            cell.metadata['trace_ids'] = []
-                        if trace_id:
-                            cell.metadata['trace_ids'].append(trace_id)
-
-                        # Store full trace for persistent observability
-                        if full_trace:
-                            cell.llm_traces.append(full_trace)
-                            logger.info(f"✅ Stored full trace for code generation {trace_id}")
-
-                        logger.info(f"Successfully generated {len(generated_code)} characters of code" +
-                                  (f" in {generation_time}ms" if generation_time else '') +
-                                  (f", trace_id: {trace_id}" if trace_id else ""))
-
-                        # Update notebook's last context tokens from the generation
-                        try:
-                            # Get the most recent cell usage which should have the input tokens
-                            cell_usage = self.llm_service.token_tracker.get_cell_usage(str(cell.id))
-                            if cell_usage and cell_usage.get('input_tokens', 0) > 0:
-                                notebook.last_context_tokens = cell_usage['input_tokens']
-                                logger.info(f"📊 Updated notebook last_context_tokens: {cell_usage['input_tokens']}")
-                        except Exception as token_err:
-                            logger.warning(f"Could not update last_context_tokens: {token_err}")
-
-                    except Exception as e:
-                        logger.error(f"❌ LLM code generation failed for cell {cell.id}")
-                        logger.error(f"   Prompt: {cell.prompt[:100]}...")
-                        logger.error(f"   Error type: {type(e).__name__}")
-                        logger.error(f"   Error message: {str(e)}")
-                        import traceback
-                        logger.error(f"   Traceback:\n{traceback.format_exc()}")
-                        logger.error(f"   Check: API keys, rate limits, network connectivity, or LLM service availability")
-
-                        # DO NOT use fallback code - let the error surface properly
-                        # If LLM is completely unavailable, user needs to know
-                        cell.code = ""  # Empty code, will show error to user
-                        raise  # Re-raise the exception so it's properly handled
-                else:
-                    logger.info(f"⏭️ Skipping code generation - planning created error result for retry")
-            
-            # Execute code if available OR handle planning errors
+            # Execute code if available
             if cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
                 # Set up notebook-specific context for execution
                 result = self.execution_service.execute_code(cell.code, str(cell.id), str(notebook.id))
                 cell.execution_count += 1
             elif result is None:
-                # No code and no planning error - empty cell or markdown
+                # No code generated - empty cell or markdown
                 result = ExecutionResult(status=ExecutionStatus.SUCCESS)
 
-            # Auto-retry logic: if execution/planning failed and we have a prompt, try to fix it with LLM
+            # ===================================================================
+            # PHASE 2: EXECUTION CORRECTION LOOP
+            # Technical errors (syntax, imports, runtime) → up to 5 retries
+            # ===================================================================
             if result and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
-                max_retries = 5
                 should_auto_retry = (
                     result.status == ExecutionStatus.ERROR and
                     (cell.cell_type == CellType.PROMPT or
                      (cell.cell_type in (CellType.CODE, CellType.METHODOLOGY) and cell.prompt)) and
                     cell.prompt and
-                    cell.retry_count < max_retries  # Allow up to 3 retries
-                    # Removed: not request.force_regenerate - regenerated code should ALSO get retries if it fails
+                    cell.retry_count < MAX_EXECUTION_RETRIES
                 )
 
                 # Store original generated code BEFORE retry loop to prevent code mutation bug
@@ -1021,9 +994,9 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                     cell.is_retrying = True
                     cell.retry_count += 1
 
-                    logger.info(f"🔄 EXECUTION FAILED - Attempting auto-retry #{cell.retry_count}/{max_retries} with LLM for cell {cell.id}")
+                    logger.info(f"🔄 EXECUTION FAILED - Attempting auto-retry #{cell.retry_count}/{MAX_EXECUTION_RETRIES} with LLM for cell {cell.id}")
                     logger.info(f"🔄 Error: {result.error_message}")
-                    print(f"🔄 AUTO-RETRY #{cell.retry_count}/{max_retries}: Attempting to fix execution error for cell {cell.id}")
+                    print(f"🔄 AUTO-RETRY #{cell.retry_count}/{MAX_EXECUTION_RETRIES}: Attempting to fix execution error for cell {cell.id}")
 
                     try:
                         # Build context for LLM including the error
@@ -1108,28 +1081,28 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                             # The error persists, so we keep the current result
                         
                         # Check if we should continue retrying
-                        if cell.retry_count >= max_retries:
-                            logger.warning(f"🔄 All {max_retries} retries exhausted for cell {cell.id}")
-                            print(f"🔄 EXHAUSTED: All {max_retries} auto-retry attempts failed for cell {cell.id}")
+                        if cell.retry_count >= MAX_EXECUTION_RETRIES:
+                            logger.warning(f"🔄 All {MAX_EXECUTION_RETRIES} retries exhausted for cell {cell.id}")
+                            print(f"🔄 EXHAUSTED: All {MAX_EXECUTION_RETRIES} auto-retry attempts failed for cell {cell.id}")
                             cell.is_retrying = False  # Clear retry status
                             break
-                        
+
                         # Update should_auto_retry for next iteration
                         should_auto_retry = (
-                            result.status == ExecutionStatus.ERROR and 
-                            cell.retry_count < max_retries
+                            result.status == ExecutionStatus.ERROR and
+                            cell.retry_count < MAX_EXECUTION_RETRIES
                         )
                             
                     except Exception as retry_error:
                         logger.error(f"🔄 Auto-retry #{cell.retry_count} mechanism failed: {retry_error}")
                         print(f"🔄 ERROR: Auto-retry #{cell.retry_count} mechanism failed: {retry_error}")
-                        
-                        if cell.retry_count >= max_retries:
+
+                        if cell.retry_count >= MAX_EXECUTION_RETRIES:
                             cell.is_retrying = False  # Clear retry status on exception
                             break
-                        
+
                         # Continue to next retry attempt
-                        should_auto_retry = (cell.retry_count < max_retries)
+                        should_auto_retry = (cell.retry_count < MAX_EXECUTION_RETRIES)
 
             # Update cell with result
             cell.last_result = result
@@ -1137,66 +1110,190 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             notebook.updated_at = datetime.now()
 
             # ===================================================================
-            # CRITIQUE PHASE - Evaluate completed analysis
+            # PHASE 3: LOGICAL VALIDATION LOOP
+            # Semantic issues (methodology, statistics, domain) → up to 3 retries
+            # Runs AFTER execution succeeds to catch meaningful but invalid results
             # ===================================================================
-            if ENABLE_CRITIQUE and result.status == ExecutionStatus.SUCCESS and cell.prompt and cell.code:
-                logger.info(f"🔍 CRITIQUE PHASE: Evaluating analysis quality...")
+            # Track validation state for methodology gating (Fix 1)
+            logical_validation_passed = True  # Default: no validation = passed
+            final_validation_report = None  # Store last validation report for metadata
 
-                try:
-                    # Initialize critic with notebook-specific LLM config
-                    critic = AnalysisCritic(
-                        llm_provider=notebook.llm_provider,
-                        llm_model=notebook.llm_model
-                    )
+            if ENABLE_LOGICAL_VALIDATION and result.status == ExecutionStatus.SUCCESS and cell.prompt and cell.code:
+                logger.info(f"🧠 PHASE 3: Starting logical validation for cell {cell.id}...")
+                print(f"🧠 Starting logical validation...")
+                logical_retry_count = 0
 
-                    # Prepare execution result data
-                    execution_data = {
-                        'stdout': result.stdout,
-                        'stderr': result.stderr,
-                        'tables': result.tables,
-                        'plots': result.plots,
-                        'interactive_plots': result.interactive_plots
-                    }
-
-                    # Get analysis plan if it exists
-                    analysis_plan = None
-                    if 'analysis_plan' in cell.metadata:
-                        try:
-                            analysis_plan = AnalysisPlan.from_dict(cell.metadata['analysis_plan'])
-                        except Exception as e:
-                            logger.warning(f"Could not load analysis plan from metadata: {e}")
-
-                    # Critique the analysis
-                    critique, critique_trace = critic.critique_analysis(
-                        user_intent=cell.prompt,
-                        code=cell.code,
-                        execution_result=execution_data,
-                        analysis_plan=analysis_plan,
-                        context=context
-                    )
-
-                    # Store critique in cell metadata
-                    cell.metadata['critique'] = critique.to_dict()
-                    cell.metadata['critique_trace'] = critique_trace.model_dump()
-
-                    logger.info(
-                        f"✅ Critique complete: quality={critique.overall_quality}, "
-                        f"confidence={critique.confidence_in_results}, "
-                        f"findings={len(critique.findings)}"
-                    )
-
-                    # If critique found critical issues, log them
-                    if critique.has_critical_findings():
-                        critical_findings = critique.get_critical_findings()
-                        logger.warning(
-                            f"🚨 CRITICAL FINDINGS IN RESULTS ({len(critical_findings)}): "
-                            f"{[f.title for f in critical_findings]}"
+                while logical_retry_count < MAX_LOGICAL_RETRIES:
+                    # Run logical validators
+                    try:
+                        # BUG FIX 3: Capture LLM trace data
+                        validation_report, llm_trace_id, llm_full_trace = self.validation_service.run_logical_validation(
+                            code=cell.code,
+                            execution_result=result,
+                            context=context
                         )
 
-                except Exception as critique_error:
-                    logger.warning(f"⚠️ Critique phase failed (non-critical): {critique_error}")
-                    # Don't let critique failure break execution (fail-safe)
-                    pass
+                        # Store validation report for later use
+                        final_validation_report = validation_report
+
+                        # Get validator stats for metadata (shows what was checked)
+                        validator_stats = self.validation_service.get_validator_stats()
+                        total_validators = validator_stats.get('yaml_validators', 0)
+                        validator_groups = validator_stats.get('validator_details', {}).get('yaml', [])
+
+                        # BUG FIX 3: Use LLM trace if available (like code_generation traces)
+                        if llm_full_trace and isinstance(llm_full_trace, dict):
+                            # Use the actual LLM trace from validation
+                            validation_trace = llm_full_trace.copy()
+                            # Add validation-specific metadata
+                            validation_trace["metadata"]["step_type"] = "logical_validation"
+                            validation_trace["metadata"]["attempt_number"] = logical_retry_count + 1
+                            validation_trace["metadata"]["validator_groups"] = validator_groups
+                            validation_trace["metadata"]["total_validator_groups"] = total_validators
+                            validation_trace["metadata"]["passed"] = validation_report.passed
+                            validation_trace["metadata"]["should_retry"] = validation_report.should_retry
+                            validation_trace["metadata"]["findings_count"] = len(validation_report.results)
+                            validation_trace["metadata"]["errors_count"] = sum(1 for r in validation_report.results
+                                                      if not r.passed and r.severity in (ValidationSeverity.ERROR, ValidationSeverity.CRITICAL))
+                            validation_trace["metadata"]["warnings_count"] = sum(1 for r in validation_report.results
+                                                        if not r.passed and r.severity == ValidationSeverity.WARNING)
+                            validation_trace["validation_results"] = [r.model_dump() for r in validation_report.results]
+                            logger.info(f"✅ Using LLM trace from validation (attempt #{logical_retry_count + 1}, {total_validators} groups checked)")
+                        else:
+                            # Fallback: create summary trace (for pattern-based or if LLM trace missing)
+                            validation_trace = {
+                                "id": str(uuid.uuid4()),
+                                "timestamp": datetime.now().isoformat(),
+                                "metadata": {
+                                    "step_type": "logical_validation",
+                                    "attempt_number": logical_retry_count + 1,
+                                    # What was checked
+                                    "validator_groups": validator_groups,
+                                    "total_validator_groups": total_validators,
+                                    # Results summary
+                                    "findings_count": len(validation_report.results),
+                                    "passed": validation_report.passed,
+                                    "should_retry": validation_report.should_retry,
+                                    # Detailed breakdown
+                                    "errors_count": sum(1 for r in validation_report.results
+                                                      if not r.passed and r.severity in (ValidationSeverity.ERROR, ValidationSeverity.CRITICAL)),
+                                    "warnings_count": sum(1 for r in validation_report.results
+                                                        if not r.passed and r.severity == ValidationSeverity.WARNING)
+                                },
+                                "response": {
+                                    "content": self._format_validation_summary(
+                                        validation_report, validator_groups, total_validators
+                                    ),
+                                    "finish_reason": "stop" if validation_report.passed else "error"
+                                },
+                                # Store full validation results for detailed UI display
+                                "validation_results": [r.model_dump() for r in validation_report.results]
+                            }
+                            logger.info(f"✅ Created fallback validation trace (attempt #{logical_retry_count + 1}, {total_validators} groups checked)")
+
+                        cell.llm_traces.append(validation_trace)
+
+                        # If all validations passed, we're done
+                        if validation_report.passed:
+                            logger.info(f"🧠 ✅ Logical validation PASSED ({len(validation_report.results)} checks, no errors)")
+                            print(f"🧠 ✅ Logical validation PASSED")
+                            # Add any passive warnings to result
+                            warnings = validation_report.get_warnings()
+                            if warnings:
+                                result.warnings.extend(warnings)
+                                logger.info(f"ℹ️ Logical validation warnings: {len(warnings)}")
+                            break
+
+                        # If only warnings (no errors), add to result but don't retry
+                        if not validation_report.should_retry:
+                            result.warnings.extend([r.message for r in validation_report.results if not r.passed])
+                            logger.info(f"⚠️ Logical validation found {len(validation_report.results)} warning(s) but no errors")
+                            break
+
+                        # Logical errors found - attempt fix
+                        logical_retry_count += 1
+                        logger.info(f"🧠 LOGICAL VALIDATION FAILED - Retry #{logical_retry_count}/{MAX_LOGICAL_RETRIES}")
+                        logger.info(f"   Issues: {validation_report.summary()}")
+                        print(f"🧠 LOGICAL RETRY #{logical_retry_count}/{MAX_LOGICAL_RETRIES}: Attempting to fix methodological issues...")
+
+                        # Get LLM guidance from validation report
+                        logical_issues = validation_report.get_llm_guidance()
+                        logger.info(f"🧠 Guidance for LLM:\n{logical_issues}")
+
+                        # Ask LLM to fix logical issues
+                        fixed_code, trace_id, full_trace = self.llm_service.fix_logical_issues(
+                            prompt=cell.prompt,
+                            code=cell.code,
+                            logical_issues=logical_issues,
+                            context=context,
+                            step_type='logical_fix',
+                            attempt_number=logical_retry_count
+                        )
+
+                        # Store trace
+                        if trace_id:
+                            if 'trace_ids' not in cell.metadata:
+                                cell.metadata['trace_ids'] = []
+                            cell.metadata['trace_ids'].append(trace_id)
+
+                        if full_trace:
+                            cell.llm_traces.append(full_trace)
+                            logger.info(f"✅ Stored full trace for logical fix attempt #{logical_retry_count}")
+
+                        if fixed_code and fixed_code != cell.code:
+                            logger.info(f"🧠 LLM provided fixed code ({len(fixed_code)} chars)")
+                            print(f"🧠 UPDATED: LLM provided corrected code for logical retry #{logical_retry_count}")
+
+                            # Execute the fixed code
+                            retry_result = self.execution_service.execute_code(
+                                fixed_code,
+                                str(cell.id),
+                                str(notebook.id)
+                            )
+
+                            if retry_result.status == ExecutionStatus.SUCCESS:
+                                # Success! Update code and result, continue to re-validate
+                                cell.code = fixed_code
+                                result = retry_result
+                                cell.updated_at = datetime.now()
+                                logger.info(f"🧠 ✅ Logical retry #{logical_retry_count} executed successfully, re-validating...")
+                                print(f"🧠 SUCCESS: Logical retry #{logical_retry_count} fixed the issues, re-validating...")
+                                # Loop continues to re-validate the fixed code
+                            else:
+                                # Fixed code broke execution - stop logical retries
+                                logger.warning(f"🧠 ❌ Logical retry #{logical_retry_count} broke execution: {retry_result.error_message}")
+                                print(f"🧠 FAILED: Logical retry #{logical_retry_count} introduced execution error")
+                                # Don't update cell.code since fix broke things
+                                # Add warning to original result
+                                result.warnings.append(
+                                    f"Logical validation fix attempt #{logical_retry_count} introduced execution error"
+                                )
+                                break
+                        else:
+                            logger.warning(f"🧠 LLM did not provide different code for logical retry #{logical_retry_count}")
+                            print(f"🧠 NO CHANGE: LLM provided same code on logical retry #{logical_retry_count}")
+                            break
+
+                    except Exception as validation_error:
+                        logger.error(f"🧠 Logical validation failed with exception: {validation_error}")
+                        logger.error(f"   Traceback: {traceback.format_exc()}")
+                        # Don't let validation failures break execution (fail-safe)
+                        break
+
+                # Log final status after logical validation loop - ALWAYS log
+                logger.info(f"🧠 Logical validation complete: {logical_retry_count} retries, final status: {result.status}")
+
+                # Store final validation state (Fix 1 - for methodology gating)
+                if final_validation_report:
+                    logical_validation_passed = final_validation_report.passed
+                    # Store validation report in cell metadata for UI display
+                    cell.metadata['validation_report'] = final_validation_report.model_dump()
+                    logger.info(f"✅ Stored validation report in cell metadata (passed={logical_validation_passed})")
+                else:
+                    # Validation loop exited due to exception - treat as failed
+                    logical_validation_passed = False
+                    logger.warning(f"⚠️ Validation loop exited without report - treating as failed")
+
 
             # Generate scientific explanation for successful prompt cells
             print(f"🔬 ALWAYS CHECKING scientific explanation conditions:")
@@ -1212,13 +1309,15 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             
             # Generate scientific explanation for any successful execution with code and prompt
             # This includes both PROMPT cells and CODE cells that have been manually edited
-            if (result.status == ExecutionStatus.SUCCESS and 
+            # CRITICAL (Fix 3): Methodology ONLY generated if BOTH execution AND logical validation passed
+            if (result.status == ExecutionStatus.SUCCESS and
+                logical_validation_passed and  # NEW: Must also pass validation
                 cell.prompt and cell.code and
                 cell.cell_type in (CellType.PROMPT, CellType.CODE)):
-                
+
                 print("🔬 GENERATING SCIENTIFIC EXPLANATION SYNCHRONOUSLY...")
                 logger.info("🔬 GENERATING SCIENTIFIC EXPLANATION SYNCHRONOUSLY...")
-                
+
                 # Retry loop for methodology generation (up to 3 attempts)
                 max_methodology_retries = 3
                 methodology_attempt = 0
@@ -1377,6 +1476,15 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                         logger.info(f"Marked cells below index {cell_index} as stale")
                 except Exception as e:
                     logger.warning(f"Failed to mark downstream cells as stale: {e}")
+
+            # Block methodology if execution succeeded but logical validation failed (Fix 3)
+            elif (result.status == ExecutionStatus.SUCCESS and
+                  not logical_validation_passed and
+                  cell.prompt and cell.code):
+                logger.warning(f"⚠️ Methodology NOT generated - logical validation failed")
+                logger.warning(f"   Fix the validation issues and re-execute to generate methodology")
+                print(f"⚠️ Methodology blocked: logical validation must pass first")
+                print(f"   Re-execute the cell after fixing validation issues to generate methodology")
 
             # Extract semantic information from cell (non-blocking)
             try:

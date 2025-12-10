@@ -249,6 +249,10 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
         return 'Code Generation'
       case 'code_fix':
         return 'Code Fix / Retry'
+      case 'logical_validation':
+        return 'Logical Validation'
+      case 'logical_fix':
+        return 'Logical Fix / Retry'
       case 'methodology_generation':
         return 'Methodology Generation'
       case 'article_review':
@@ -264,6 +268,10 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
         return 'text-blue-600 bg-blue-50'
       case 'code_fix':
         return 'text-yellow-600 bg-yellow-50'
+      case 'logical_validation':
+        return 'text-emerald-600 bg-emerald-50'  // Green for validation check
+      case 'logical_fix':
+        return 'text-orange-600 bg-orange-50'    // Orange for retry (different from yellow code_fix)
       case 'methodology_generation':
         return 'text-purple-600 bg-purple-50'
       case 'article_review':
