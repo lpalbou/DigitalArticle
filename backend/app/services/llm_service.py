@@ -81,6 +81,16 @@ class LLMService:
                 base_url = base_urls.get('lmstudio') or os.getenv('LMSTUDIO_BASE_URL', 'http://localhost:1234/v1')
                 kwargs["base_url"] = base_url
                 logger.info(f"🖥️ Using LMStudio at: {base_url}")
+            elif self.provider.lower() == "vllm":
+                # Priority: saved settings > env var > default
+                base_url = base_urls.get('vllm') or os.getenv('VLLM_BASE_URL', 'http://localhost:8000/v1')
+                kwargs["base_url"] = base_url
+                logger.info(f"🚀 Using vLLM at: {base_url}")
+            elif self.provider.lower() == "openai-compatible":
+                # Priority: saved settings > env var > default
+                base_url = base_urls.get('openai-compatible') or os.getenv('OPENAI_COMPATIBLE_BASE_URL', 'http://localhost:8080/v1')
+                kwargs["base_url"] = base_url
+                logger.info(f"🔗 Using OpenAI-compatible server at: {base_url}")
 
             # Configure AbstractCore provider before creating LLM (ensures consistent base_url usage)
             if base_url:

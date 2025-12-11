@@ -118,10 +118,12 @@ ARG LLM_PROVIDER=ollama
 ARG LLM_MODEL=gemma3n:e2b
 ARG OLLAMA_BASE_URL=http://localhost:11434
 ARG LMSTUDIO_BASE_URL=http://localhost:1234/v1
+ARG VLLM_BASE_URL=http://localhost:8000/v1
+ARG OPENAI_COMPATIBLE_BASE_URL=http://localhost:8080/v1
 
 # Environment variable defaults
 # LLM Configuration (can be overridden at runtime with -e)
-# Note: API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, HUGGINGFACE_TOKEN)
+# Note: API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, HUGGINGFACE_TOKEN, VLLM_API_KEY, OPENAI_COMPATIBLE_API_KEY)
 # should be passed at runtime via -e, not baked into image
 ENV LLM_PROVIDER=${LLM_PROVIDER} \
     LLM_MODEL=${LLM_MODEL} \
@@ -131,6 +133,8 @@ ENV LLM_PROVIDER=${LLM_PROVIDER} \
     HF_HOME=/models/huggingface \
     OLLAMA_BASE_URL=${OLLAMA_BASE_URL} \
     LMSTUDIO_BASE_URL=${LMSTUDIO_BASE_URL} \
+    VLLM_BASE_URL=${VLLM_BASE_URL} \
+    OPENAI_COMPATIBLE_BASE_URL=${OPENAI_COMPATIBLE_BASE_URL} \
     PYTHONUNBUFFERED=1 \
     LOG_LEVEL=INFO \
     DIGITAL_ARTICLE_VARIANT="Standard (CPU)"

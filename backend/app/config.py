@@ -32,15 +32,19 @@ class Config:
     Priority: ENV > config.json > defaults
     
     Environment variables for Docker:
-      - LLM_PROVIDER: LLM provider name (ollama, openai, anthropic, lmstudio, huggingface)
+      - LLM_PROVIDER: LLM provider name (ollama, openai, anthropic, lmstudio, huggingface, vllm, openai-compatible)
       - LLM_MODEL: Model name for the selected provider
       - NOTEBOOKS_DIR: Path to notebooks storage
       - WORKSPACE_DIR: Path to workspace storage
       - OLLAMA_BASE_URL: Base URL for Ollama server (default: http://localhost:11434)
       - LMSTUDIO_BASE_URL: Base URL for LMStudio server (default: http://localhost:1234/v1)
+      - VLLM_BASE_URL: Base URL for vLLM server (default: http://localhost:8000/v1)
+      - OPENAI_COMPATIBLE_BASE_URL: Base URL for generic OpenAI-compatible server (default: http://localhost:8080/v1)
       - OPENAI_API_KEY: API key for OpenAI provider
       - ANTHROPIC_API_KEY: API key for Anthropic provider
       - HUGGINGFACE_TOKEN: Token for HuggingFace provider
+      - VLLM_API_KEY: Optional API key for vLLM server
+      - OPENAI_COMPATIBLE_API_KEY: Optional API key for OpenAI-compatible server
     """
 
     def __init__(self):

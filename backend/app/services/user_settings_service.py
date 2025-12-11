@@ -24,6 +24,8 @@ class LLMSettings(BaseModel):
     base_urls: Dict[str, str] = Field(default_factory=lambda: {
         "ollama": "http://localhost:11434",
         "lmstudio": "http://localhost:1234/v1",
+        "vllm": "http://localhost:8000/v1",  # vLLM server (GPU inference)
+        "openai-compatible": "http://localhost:8080/v1",  # Generic OpenAI-compatible endpoint
         "openai": "",  # Empty = use default OpenAI API
         "anthropic": "",  # Empty = use default Anthropic API
     })

@@ -131,8 +131,9 @@ async def get_available_providers():
     if settings.llm.api_keys.get('huggingface'):
         os.environ['HUGGINGFACE_TOKEN'] = settings.llm.api_keys['huggingface']
 
-    # Configure base URLs programmatically (AbstractCore v2.6.2)
+    # Configure base URLs programmatically (AbstractCore v2.6.5)
     # This makes all subsequent create_llm() calls use these URLs automatically
+    # Supports: ollama, lmstudio, vllm, openai-compatible, openai, anthropic
     for provider, base_url in settings.llm.base_urls.items():
         if base_url and base_url.strip():  # Only configure if URL is set
             configure_provider(provider, base_url=base_url)

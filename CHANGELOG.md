@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.3.6] - 2025-12-11
+
+### Added
+
+- **🚀 vLLM and OpenAI-Compatible Provider Support**
+  - **Upgrade**: AbstractCore dependency upgraded from 2.6.2 to 2.6.5
+  - **vLLM Provider**: High-throughput GPU inference support for NVIDIA CUDA hardware
+    - Default base URL: `http://localhost:8000/v1`
+    - Environment variable: `VLLM_BASE_URL`
+    - Optional API key via `VLLM_API_KEY`
+    - Features: Guided decoding, Multi-LoRA adapters, beam search
+  - **OpenAI-Compatible Provider**: Generic provider for any OpenAI-compatible API endpoint
+    - Supports: llama.cpp, text-generation-webui, LocalAI, FastChat, Aphrodite, SGLang, custom proxies
+    - Default base URL: `http://localhost:8080/v1`
+    - Environment variable: `OPENAI_COMPATIBLE_BASE_URL`
+    - Optional API key via `OPENAI_COMPATIBLE_API_KEY`
+  - **Settings UI**: Both providers now configurable in Advanced Settings
+    - Custom base URLs for vLLM and OpenAI-compatible endpoints
+    - "Update" button to test connection and refresh model list (same as Ollama/LMStudio)
+  - **Docker Support**: New environment variables documented for container deployments
+  - **Docker Support**: Updated all Dockerfiles with new build ARGs and ENV variables
+  - Files: `pyproject.toml`, `backend/app/config.py`, `backend/app/services/llm_service.py`,
+    `backend/app/services/user_settings_service.py`, `backend/app/api/llm.py`,
+    `frontend/src/components/SettingsModal.tsx`, `Dockerfile`, `docker-compose.yml`,
+    `docker/monolithic/Dockerfile`, `docker/monolithic/Dockerfile.nvidia`, `docker/README.md`,
+    `docker/monolithic/README.md`
+
+
 ## [0.3.5] - 2025-12-08
 
 ### Fixed

@@ -77,6 +77,8 @@ The container supports multiple LLM providers via environment variables. This fo
 | **Anthropic** | Cloud API | ✅ Full | Requires `ANTHROPIC_API_KEY` |
 | **LMStudio** | External server | ✅ Full | Desktop app on host, container connects to it |
 | **HuggingFace** | Local inference | ✅ Full | Includes torch, transformers |
+| **vLLM** | External GPU server | ✅ Full | High-throughput inference, NVIDIA CUDA only |
+| **OpenAI-Compatible** | External server | ✅ Full | Any OpenAI-compatible API (llama.cpp, LocalAI, etc.) |
 
 ### Default: Ollama (Local Inference)
 
@@ -150,6 +152,41 @@ docker run -p 80:80 \
 
 **Note:** HuggingFace runs models locally inside the container. Models are cached in `/models/huggingface` (set via `HF_HOME`). Ensure sufficient RAM/VRAM for your chosen model. Models can be downloaded via the Settings UI or will be auto-downloaded on first use.
 
+### Using vLLM (High-Throughput GPU Inference)
+
+vLLM is a high-performance inference engine for NVIDIA CUDA GPUs. Run it on a separate GPU server and point the container to it:
+
+```bash
+# 1. On your GPU server: Start vLLM
+# python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-Coder-7B-Instruct --port 8000
+
+# 2. Run container pointing to GPU server's vLLM
+docker run -p 80:80 \
+    -v digital-article-data:/app/data \
+    -e LLM_PROVIDER=vllm \
+    -e LLM_MODEL=Qwen/Qwen2.5-Coder-7B-Instruct \
+    -e VLLM_BASE_URL=http://your-gpu-server:8000/v1 \
+    digital-article:unified
+```
+
+**Note:** vLLM requires NVIDIA CUDA hardware. Use `VLLM_BASE_URL` to specify the server address.
+
+### Using OpenAI-Compatible (Generic Provider)
+
+Works with any server implementing the OpenAI API format: llama.cpp, text-generation-webui, LocalAI, FastChat, Aphrodite, SGLang, or custom proxies.
+
+```bash
+# Example with llama.cpp server running on host
+docker run -p 80:80 \
+    -v digital-article-data:/app/data \
+    -e LLM_PROVIDER=openai-compatible \
+    -e LLM_MODEL=my-local-model \
+    -e OPENAI_COMPATIBLE_BASE_URL=http://host.docker.internal:8080/v1 \
+    digital-article:unified
+```
+
+**Note:** Use `OPENAI_COMPATIBLE_BASE_URL` to specify the server address. Most local servers don't require an API key, but if needed, set `OPENAI_COMPATIBLE_API_KEY`.
+
 ### Using External Ollama (e.g., Native on Mac)
 
 For better performance on Apple Silicon, run Ollama natively and point the container to it:
@@ -170,11 +207,13 @@ docker run -p 80:80 \
 | Variable | Description | Default |
 |----------|-------------|---------|
 | **LLM Configuration** | | |
-| `LLM_PROVIDER` | LLM provider (`ollama`, `openai`, `anthropic`, `lmstudio`, `huggingface`) | `ollama` |
+| `LLM_PROVIDER` | LLM provider (`ollama`, `openai`, `anthropic`, `lmstudio`, `huggingface`, `vllm`, `openai-compatible`) | `ollama` |
 | `LLM_MODEL` | Model name for the selected provider | `gemma3n:e2b` |
 | `OPENAI_API_KEY` | API key for OpenAI | *(empty)* |
 | `ANTHROPIC_API_KEY` | API key for Anthropic | *(empty)* |
 | `HUGGINGFACE_TOKEN` | Token for HuggingFace (optional for public models) | *(empty)* |
+| `VLLM_API_KEY` | API key for vLLM (optional, most servers don't require it) | *(empty)* |
+| `OPENAI_COMPATIBLE_API_KEY` | API key for OpenAI-compatible servers (optional) | *(empty)* |
 | **Path Configuration** | | |
 | `NOTEBOOKS_DIR` | Path to notebooks storage | `/app/data/notebooks` |
 | `WORKSPACE_DIR` | Path to workspace storage | `/app/data/workspace` |
@@ -182,6 +221,8 @@ docker run -p 80:80 \
 | `HF_HOME` | Path to HuggingFace model cache | `/models/huggingface` |
 | `OLLAMA_BASE_URL` | Ollama API endpoint (for external Ollama) | `http://localhost:11434` |
 | `LMSTUDIO_BASE_URL` | LMStudio API endpoint (for external LMStudio) | `http://localhost:1234/v1` |
+| `VLLM_BASE_URL` | vLLM API endpoint (for external vLLM server) | `http://localhost:8000/v1` |
+| `OPENAI_COMPATIBLE_BASE_URL` | Generic OpenAI-compatible API endpoint | `http://localhost:8080/v1` |
 | **Runtime** | | |
 | `LOG_LEVEL` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) | `INFO` |
 

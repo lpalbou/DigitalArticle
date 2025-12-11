@@ -59,6 +59,8 @@ The Docker containers support multiple LLM providers. Configuration is done via 
 | `anthropic` | Cloud API | ✅ Included | Requires `ANTHROPIC_API_KEY` |
 | `lmstudio` | External server | ✅ Included | Desktop app on host, use `LMSTUDIO_BASE_URL` |
 | `huggingface` | Local inference | ✅ Included | Runs models locally with torch/transformers |
+| `vllm` | External GPU server | ✅ Included | High-throughput inference, use `VLLM_BASE_URL` |
+| `openai-compatible` | External server | ✅ Included | Any OpenAI-compatible API, use `OPENAI_COMPATIBLE_BASE_URL` |
 
 ### Quick Examples
 
@@ -86,9 +88,23 @@ docker run -p 80:80 -v data:/app/data \
     -e LLM_MODEL=qwen/qwen3-32b \
     -e LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1 \
     digital-article:unified
+
+# vLLM (high-throughput GPU inference - NVIDIA CUDA only)
+docker run -p 80:80 -v data:/app/data \
+    -e LLM_PROVIDER=vllm \
+    -e LLM_MODEL=Qwen/Qwen2.5-Coder-7B-Instruct \
+    -e VLLM_BASE_URL=http://host.docker.internal:8000/v1 \
+    digital-article:unified
+
+# OpenAI-Compatible (llama.cpp, text-generation-webui, LocalAI, etc.)
+docker run -p 80:80 -v data:/app/data \
+    -e LLM_PROVIDER=openai-compatible \
+    -e LLM_MODEL=my-local-model \
+    -e OPENAI_COMPATIBLE_BASE_URL=http://host.docker.internal:8080/v1 \
+    digital-article:unified
 ```
 
-**Note:** When using external providers (openai, anthropic, lmstudio, huggingface), the bundled Ollama server is not started, saving system resources.
+**Note:** When using external providers (openai, anthropic, lmstudio, huggingface, vllm, openai-compatible), the bundled Ollama server is not started, saving system resources.
 
 See [monolithic/README.md](./monolithic/README.md) for complete configuration options.
 

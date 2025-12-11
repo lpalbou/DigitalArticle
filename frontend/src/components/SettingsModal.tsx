@@ -47,6 +47,8 @@ type TabId = 'personas' | 'provider' | 'reproducibility' | 'review'
 const DEFAULT_BASE_URLS: Record<string, string> = {
   ollama: 'http://localhost:11434',
   lmstudio: 'http://localhost:1234/v1',
+  vllm: 'http://localhost:8000/v1',
+  'openai-compatible': 'http://localhost:8080/v1',
   openai: '',
   anthropic: '',
 }
@@ -830,23 +832,32 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
                       {/* Base URLs */}
                       <div className="space-y-3">
                         <h5 className="text-sm font-medium text-gray-700">Base URLs</h5>
-                        {['ollama', 'lmstudio', 'openai', 'anthropic'].map((provider) => (
+                        {['ollama', 'lmstudio', 'vllm', 'openai-compatible', 'openai', 'anthropic'].map((provider) => (
                           <div key={provider}>
                             <label className="block text-xs text-gray-500 mb-1 capitalize">
-                              {provider} {provider === 'openai' || provider === 'anthropic' ? '(for Portkey/proxy)' : provider === 'lmstudio' ? '(e.g., http://localhost:1234/v1)' : ''}
+                              {provider === 'openai-compatible' ? 'OpenAI-Compatible' : provider} {
+                                provider === 'openai' || provider === 'anthropic' ? '(for Portkey/proxy)' : 
+                                provider === 'lmstudio' ? '(e.g., http://localhost:1234/v1)' :
+                                provider === 'vllm' ? '(GPU inference server)' :
+                                provider === 'openai-compatible' ? '(any OpenAI-compatible API)' : ''
+                              }
                             </label>
                             <div className="flex space-x-2">
                               <input
                                 type="text"
                                 value={baseUrls[provider] || ''}
                                 onChange={(e) => setBaseUrls(prev => ({ ...prev, [provider]: e.target.value }))}
-                                placeholder={provider === 'lmstudio' ? 'http://localhost:1234/v1' : DEFAULT_BASE_URLS[provider] || 'Leave empty for default'}
+                                placeholder={
+                                  provider === 'lmstudio' ? 'http://localhost:1234/v1' : 
+                                  provider === 'vllm' ? 'http://localhost:8000/v1' :
+                                  provider === 'openai-compatible' ? 'http://localhost:8080/v1' :
+                                  DEFAULT_BASE_URLS[provider] || 'Leave empty for default'
+                                }
                                 className="flex-1 px-3 py-1.5 border border-gray-300 rounded text-sm"
                               />
-                              {(provider === 'ollama' || provider === 'lmstudio') && (
+                              {(provider === 'ollama' || provider === 'lmstudio' || provider === 'vllm' || provider === 'openai-compatible') && (
                                 <button
                                   onClick={async () => {
-                                    // ============ DEBUG START - REMOVE AFTER TESTING ============
                                     console.log('🔵 [DEBUG] Update button clicked:', {
                                       provider,
                                       baseUrl: baseUrls[provider],
@@ -854,7 +865,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
                                       willFetchModels: provider === selectedProvider,
                                       timestamp: new Date().toISOString()
                                     })
-                                    // ============ DEBUG END ============
 
                                     // Refresh providers first (in case URL now connects)
                                     await refreshProviders()
