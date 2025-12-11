@@ -30,9 +30,9 @@ RUN npm run build
 # Using AWS ECR Public Gallery (no rate limits) instead of Docker Hub
 FROM public.ecr.aws/docker/library/python:3.12-slim AS backend-builder
 
-# Install build dependencies
+# Install build dependencies (cmake/swig/zlib needed for tellurium/SBML)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ libpq-dev git \
+    gcc g++ libpq-dev git cmake make swig zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Create virtual environment
@@ -43,8 +43,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 WORKDIR /build
 COPY backend/pyproject.toml ./
 COPY backend/app ./app
+# CFLAGS to allow building older C extensions with newer GCC
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir .
+    CFLAGS="-Wno-error=incompatible-pointer-types" pip install --no-cache-dir .
 
 # ============================================
 # Stage 3: Runtime Image
@@ -111,15 +112,18 @@ RUN mkdir -p \
 
 # ============================================
 # BUILD ARGUMENTS
-# Can be set at build time: KEY1=VALUE1;KEY2=VALUE2
-# Example: LLM_PROVIDER=ollama;LLM_MODEL=qwen3:4b;OLLAMA_BASE_URL=http://gpu-server:11434
+# Customize at build time with --build-arg
+# Example: docker build --build-arg OPENAI_COMPATIBLE_BASE_URL=http://myserver:8080/v1 ...
 # ============================================
-ARG LLM_PROVIDER=ollama
-ARG LLM_MODEL=gemma3n:e2b
-ARG OLLAMA_BASE_URL=http://localhost:11434
-ARG LMSTUDIO_BASE_URL=http://localhost:1234/v1
-ARG VLLM_BASE_URL=http://localhost:8000/v1
-ARG OPENAI_COMPATIBLE_BASE_URL=http://localhost:8080/v1
+ARG LLM_PROVIDER=openai-compatible
+ARG LLM_MODEL=
+
+# Default to host.docker.internal (access host machine from container)
+# For Linux without Docker Desktop: use --add-host=host.docker.internal:host-gateway
+ARG OLLAMA_BASE_URL=http://host.docker.internal:11434
+ARG LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1
+ARG VLLM_BASE_URL=http://host.docker.internal:8000/v1
+ARG OPENAI_COMPATIBLE_BASE_URL=http://host.docker.internal:1234/v1
 
 # Environment variable defaults
 # LLM Configuration (can be overridden at runtime with -e)

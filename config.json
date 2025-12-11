@@ -1,6 +1,6 @@
 {
   "llm": {
-    "provider": "lmstudio",
+    "provider": "openai-compatible",
     "model": "qwen/qwen3-next-80b"
   },
   "paths": {

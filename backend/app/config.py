@@ -21,8 +21,9 @@ logger = logging.getLogger(__name__)
 CONFIG_FILE = Path(__file__).parent.parent.parent / "config.json"
 
 # Default values (used when neither env var nor config.json specifies)
-DEFAULT_LLM_PROVIDER = "ollama"
-DEFAULT_LLM_MODEL = "gemma3n:e2b"
+# Priority: ENV > hardcoded defaults
+DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai-compatible")
+DEFAULT_LLM_MODEL = os.getenv("LLM_MODEL", "")
 
 
 class Config:

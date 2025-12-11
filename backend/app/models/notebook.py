@@ -13,6 +13,8 @@ from uuid import UUID, uuid4
 import numpy as np
 from pydantic import BaseModel, Field
 
+from ..config import DEFAULT_LLM_PROVIDER, DEFAULT_LLM_MODEL
+
 
 class CellType(str, Enum):
     """Types of cells in a notebook."""
@@ -138,8 +140,8 @@ class Notebook(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     
     # Configuration
-    llm_model: str = "gemma3n:e2b"
-    llm_provider: str = "ollama"
+    llm_model: str = DEFAULT_LLM_MODEL
+    llm_provider: str = DEFAULT_LLM_PROVIDER
     custom_seed: Optional[int] = None  # User-defined seed for reproducibility
 
     # Token tracking
@@ -249,8 +251,8 @@ class NotebookCreateRequest(BaseModel):
     title: str = "Untitled Digital Article"
     description: str = ""
     author: str = ""
-    llm_model: str = "gemma3n:e2b"
-    llm_provider: str = "ollama"
+    llm_model: str = DEFAULT_LLM_MODEL
+    llm_provider: str = DEFAULT_LLM_PROVIDER
 
 
 class NotebookUpdateRequest(BaseModel):

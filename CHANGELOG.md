@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.3.7] - 2025-12-11
+
+### Changed
+
+- **🐳 Docker: 2-Tiers as Default, OpenAI-Compatible Provider**
+  - **Root Dockerfile**: Now uses 2-tiers configuration (lightweight, external LLM)
+  - **Default Provider**: Changed from `ollama` to `openai-compatible`
+  - **Default URL**: `http://host.docker.internal:1234/v1` (LMStudio default port)
+  - **Build Fix**: Added `cmake make swig zlib1g-dev` + CFLAGS for GCC 14 compatibility with tellurium
+  - **New 2-tiers variant**: `docker/2-tiers/` - Frontend + Backend only (~500MB vs ~2GB)
+  - Files: `Dockerfile`, `docker/2-tiers/*`, `docker/monolithic/Dockerfile`,
+    `docker/monolithic/Dockerfile.nvidia`, `docker/README.md`
+
+### How to Configure
+
+```bash
+# Build-time (baked into image)
+docker build --build-arg OPENAI_COMPATIBLE_BASE_URL=http://myserver:8080/v1 .
+
+# Run-time (override at startup)
+docker run -e OPENAI_COMPATIBLE_BASE_URL=http://host.docker.internal:8080/v1 ...
+```
+
+
 ## [0.3.6] - 2025-12-11
 
 ### Added

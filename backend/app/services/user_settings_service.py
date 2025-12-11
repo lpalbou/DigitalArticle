@@ -13,19 +13,21 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 
+from ..config import DEFAULT_LLM_PROVIDER, DEFAULT_LLM_MODEL
+
 logger = logging.getLogger(__name__)
 
 
 class LLMSettings(BaseModel):
     """LLM configuration settings."""
-    provider: str = "ollama"
-    model: str = "gemma3n:e2b"
+    provider: str = DEFAULT_LLM_PROVIDER
+    model: str = DEFAULT_LLM_MODEL
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     base_urls: Dict[str, str] = Field(default_factory=lambda: {
-        "ollama": "http://localhost:11434",
-        "lmstudio": "http://localhost:1234/v1",
-        "vllm": "http://localhost:8000/v1",  # vLLM server (GPU inference)
-        "openai-compatible": "http://localhost:8080/v1",  # Generic OpenAI-compatible endpoint
+        "ollama": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+        "lmstudio": os.getenv("LMSTUDIO_BASE_URL", "http://localhost:1234/v1"),
+        "vllm": os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"),
+        "openai-compatible": os.getenv("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:1234/v1"),
         "openai": "",  # Empty = use default OpenAI API
         "anthropic": "",  # Empty = use default Anthropic API
     })
