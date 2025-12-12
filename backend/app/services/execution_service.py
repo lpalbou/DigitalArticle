@@ -541,6 +541,15 @@ class ExecutionService:
                 if isinstance(obj, pd.DataFrame) and not name.startswith('_')
             }
 
+            # Track Plotly figures before execution to only capture new ones
+            # This prevents figures from previous cells from being re-captured
+            # We track by object ID (memory address) to detect if a variable is reassigned to a new figure
+            pre_execution_plotly_figures = {
+                name: id(obj) for name, obj in globals_dict.items()
+                if hasattr(obj, 'to_dict') and hasattr(obj, 'data') and hasattr(obj, 'layout')
+                and not name.startswith('_')
+            }
+
             # Add lazy imports to code if needed
             processed_code = self._preprocess_code(code)
 
@@ -578,7 +587,7 @@ class ExecutionService:
             result.plots.extend(auto_plots)  # Add auto-captured plots after displayed ones
             logger.info(f"📊 Captured {len(auto_plots)} additional auto-captured plot(s)")
 
-            interactive_plots = self._capture_interactive_plots(globals_dict)
+            interactive_plots = self._capture_interactive_plots(globals_dict, pre_execution_plotly_figures)
             result.interactive_plots = sanitize_for_json(interactive_plots)  # Sanitize numpy types
 
             # 3. Capture intermediary DataFrame variables (for debugging in Execution Details)
@@ -1940,23 +1949,36 @@ class ExecutionService:
             logger.debug(traceback.format_exc())
             return None, 0
     
-    def _capture_interactive_plots(self, globals_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _capture_interactive_plots(self, globals_dict: Dict[str, Any], pre_execution_figures: dict = None) -> List[Dict[str, Any]]:
         """
-        Capture Plotly interactive plots.
+        Capture Plotly interactive plots created during the current cell execution.
+
+        Only captures NEW Plotly figures that were created during this execution,
+        preventing figures from previous cells from being re-captured.
 
         Args:
             globals_dict: The notebook's global namespace
+            pre_execution_figures: Dict mapping figure variable names to their object IDs
+                                   that existed before execution. If None, all figures are captured.
 
         Returns:
-            List of Plotly figure JSON data
+            List of Plotly figure JSON data (only new figures)
         """
         interactive_plots = []
+        pre_execution_figures = pre_execution_figures or {}
 
         try:
             # Look for Plotly figures in the global namespace
             for name, obj in globals_dict.items():
                 if hasattr(obj, 'to_dict') and hasattr(obj, 'data') and hasattr(obj, 'layout'):
-                    # This is likely a Plotly figure
+                    # Skip if this is the SAME figure object (same memory address) from a previous cell
+                    # But allow if the variable has been reassigned to a NEW figure object
+                    if name in pre_execution_figures and id(obj) == pre_execution_figures[name]:
+                        logger.debug(f"⏭️ Skipping pre-existing Plotly figure: {name} (same object)")
+                        continue
+
+                    # This is a NEW Plotly figure created in the current cell
+                    # (either a new variable name, or an existing name reassigned to a new object)
                     try:
                         # Convert to JSON-serializable format
                         figure_dict = obj.to_dict()

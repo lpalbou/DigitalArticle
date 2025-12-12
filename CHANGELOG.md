@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.3.10] - 2025-12-12
+
+### Fixed
+
+- **Figure Duplication Bug: Plotly Figures Re-captured Across Cells**
+  - Root cause: `_capture_interactive_plots()` captured ALL Plotly figures in globals_dict
+  - Figures from previous cells persisted in namespace and were re-captured
+  - Fix: Track pre-execution Plotly figures by name AND object ID (memory address)
+  - Only captures NEW figures: new variable names OR existing names reassigned to new objects
+  - Same pattern as DataFrame tracking (pre_execution_vars, pre_execution_dataframes)
+  - Files: `backend/app/services/execution_service.py`
+
+
 ## [0.3.9] - 2025-12-11
 
 ### Fixed
