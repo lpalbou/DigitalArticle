@@ -222,9 +222,9 @@ async def get_notebook_personas(
 
         if not personas_data:
             # Return default selection if not set
-            print(f"⚠️  No personas found, returning default 'generic'")
+            print(f"⚠️  No personas found, returning default 'clinical'")
             return PersonaSelection(
-                base_persona='generic',
+                base_persona='clinical',
                 domain_personas=[],
                 role_modifier=None,
                 custom_overrides={},

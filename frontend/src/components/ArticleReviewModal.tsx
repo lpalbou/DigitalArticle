@@ -12,6 +12,14 @@ interface DimensionRating {
   summary: string
 }
 
+interface DataQualityAssessment {
+  rating: DimensionRating
+  provenance: string
+  quality: string
+  quantity: string
+  appropriateness: string
+}
+
 interface ResearchQuestionAssessment {
   rating: DimensionRating
   relevance: string
@@ -47,6 +55,7 @@ interface ArticleReview {
   notebook_id: string
 
   // Enhanced dimensional assessments
+  data_quality?: DataQualityAssessment
   research_question?: ResearchQuestionAssessment
   methodology?: MethodologyAssessment
   results_communication?: ResultsCommunicationAssessment
@@ -309,6 +318,49 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
           </div>
 
           {/* Dimensional Assessment Cards */}
+          {review.data_quality && (
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <button
+                onClick={() => setExpandedDimension(expandedDimension === 'dq' ? null : 'dq')}
+                className="w-full px-5 py-4 bg-purple-50 hover:bg-purple-100 transition-colors"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center space-x-3">
+                    {expandedDimension === 'dq' ? <ChevronDown className="h-5 w-5 text-purple-600" /> : <ChevronRight className="h-5 w-5 text-purple-600" />}
+                    <span className="font-semibold text-gray-900">Data Quality Assessment</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <span className="text-sm text-gray-600">{review.data_quality.rating.label}</span>
+                    <span className="text-yellow-500 font-semibold">
+                      {'★'.repeat(review.data_quality.rating.score)}{'☆'.repeat(5 - review.data_quality.rating.score)}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-700 italic text-left pl-8">{review.data_quality.rating.summary}</p>
+              </button>
+              {expandedDimension === 'dq' && (
+                <div className="p-5 bg-white space-y-4 border-t border-gray-200">
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-800 mb-1">Provenance</h4>
+                    <MarkdownRenderer content={review.data_quality.provenance} variant="compact" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-800 mb-1">Quality</h4>
+                    <MarkdownRenderer content={review.data_quality.quality} variant="compact" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-800 mb-1">Quantity</h4>
+                    <MarkdownRenderer content={review.data_quality.quantity} variant="compact" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-800 mb-1">Appropriateness</h4>
+                    <MarkdownRenderer content={review.data_quality.appropriateness} variant="compact" />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {review.research_question && (
             <div className="border border-gray-200 rounded-lg overflow-hidden">
               <button

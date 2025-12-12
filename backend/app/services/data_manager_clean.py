@@ -14,6 +14,19 @@ from datetime import datetime
 import logging
 from .h5_service import h5_processor
 
+# Token estimation for large file warning
+try:
+    from abstractcore.utils.token_utils import estimate_tokens
+    TOKEN_ESTIMATION_AVAILABLE = True
+except ImportError:
+    TOKEN_ESTIMATION_AVAILABLE = False
+    def estimate_tokens(text: str, model: str = None) -> int:
+        """Fallback: ~4 chars per token estimate."""
+        return len(text) // 4 if text else 0
+
+# Large file threshold (tokens)
+LARGE_FILE_TOKEN_THRESHOLD = 25000
+
 # Optional YAML support
 try:
     import yaml
@@ -323,66 +336,82 @@ class DataManager:
                             'is_dictionary': is_dictionary  # Flag for LLM context
                         }
                     elif file_path.suffix == '.md':
-                        # First few lines of markdown file
+                        # Markdown files: send FULL content to LLM
                         with open(file_path, 'r', encoding='utf-8') as f:
-                            lines = [f.readline().strip() for _ in range(10)]
-                            lines = [line for line in lines if line]
-                        file_info['preview'] = {
-                            'first_lines': lines,
-                            'encoding': 'utf-8',
-                            'file_type': 'markdown'
-                        }
-                    elif file_path.suffix in ['.yaml', '.yml'] and YAML_AVAILABLE:
-                        # Parse YAML file for preview
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            yaml_data = yaml.safe_load(f)
+                            full_content = f.read()
                         
-                        # Analyze YAML structure (similar to JSON)
-                        if isinstance(yaml_data, list):
-                            file_info['preview'] = {
-                                'type': 'array',
-                                'length': len(yaml_data),
-                                'file_type': 'yaml',
-                                'sample_item': yaml_data[0] if len(yaml_data) > 0 else None
-                            }
-                        elif isinstance(yaml_data, dict):
-                            file_info['preview'] = {
-                                'type': 'object',
-                                'keys': list(yaml_data.keys())[:10],
-                                'total_keys': len(yaml_data.keys()),
-                                'file_type': 'yaml'
-                            }
-                        else:
-                            file_info['preview'] = {
-                                'type': type(yaml_data).__name__,
-                                'value': str(yaml_data)[:100],
-                                'file_type': 'yaml'
-                            }
+                        # Estimate tokens for large file warning
+                        token_count = estimate_tokens(full_content)
+                        is_large = token_count > LARGE_FILE_TOKEN_THRESHOLD
+                        
+                        file_info['preview'] = {
+                            'file_type': 'markdown',
+                            'full_content': full_content,  # Send ALL content
+                            'line_count': full_content.count('\n') + 1,
+                            'char_count': len(full_content),
+                            'estimated_tokens': token_count,
+                            'is_large_file': is_large
+                        }
+                        # Also add to file_info for frontend warning
+                        file_info['estimated_tokens'] = token_count
+                        file_info['is_large_file'] = is_large
+                        
+                    elif file_path.suffix in ['.yaml', '.yml'] and YAML_AVAILABLE:
+                        # YAML files: send FULL content to LLM
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            full_content = f.read()
+                        
+                        # Estimate tokens for large file warning
+                        token_count = estimate_tokens(full_content)
+                        is_large = token_count > LARGE_FILE_TOKEN_THRESHOLD
+                        
+                        # Also parse for structure info
+                        yaml_data = yaml.safe_load(full_content)
+                        
+                        file_info['preview'] = {
+                            'file_type': 'yaml',
+                            'full_content': full_content,  # Send ALL content
+                            'structure_type': 'array' if isinstance(yaml_data, list) else 'object' if isinstance(yaml_data, dict) else type(yaml_data).__name__,
+                            'line_count': full_content.count('\n') + 1,
+                            'char_count': len(full_content),
+                            'estimated_tokens': token_count,
+                            'is_large_file': is_large
+                        }
+                        file_info['estimated_tokens'] = token_count
+                        file_info['is_large_file'] = is_large
+                        
                     elif file_path.suffix == '.json':
+                        # JSON files: send MINIFIED to LLM (fewer tokens), keep beautified for display
                         import json
                         with open(file_path, 'r', encoding='utf-8') as f:
-                            json_data = json.load(f)
+                            full_content = f.read()
+
+                        # Parse JSON
+                        json_data = json.loads(full_content)
                         
-                        # Analyze JSON structure
-                        if isinstance(json_data, list):
-                            file_info['preview'] = {
-                                'type': 'array',
-                                'length': len(json_data),
-                                'sample_item': json_data[0] if len(json_data) > 0 else None,
-                                'schema': self._analyze_json_schema(json_data[0] if len(json_data) > 0 else {})
-                            }
-                        elif isinstance(json_data, dict):
-                            file_info['preview'] = {
-                                'type': 'object',
-                                'keys': list(json_data.keys())[:10],  # First 10 keys
-                                'total_keys': len(json_data.keys()),
-                                'schema': self._analyze_json_schema(json_data)
-                            }
-                        else:
-                            file_info['preview'] = {
-                                'type': type(json_data).__name__,
-                                'value': str(json_data)[:100]
-                            }
+                        # Create minified version for LLM (no whitespace = fewer tokens)
+                        minified_content = json.dumps(json_data, separators=(',', ':'), ensure_ascii=False)
+                        
+                        # Create beautified version for display
+                        beautified_content = json.dumps(json_data, indent=2, ensure_ascii=False)
+                        
+                        # Estimate tokens on MINIFIED version (what LLM actually receives)
+                        token_count = estimate_tokens(minified_content)
+                        is_large = token_count > LARGE_FILE_TOKEN_THRESHOLD
+
+                        file_info['preview'] = {
+                            'file_type': 'json',
+                            'full_content': minified_content,  # Minified for LLM
+                            'display_content': beautified_content,  # Beautified for file viewer
+                            'structure_type': 'array' if isinstance(json_data, list) else 'object' if isinstance(json_data, dict) else type(json_data).__name__,
+                            'line_count': beautified_content.count('\n') + 1,  # Line count of beautified
+                            'char_count': len(minified_content),  # Char count of minified
+                            'char_count_beautified': len(beautified_content),
+                            'estimated_tokens': token_count,
+                            'is_large_file': is_large
+                        }
+                        file_info['estimated_tokens'] = token_count
+                        file_info['is_large_file'] = is_large
                     elif file_path.suffix in ['.xlsx', '.xls']:
                         # Full Excel file info with all sheets, columns, dtypes, and sample data
                         import openpyxl
@@ -435,14 +464,24 @@ class DataManager:
                                     'error': str(sheet_error)
                                 })
                     elif file_path.suffix == '.txt':
-                        # First few lines of text file
+                        # Text files: send FULL content to LLM
                         with open(file_path, 'r', encoding='utf-8') as f:
-                            lines = [f.readline().strip() for _ in range(5)]
-                            lines = [line for line in lines if line]  # Remove empty lines
+                            full_content = f.read()
+                        
+                        # Estimate tokens for large file warning
+                        token_count = estimate_tokens(full_content)
+                        is_large = token_count > LARGE_FILE_TOKEN_THRESHOLD
+                        
                         file_info['preview'] = {
-                            'first_lines': lines,
-                            'encoding': 'utf-8'
+                            'file_type': 'text',
+                            'full_content': full_content,  # Send ALL content
+                            'line_count': full_content.count('\n') + 1,
+                            'char_count': len(full_content),
+                            'estimated_tokens': token_count,
+                            'is_large_file': is_large
                         }
+                        file_info['estimated_tokens'] = token_count
+                        file_info['is_large_file'] = is_large
                     elif h5_processor.is_h5_file(file_path):
                         # H5/HDF5/H5AD file processing
                         h5_metadata = h5_processor.process_file(file_path)

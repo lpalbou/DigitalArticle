@@ -1,6 +1,6 @@
 {
   "name": "digital-article-frontend",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,6 +13,7 @@
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
     "axios": "^1.6.2",
+    "highlight.js": "^11.11.1",
     "lucide-react": "^0.294.0",
     "marked": "^16.4.2",
     "plotly.js": "^3.1.2",

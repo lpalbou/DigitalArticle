@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { X, FileText, Image as ImageIcon, Table, Code, Eye, FileSpreadsheet } from 'lucide-react'
-import { marked } from 'marked'
 import { filesAPI } from '../services/api'
 import { FileInfo } from '../types'
 import H5FileViewer from './H5FileViewer'
 import ExcelFileViewer from './ExcelFileViewer'
+import MarkdownRenderer from './MarkdownRenderer'
 
 interface FileViewerModalProps {
   isOpen: boolean
@@ -146,13 +146,6 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
     return lines.map(line => line.split('\t'))
   }
 
-  // Configure marked for better rendering
-  useEffect(() => {
-    marked.setOptions({
-      breaks: true,
-      gfm: true,
-    })
-  }, [])
 
   // Simple JSON syntax highlighter
   const highlightJson = (jsonString: string): string => {
@@ -362,12 +355,10 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
 
     // Markdown files
     if (fileType === 'markdown' && viewMode === 'formatted') {
-      const htmlContent = marked(content)
       return (
-        <div 
-          className="prose prose-sm max-w-none overflow-auto max-h-96 p-4 markdown-content"
-          dangerouslySetInnerHTML={{ __html: htmlContent }}
-        />
+        <div className="overflow-auto max-h-96 p-4">
+          <MarkdownRenderer content={content} variant="default" />
+        </div>
       )
     }
 

@@ -333,16 +333,49 @@
     @apply mb-1;
   }
   
+  /* Inline code */
   .md-content code {
     @apply bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono text-gray-800;
   }
   
+  /* Code block wrapper with copy button */
+  .md-code-block-wrapper {
+    @apply relative mb-3;
+  }
+  
+  .md-code-block-wrapper pre {
+    @apply mb-0;
+  }
+  
+  /* Code block copy button */
+  .md-code-copy-btn {
+    @apply absolute top-2 right-2 px-2 py-1 text-xs font-medium;
+    @apply bg-white/90 hover:bg-white text-gray-600 hover:text-gray-900;
+    @apply border border-gray-300 rounded shadow-sm;
+    @apply transition-all duration-150 cursor-pointer;
+    @apply opacity-0;
+  }
+  
+  .md-code-block-wrapper:hover .md-code-copy-btn {
+    @apply opacity-100;
+  }
+  
+  .md-code-copy-btn:hover {
+    @apply shadow;
+  }
+  
+  .md-code-copy-btn.md-copy-success {
+    @apply bg-green-100 text-green-700 border-green-300;
+  }
+  
+  /* Code blocks (pre > code) */
   .md-content pre {
-    @apply bg-gray-100 p-4 rounded-md overflow-x-auto mb-3;
+    @apply bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto mb-3;
+    @apply text-sm leading-relaxed;
   }
   
   .md-content pre code {
-    @apply bg-transparent p-0;
+    @apply bg-transparent p-0 text-inherit;
   }
   
   .md-content blockquote {
@@ -416,10 +449,19 @@
   
   .md-inverted pre {
     background-color: rgba(255, 255, 255, 0.15);
+    @apply text-white;
+  }
+  
+  .md-inverted .md-code-copy-btn {
+    @apply bg-white/20 hover:bg-white/30 text-white border-white/30;
+  }
+  
+  .md-inverted .md-code-copy-btn.md-copy-success {
+    @apply bg-green-500/30 text-green-100 border-green-400/50;
   }
   
   .md-inverted a {
-    @apply text-blue-200 hover:text-blue-100;
+    @apply text-white underline decoration-white/50 hover:decoration-white;
   }
   
   .md-inverted blockquote {

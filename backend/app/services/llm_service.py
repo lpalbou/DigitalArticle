@@ -903,24 +903,65 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
                                         sheets_str += f", ... ({len(sheets)} total)"
                                     user_prompt += f"   Excel sheets: {sheets_str}\n"
                             
-                            # JSON files
+                            # JSON files - send FULL content
                             elif file_info['type'] == 'json':
-                                if preview.get('type') == 'array':
-                                    user_prompt += f"   JSON array with {preview['length']} items\n"
-                                    if 'schema' in preview and preview['schema']:
-                                        user_prompt += f"   Item structure: {self._format_json_schema(preview['schema'])}\n"
-                                elif preview.get('type') == 'object':
-                                    user_prompt += f"   JSON object with {preview.get('total_keys', len(preview.get('keys', [])))} properties\n"
-                                    if preview.get('keys'):
-                                        keys_str = ', '.join(preview['keys'])  # Show all keys - no truncation
-                                        user_prompt += f"   Keys: {keys_str}\n"
+                                if 'full_content' in preview:
+                                    # New format: full content
+                                    is_large = preview.get('is_large_file', False)
+                                    token_est = preview.get('estimated_tokens', 0)
+                                    if is_large:
+                                        user_prompt += f"   ⚠️ LARGE FILE ({token_est:,} tokens estimated)\n"
+                                    user_prompt += f"   Structure: {preview.get('structure_type', 'unknown')}\n"
+                                    user_prompt += f"   Lines: {preview.get('line_count', 0)}\n\n"
+                                    user_prompt += f"   FULL CONTENT:\n```json\n{preview['full_content']}\n```\n"
+                                else:
+                                    # Legacy format
+                                    if preview.get('type') == 'array':
+                                        user_prompt += f"   JSON array with {preview['length']} items\n"
+                                        if 'schema' in preview and preview['schema']:
+                                            user_prompt += f"   Item structure: {self._format_json_schema(preview['schema'])}\n"
+                                    elif preview.get('type') == 'object':
+                                        user_prompt += f"   JSON object with {preview.get('total_keys', len(preview.get('keys', [])))} properties\n"
+                                        if preview.get('keys'):
+                                            keys_str = ', '.join(preview['keys'])
+                                            user_prompt += f"   Keys: {keys_str}\n"
                             
-                            # Text files
+                            # Text files - send FULL content
                             elif file_info['type'] == 'txt':
-                                if 'first_lines' in preview and preview['first_lines']:
+                                if 'full_content' in preview:
+                                    # New format: full content
+                                    is_large = preview.get('is_large_file', False)
+                                    token_est = preview.get('estimated_tokens', 0)
+                                    if is_large:
+                                        user_prompt += f"   ⚠️ LARGE FILE ({token_est:,} tokens estimated)\n"
+                                    user_prompt += f"   Lines: {preview.get('line_count', 0)}\n\n"
+                                    user_prompt += f"   FULL CONTENT:\n```\n{preview['full_content']}\n```\n"
+                                elif 'first_lines' in preview and preview['first_lines']:
+                                    # Legacy format
                                     user_prompt += f"   Text preview:\n"
                                     for line in preview['first_lines'][:5]:
                                         user_prompt += f"      {line}\n"
+                            
+                            # Markdown files - send FULL content
+                            elif file_info['type'] == 'md':
+                                if 'full_content' in preview:
+                                    is_large = preview.get('is_large_file', False)
+                                    token_est = preview.get('estimated_tokens', 0)
+                                    if is_large:
+                                        user_prompt += f"   ⚠️ LARGE FILE ({token_est:,} tokens estimated)\n"
+                                    user_prompt += f"   Lines: {preview.get('line_count', 0)}\n\n"
+                                    user_prompt += f"   FULL CONTENT:\n```markdown\n{preview['full_content']}\n```\n"
+                            
+                            # YAML files - send FULL content
+                            elif file_info['type'] in ['yaml', 'yml']:
+                                if 'full_content' in preview:
+                                    is_large = preview.get('is_large_file', False)
+                                    token_est = preview.get('estimated_tokens', 0)
+                                    if is_large:
+                                        user_prompt += f"   ⚠️ LARGE FILE ({token_est:,} tokens estimated)\n"
+                                    user_prompt += f"   Structure: {preview.get('structure_type', 'unknown')}\n"
+                                    user_prompt += f"   Lines: {preview.get('line_count', 0)}\n\n"
+                                    user_prompt += f"   FULL CONTENT:\n```yaml\n{preview['full_content']}\n```\n"
                     
                     user_prompt += "\n"
                 

@@ -40,7 +40,7 @@ const PersonaTab = forwardRef<PersonaTabRef, PersonaTabProps>(({ notebookId }, r
   const [saving, setSaving] = useState(false)
   const [personas, setPersonas] = useState<Persona[]>([])
   const [selection, setSelection] = useState<PersonaSelection>({
-    base_persona: 'generic',  // Default to generic
+    base_persona: 'clinical',  // Default to clinical data scientist
     domain_personas: [],
     role_modifier: null,
     custom_overrides: {},

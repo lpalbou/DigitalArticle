@@ -18,6 +18,7 @@ from ..models.review import (
     ReviewCategory,
     # Enhanced models
     DimensionRating,
+    DataQualityAssessment,
     ResearchQuestionAssessment,
     MethodologyAssessment,
     ResultsCommunicationAssessment,
@@ -75,64 +76,60 @@ Each cell has FOUR components you must evaluate:
 
 You are reviewing computational research for publication in top-tier journals (Nature, Science, Cell, PLOS). Your job is to be **appropriately skeptical and critical**.
 
+## ⚠️ CRITICAL RULE: DO NOT INVENT OR ASSUME
+
+**YOU MUST ONLY STATE FACTS THAT ARE EXPLICITLY PRESENT IN THE ARTICLE.**
+
+- If something is NOT explicitly stated, say "not documented" or "cannot be determined"
+- **NEVER claim data is "synthetic", "fabricated", or "fake"** unless the article EXPLICITLY says so
+- **NEVER infer data quality from code patterns** (np.random, etc. are legitimate statistical tools)
+- If you cannot assess something, say "Cannot be assessed from the provided information"
+- **DO NOT MAKE CLAIMS YOU CANNOT VERIFY FROM THE TEXT**
+
+The presence of `np.random`, statistical resampling, or train/test splits does NOT mean data is synthetic. These are standard statistical methods used with REAL data.
+
 **Standards for publication in top journals**:
-- Novel findings with real data
+- Novel and meaningful findings
 - Rigorous statistical methodology
 - Reproducible with clear methods
 - Meaningful contribution to the field
 - Limitations acknowledged
 
-**What you're looking for**:
-- Is the data **real** or synthetic/mock/test?
-- Are the methods **scientifically sound**?
-- Are the conclusions **justified by the evidence**?
-- Are there **critical flaws** that would prevent publication?
-
-## 🚨 DATA QUALITY IS PARAMOUNT
-
-**First question**: Is this real data or synthetic/generated/mock/test data?
-
-Look for:
-- `np.random`, `random.choice` in code
-- Variable names: "synthetic_*", "mock_*", "test_*", "generated_*"
-- Comments mentioning "synthetic", "simulated", "mock", "fake", "test"
-- Suspiciously perfect distributions
-
-**If using synthetic/mock/test data**:
-This is a **code demonstration**, not scientific research. It shows technical competence but produces no scientific knowledge. This is fundamentally not suitable for peer-reviewed publication, regardless of how well the code is written.
-
 ## EVALUATION CRITERIA
 
-**Research Question**:
-- Is this addressing a real scientific problem or just demonstrating code?
-- Is the question meaningful with actual clinical/experimental relevance?
+Evaluate the work objectively based on its scientific merits:
 
-**Methodology**:
+**1. Data Quality** (assess first):
+- **Provenance**: Where does the data come from? Is it clearly documented? If not stated, say "Data source not explicitly documented"
+- **Quality**: Is the data complete, accurate, and consistent?
+- **Quantity**: Is the sample size adequate for the analyses performed?
+- **Appropriateness**: Is the data suitable for the research question?
+- **CRITICAL**: Only state data is synthetic if EXPLICITLY stated. If not stated, assume data is real.
+
+**2. Research Question**:
+- Is the research question clearly stated and scientifically meaningful?
+- Is it appropriately scoped for the data and methods used?
+
+**3. Methodology**:
 - Are statistical assumptions tested (not just assumed)?
 - Are methods appropriate for this type of data?
-- Is sample size adequate for the analyses performed?
 - Are effect sizes reported, not just p-values?
 
-**Results & Conclusions**:
+**4. Results & Conclusions**:
 - Do conclusions match what the data actually show?
 - Are limitations discussed honestly?
 - Are alternative explanations considered?
 - Is there appropriate uncertainty quantification?
 
 **Critical Issues to Flag**:
-- Synthetic/test data used as if it were real
 - Inappropriate statistical methods
 - Overstated conclusions not supported by data
 - Missing validation or assumption checking
 - Methodological flaws that invalidate results
 
-## TONE: HONEST AND DIRECT
+## TONE: HONEST AND CONSTRUCTIVE
 
-Be honest about limitations. Don't say work is "publication-ready" or "meets Nature/Science standards" when it doesn't. You can note technical strengths while being clear about scientific limitations.
-
-**Good**: "The code is well-written and demonstrates proper use of pharmacokinetic methods. However, this analysis uses synthetic data and therefore does not constitute a scientific finding suitable for publication."
-
-**Bad**: "This is a masterfully executed, publication-ready article that meets Nature/Science-level expectations."
+Be honest about limitations while providing constructive feedback. Acknowledge strengths and provide actionable suggestions for improvement.
 
 ## CRITICAL - OUTPUT FORMAT REQUIREMENTS
 
@@ -916,8 +913,10 @@ EXAMPLE OF CORRECT FORMAT:
             rating = DimensionRating(score=score, label=label, summary=summary)
 
             # Extract detail fields - more flexible matching
-            for field_name in ['relevance', 'clarity', 'scope', 'approach_validity', 'assumptions',
-                               'reproducibility', 'accuracy', 'completeness', 'methodology_text']:
+            for field_name in ['provenance', 'quality', 'quantity', 'appropriateness',  # Data Quality
+                               'relevance', 'clarity', 'scope',  # Research Question
+                               'approach_validity', 'assumptions', 'reproducibility',  # Methodology
+                               'accuracy', 'completeness', 'methodology_text']:  # Results Communication
 
                 # Try multiple patterns for field matching
                 field_title = field_name.replace("_", " ").title()
@@ -947,6 +946,28 @@ EXAMPLE OF CORRECT FORMAT:
 
         # Parse dimensional assessments
         try:
+            # Data Quality Assessment (NEW - first dimension)
+            dq_content = get_section_content("DATA QUALITY ASSESSMENT")
+            logger.info(f"📝 Data Quality section length: {len(dq_content)} chars")
+            dq_rating, dq_details = parse_dimension_assessment(dq_content)
+
+            # Extract data quality fields
+            dq_provenance = dq_details.get('provenance', 'Not assessed')
+            dq_quality = dq_details.get('quality', 'Not assessed')
+            dq_quantity = dq_details.get('quantity', 'Not assessed')
+            dq_appropriateness = dq_details.get('appropriateness', 'Not assessed')
+
+            if any(field == 'Not assessed' for field in [dq_provenance, dq_quality, dq_quantity, dq_appropriateness]):
+                dq_rating = DimensionRating(score=0, label="Not Assessed", summary="Assessment incomplete - missing required fields")
+
+            data_quality = DataQualityAssessment(
+                rating=dq_rating,
+                provenance=dq_provenance,
+                quality=dq_quality,
+                quantity=dq_quantity,
+                appropriateness=dq_appropriateness,
+            )
+
             # Research Question Assessment
             rq_content = get_section_content("RESEARCH QUESTION ASSESSMENT")
             logger.info(f"📝 Research Question section length: {len(rq_content)} chars")
@@ -1014,6 +1035,11 @@ EXAMPLE OF CORRECT FORMAT:
             logger.warning(f"Failed to parse dimensional assessments: {e}")
             # Create default assessments with 0 stars (not assessed)
             default_rating = DimensionRating(score=0, label="Not Assessed", summary="Assessment failed - parser error")
+            data_quality = DataQualityAssessment(
+                rating=default_rating,
+                provenance="Not assessed", quality="Not assessed",
+                quantity="Not assessed", appropriateness="Not assessed"
+            )
             research_question = ResearchQuestionAssessment(
                 rating=default_rating,
                 relevance="Not assessed", clarity="Not assessed", scope="Not assessed"
@@ -1090,6 +1116,7 @@ EXAMPLE OF CORRECT FORMAT:
         return ArticleReview(
             notebook_id=notebook_id,
             # Dimensional assessments
+            data_quality=data_quality,
             research_question=research_question,
             methodology=methodology,
             results_communication=results_communication,

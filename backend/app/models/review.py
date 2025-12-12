@@ -48,6 +48,15 @@ class DimensionRating(BaseModel):
     summary: str  # Brief justification (markdown supported)
 
 
+class DataQualityAssessment(BaseModel):
+    """Assessment of the data quality and provenance."""
+    rating: DimensionRating
+    provenance: str  # Where does the data come from? Is it clearly documented? (markdown)
+    quality: str  # Data quality assessment (completeness, accuracy, consistency) (markdown)
+    quantity: str  # Is the sample size adequate for the analyses performed? (markdown)
+    appropriateness: str  # Is the data appropriate for the research question? (markdown)
+
+
 class ResearchQuestionAssessment(BaseModel):
     """Assessment of the research question/intent quality."""
     rating: DimensionRating
@@ -102,6 +111,7 @@ class ArticleReview(BaseModel):
     notebook_id: str
 
     # Enhanced Format (SOTA Scientific Review) - Optional for backward compatibility
+    data_quality: Optional[DataQualityAssessment] = None  # NEW: First dimension
     research_question: Optional[ResearchQuestionAssessment] = None
     methodology: Optional[MethodologyAssessment] = None
     results_communication: Optional[ResultsCommunicationAssessment] = None

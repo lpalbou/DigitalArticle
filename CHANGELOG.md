@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.7] - 2025-12-11
 
+### Added
+
+- **📁 Enhanced LLM File Context**
+  - LLM now receives full metadata + sample data (20 rows) for uploaded files
+  - Rich column analysis: semantic types, missing values, ranges, categorical distributions
+  - Data dictionaries auto-detected and sent in full (no truncation)
+  - Full content sent for txt, md, json, yaml files
+  - JSON minified before sending to LLM (~40% token savings)
+  - Large file warning modal (>25k tokens) with user confirmation
+  - Files: `data_manager_clean.py`, `llm_service.py`, `FileContextPanel.tsx`
+
+- **📊 Reviewer: Data Quality Assessment**
+  - New first dimension in peer review: Provenance, Quality, Quantity, Appropriateness
+  - Reviewer evaluates only what is explicitly stated in the article
+  - Default persona changed from Generic to Clinical
+
+- **📝 Unified Markdown Renderer**
+  - New `MarkdownRenderer` component for consistent markdown across all panels
+  - Syntax highlighting for code blocks via highlight.js
+  - Copy button on code blocks
+  - Three variants: default, compact (chat), inverted (user bubbles)
+  - Files: `frontend/src/components/MarkdownRenderer.tsx`, `frontend/src/index.css`
+
 ### Changed
 
 - **🐳 Docker: 2-Tiers as Default, OpenAI-Compatible Provider**
