@@ -686,19 +686,67 @@ EXAMPLE OF CORRECT FORMAT:
     def _build_full_article_context(self, notebook: Notebook) -> str:
         """Build COMPLETE context for article review - NO TRUNCATION.
 
-        The Digital Article structure for each cell:
-        - Prompt (intent): What the user wanted to accomplish
-        - Code (implementation): How the analysis was performed
-        - Results (output): What was produced (stdout, tables, plots)
-        - Methodology (communication): Scientific explanation of the analysis
+        Includes:
+        - Data files: metadata + preview (same as sent to LLM for code generation)
+        - Cell structure for each cell:
+          - Prompt (intent): What the user wanted to accomplish
+          - Code (implementation): How the analysis was performed
+          - Results (output): What was produced (stdout, tables, plots)
+          - Methodology (communication): Scientific explanation of the analysis
 
         Args:
             notebook: Notebook to build context from
 
         Returns:
-            Complete article context with all cell details
+            Complete article context with file data and all cell details
         """
         context_parts = []
+
+        # Add uploaded file context (same metadata + preview as sent to LLM for code generation)
+        try:
+            from .data_manager_clean import get_data_manager
+            notebook_data_manager = get_data_manager(str(notebook.id))
+            execution_context = notebook_data_manager.get_execution_context()
+            files = execution_context.get('files_in_context', [])
+            
+            if files:
+                file_context = []
+                file_context.append("═══════════════════════════════════════════════════")
+                file_context.append("DATA FILES AVAILABLE")
+                file_context.append("═══════════════════════════════════════════════════")
+                
+                for f in files:
+                    file_context.append(f"\n### File: {f.get('name', 'Unknown')}")
+                    file_context.append(f"Type: {f.get('type', 'Unknown')}")
+                    
+                    # Add metadata
+                    metadata = f.get('metadata', {})
+                    if metadata:
+                        if metadata.get('rows') is not None:
+                            file_context.append(f"Rows: {metadata.get('rows')}, Columns: {metadata.get('columns')}")
+                        if metadata.get('column_names'):
+                            file_context.append(f"Column names: {metadata.get('column_names')}")
+                        if metadata.get('column_analysis'):
+                            file_context.append("Column analysis:")
+                            for col_name, col_info in metadata.get('column_analysis', {}).items():
+                                col_type = col_info.get('semantic_type', col_info.get('dtype', 'unknown'))
+                                file_context.append(f"  - {col_name}: {col_type}")
+                    
+                    # Add data preview
+                    preview = f.get('preview')
+                    if preview:
+                        if isinstance(preview, str):
+                            file_context.append(f"Data preview:\n{preview[:2000]}")  # Limit preview size
+                        elif isinstance(preview, dict):
+                            if preview.get('sample_data'):
+                                file_context.append(f"Sample data (first rows):\n{preview.get('sample_data')}")
+                            elif preview.get('content'):
+                                file_context.append(f"Content:\n{preview.get('content')[:2000]}")
+                
+                context_parts.append("\n".join(file_context))
+                logger.info(f"📁 Added {len(files)} files to review context")
+        except Exception as e:
+            logger.warning(f"Could not get file context for review: {e}")
 
         for i, cell in enumerate(notebook.cells, 1):
             cell_context = []

@@ -60,7 +60,7 @@ INSTRUCTIONS:
 5. Recommend implementation approaches when asked
 6. Be constructive and specific - reference your review findings
 7. Explain WHY certain things matter for scientific rigor
-8. Draw from your review's dimensional assessments (Research Question, Methodology, Results Communication)
+8. Draw from your review's dimensional assessments (Data Quality, Research Question, Methodology, Results Communication)
 
 EXAMPLES:
 - "What did you mean by [issue]?" → Explain the specific concern in more detail
@@ -161,12 +161,13 @@ Be helpful, specific, and always reference your review findings when relevant.""
         Build comprehensive context from notebook.
 
         Includes:
+        - Uploaded data files (metadata + preview)
         - Article title and description
         - Number of cells and structure
-        - All prompts (user's intentions)
-        - All code (implementation)
+        - All prompts (user's intentions) - FULL
+        - All code (implementation) - FULL
         - All results (outputs, plots, tables)
-        - All methodology (explanations)
+        - All methodology (explanations) - FULL
         """
         context_parts = []
 
@@ -175,56 +176,77 @@ Be helpful, specific, and always reference your review findings when relevant.""
         if notebook.description:
             context_parts.append(f"DESCRIPTION: {notebook.description}")
 
+        # Add uploaded file context (same as reviewer and code generation)
+        try:
+            from .data_manager_clean import get_data_manager
+            notebook_data_manager = get_data_manager(str(notebook.id))
+            execution_context = notebook_data_manager.get_execution_context()
+            files = execution_context.get('files_in_context', [])
+            
+            if files:
+                context_parts.append("\n=== DATA FILES ===")
+                for f in files:
+                    file_info = [f"File: {f.get('name', 'Unknown')} ({f.get('type', 'Unknown')})"]
+                    
+                    metadata = f.get('metadata', {})
+                    if metadata:
+                        if metadata.get('rows') is not None:
+                            file_info.append(f"  Shape: {metadata.get('rows')} rows × {metadata.get('columns')} columns")
+                        if metadata.get('column_names'):
+                            file_info.append(f"  Columns: {metadata.get('column_names')}")
+                    
+                    preview = f.get('preview')
+                    if preview:
+                        if isinstance(preview, str):
+                            file_info.append(f"  Preview:\n{preview[:1500]}")
+                        elif isinstance(preview, dict) and preview.get('sample_data'):
+                            file_info.append(f"  Sample data:\n{preview.get('sample_data')}")
+                    
+                    context_parts.append("\n".join(file_info))
+                logger.info(f"📁 Added {len(files)} files to chat context")
+        except Exception as e:
+            logger.warning(f"Could not get file context for chat: {e}")
+
         # Structure overview
-        context_parts.append(f"\nARTICLE STRUCTURE: {len(notebook.cells)} cells")
+        context_parts.append(f"\n=== ARTICLE STRUCTURE: {len(notebook.cells)} cells ===")
 
-        # Per-cell context (limit to prevent token overflow)
-        max_cells = 20  # Limit to most recent cells if notebook is very large
-        cells_to_include = notebook.cells[-max_cells:] if len(notebook.cells) > max_cells else notebook.cells
-
-        for i, cell in enumerate(cells_to_include, 1):
-            cell_context = [f"\n=== CELL {i} (ID: {str(cell.id)}) ==="]
+        # Per-cell context - FULL content (no truncation)
+        for i, cell in enumerate(notebook.cells, 1):
+            cell_context = [f"\n=== CELL {i} ==="]
 
             if cell.prompt:
-                # Truncate very long prompts
-                prompt = cell.prompt[:500] + "..." if len(cell.prompt) > 500 else cell.prompt
-                cell_context.append(f"USER INTENT: {prompt}")
+                cell_context.append(f"USER INTENT: {cell.prompt}")
 
             if cell.code:
-                # Truncate very long code
-                code = cell.code[:1000] + "..." if len(cell.code) > 1000 else cell.code
-                cell_context.append(f"CODE:\n{code}")
+                cell_context.append(f"CODE:\n```python\n{cell.code}\n```")
 
             if cell.scientific_explanation:
-                # Truncate very long explanations
-                methodology = cell.scientific_explanation[:800] + "..." if len(cell.scientific_explanation) > 800 else cell.scientific_explanation
-                cell_context.append(f"METHODOLOGY: {methodology}")
+                cell_context.append(f"METHODOLOGY: {cell.scientific_explanation}")
 
             if cell.last_result:
                 result = cell.last_result
-                result_summary = []
+                result_parts = []
 
                 if result.stdout:
-                    # Truncate long output
-                    stdout = result.stdout[:500] + "..." if len(result.stdout) > 500 else result.stdout
-                    result_summary.append(f"OUTPUT: {stdout}")
+                    result_parts.append(f"OUTPUT:\n{result.stdout}")
 
                 if result.tables:
-                    result_summary.append(f"TABLES: {len(result.tables)} table(s) generated")
+                    result_parts.append(f"TABLES: {len(result.tables)} table(s)")
+                    for j, table in enumerate(result.tables, 1):
+                        label = table.get('label', f'Table {j}')
+                        shape = table.get('shape', 'unknown')
+                        result_parts.append(f"  - {label}: {shape}")
 
                 if result.plots:
-                    result_summary.append(f"PLOTS: {len(result.plots)} plot(s) generated")
+                    result_parts.append(f"PLOTS: {len(result.plots)} plot(s)")
 
                 if result.error_message:
-                    result_summary.append(f"ERROR: {result.error_message}")
+                    result_parts.append(f"ERROR: {result.error_message}")
 
-                if result_summary:
-                    cell_context.append("RESULTS: " + ", ".join(result_summary))
+                if result_parts:
+                    cell_context.append("RESULTS:\n" + "\n".join(result_parts))
 
             context_parts.append("\n".join(cell_context))
-
-        if len(notebook.cells) > max_cells:
-            context_parts.append(f"\n(Note: Showing most recent {max_cells} cells out of {len(notebook.cells)} total)")
 
         return "\n".join(context_parts)
 
@@ -251,6 +273,20 @@ Be helpful, specific, and always reference your review findings when relevant.""
                 review_parts.append(f"\nOVERALL ASSESSMENT:\n{review_data['overall_assessment']}")
 
             # Dimensional ratings
+            if 'data_quality' in review_data:
+                dq = review_data['data_quality']
+                rating = dq.get('rating', {})
+                review_parts.append(f"\nDATA QUALITY RATING: {rating.get('score', '?')}/5 - {rating.get('label', 'N/A')}")
+                review_parts.append(f"Summary: {rating.get('summary', 'N/A')}")
+                if dq.get('provenance'):
+                    review_parts.append(f"Provenance: {dq.get('provenance')}")
+                if dq.get('quality'):
+                    review_parts.append(f"Quality: {dq.get('quality')}")
+                if dq.get('quantity'):
+                    review_parts.append(f"Quantity: {dq.get('quantity')}")
+                if dq.get('appropriateness'):
+                    review_parts.append(f"Appropriateness: {dq.get('appropriateness')}")
+
             if 'research_question' in review_data:
                 rq = review_data['research_question']
                 rating = rq.get('rating', {})

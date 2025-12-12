@@ -1637,29 +1637,48 @@ Write a scientific explanation of what was done and the results obtained:"""
                     if last_result.get('output'):
                         cell_summary += f"\n  Output:\n{last_result['output']}"
                     
-                    # Table data (DataFrames, structured results)
+                    # Table metadata + 20-row preview (same format as cell code generation)
                     if last_result.get('tables'):
                         for j, table in enumerate(last_result['tables'], 1):
                             cell_summary += f"\n  Table {j}:"
                             if isinstance(table, dict):
-                                # Extract table metadata and content
+                                # Table identification
                                 if table.get('label'):
-                                    cell_summary += f" ({table['label']})"
-                                if table.get('data'):
-                                    cell_summary += f"\n{table['data']}"
-                                elif table.get('html'):
-                                    # Strip HTML but keep content indication
-                                    cell_summary += f"\n[Structured table data available]"
-                            else:
-                                cell_summary += f"\n{table}"
+                                    cell_summary += f" {table['label']}"
+                                if table.get('name'):
+                                    cell_summary += f" ({table['name']})"
+                                
+                                # Shape
+                                shape = table.get('shape', [0, 0])
+                                cell_summary += f"\n    Shape: {shape[0]} rows × {shape[1]} columns"
+                                
+                                # Columns with data types (same format as cell code generation)
+                                columns = table.get('columns', [])
+                                info = table.get('info', {})
+                                dtypes = info.get('dtypes', {})
+                                
+                                if columns:
+                                    cell_summary += f"\n    COLUMNS:"
+                                    for col in columns:
+                                        dtype = dtypes.get(col, 'unknown')
+                                        cell_summary += f"\n      - {col}: {dtype}"
+                                
+                                # Sample data table (first 20 rows, same format as cell code generation)
+                                data = table.get('data', [])
+                                if data and columns:
+                                    sample_data = data[:20]
+                                    cell_summary += f"\n    SAMPLE DATA (first {len(sample_data)} rows of {shape[0]} total):\n"
+                                    cell_summary += self._format_sample_data_table(columns, sample_data, dtypes)
                     
-                    # Interactive plot metadata (titles, axes, data ranges)
+                    # Interactive plot METADATA only (titles, axes - not data arrays)
                     if last_result.get('interactive_plots'):
                         for j, plot in enumerate(last_result['interactive_plots'], 1):
                             cell_summary += f"\n  Figure {j}:"
                             if isinstance(plot, dict):
-                                # Extract plot metadata from Plotly JSON
-                                layout = plot.get('layout', {})
+                                # Get layout from nested 'figure' or direct
+                                figure = plot.get('figure', plot)
+                                layout = figure.get('layout', {})
+                                
                                 if layout.get('title'):
                                     title = layout['title']
                                     if isinstance(title, dict):
@@ -1678,8 +1697,9 @@ Write a scientific explanation of what was done and the results obtained:"""
                                         cell_summary += f"\n    Y-axis: {yaxis.get('text', '')}"
                                     else:
                                         cell_summary += f"\n    Y-axis: {yaxis}"
-                                # Include trace names/types for context
-                                data = plot.get('data', [])
+                                        
+                                # Include trace names/types ONLY (not data arrays)
+                                data = figure.get('data', [])
                                 if data:
                                     trace_info = []
                                     for trace in data[:5]:  # Limit to first 5 traces
@@ -1691,8 +1711,10 @@ Write a scientific explanation of what was done and the results obtained:"""
                                             trace_info.append(trace_type)
                                     if trace_info:
                                         cell_summary += f"\n    Plot elements: {', '.join(trace_info)}"
+                                    if len(data) > 5:
+                                        cell_summary += f" (+{len(data) - 5} more)"
                     
-                    # Static plot descriptions
+                    # Static plot descriptions (labels only, not image data)
                     if last_result.get('plots'):
                         plot_count = len(last_result['plots'])
                         cell_summary += f"\n  Static visualizations: {plot_count} plot(s) generated"
