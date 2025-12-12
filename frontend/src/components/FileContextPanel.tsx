@@ -150,9 +150,12 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
     const ext = filename.split('.').pop()?.toLowerCase()
     switch (ext) {
       case 'csv': return 'csv'
+      case 'tsv': return 'tsv'
       case 'json': return 'json'
+      case 'yaml': case 'yml': return 'yaml'
       case 'xlsx': case 'xls': return 'xlsx'
       case 'txt': return 'txt'
+      case 'md': case 'markdown': return 'md'
       case 'h5': return 'h5'
       case 'hdf5': return 'hdf5'
       case 'h5ad': return 'h5ad'
@@ -162,9 +165,11 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
 
   const getFileIcon = (type: FileInfo['type']) => {
     switch (type) {
-      case 'csv': return <BarChart3 className="h-4 w-4 text-green-600" />
+      case 'csv': case 'tsv': return <BarChart3 className="h-4 w-4 text-green-600" />
       case 'json': return <Database className="h-4 w-4 text-blue-600" />
-      case 'xlsx': return <FileText className="h-4 w-4 text-orange-600" />
+      case 'yaml': return <FileText className="h-4 w-4 text-yellow-600" />
+      case 'xlsx': return <BarChart3 className="h-4 w-4 text-orange-600" />
+      case 'md': return <FileText className="h-4 w-4 text-purple-600" />
       case 'h5': case 'hdf5': case 'h5ad': return <Database className="h-4 w-4 text-indigo-600" />
       default: return <File className="h-4 w-4 text-gray-600" />
     }
@@ -212,7 +217,7 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
               multiple
               className="hidden"
               onChange={handleFileUpload}
-              accept=".csv,.json,.xlsx,.xls,.txt,.h5,.hdf5,.h5ad"
+              accept=".csv,.tsv,.json,.yaml,.yml,.xlsx,.xls,.txt,.md,.h5,.hdf5,.h5ad"
             />
           </label>
           

@@ -13,6 +13,14 @@ from datetime import datetime
 import logging
 from .h5_service import h5_processor
 
+# Optional YAML support
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
+    yaml = None
+
 logger = logging.getLogger(__name__)
 
 class DataManager:
@@ -119,6 +127,51 @@ class DataManager:
                             'shape': [len(df_full), len(df_preview.columns)],
                             'sample_data': df_preview.head(3).to_dict('records') if len(df_preview) > 0 else []
                         }
+                    elif file_path.suffix == '.tsv':
+                        df_preview = pd.read_csv(file_path, sep='\t', nrows=5)
+                        df_full = pd.read_csv(file_path, sep='\t')
+                        file_info['preview'] = {
+                            'rows': len(df_full),
+                            'columns': df_preview.columns.tolist(),
+                            'shape': [len(df_full), len(df_preview.columns)],
+                            'sample_data': df_preview.head(3).to_dict('records') if len(df_preview) > 0 else []
+                        }
+                    elif file_path.suffix == '.md':
+                        # First few lines of markdown file
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            lines = [f.readline().strip() for _ in range(10)]
+                            lines = [line for line in lines if line]
+                        file_info['preview'] = {
+                            'first_lines': lines,
+                            'encoding': 'utf-8',
+                            'file_type': 'markdown'
+                        }
+                    elif file_path.suffix in ['.yaml', '.yml'] and YAML_AVAILABLE:
+                        # Parse YAML file for preview
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            yaml_data = yaml.safe_load(f)
+                        
+                        # Analyze YAML structure (similar to JSON)
+                        if isinstance(yaml_data, list):
+                            file_info['preview'] = {
+                                'type': 'array',
+                                'length': len(yaml_data),
+                                'file_type': 'yaml',
+                                'sample_item': yaml_data[0] if len(yaml_data) > 0 else None
+                            }
+                        elif isinstance(yaml_data, dict):
+                            file_info['preview'] = {
+                                'type': 'object',
+                                'keys': list(yaml_data.keys())[:10],
+                                'total_keys': len(yaml_data.keys()),
+                                'file_type': 'yaml'
+                            }
+                        else:
+                            file_info['preview'] = {
+                                'type': type(yaml_data).__name__,
+                                'value': str(yaml_data)[:100],
+                                'file_type': 'yaml'
+                            }
                     elif file_path.suffix == '.json':
                         import json
                         with open(file_path, 'r', encoding='utf-8') as f:

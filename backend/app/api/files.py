@@ -87,12 +87,80 @@ async def get_file_content(notebook_id: str, file_path: str):
                 content_type = 'application/json'
             except Exception as e:
                 # If H5 processing fails, return error info
+                import json
                 error_info = {
                     "error": f"Failed to process H5 file: {str(e)}",
                     "file_type": "h5",
                     "file_size": file_size
                 }
                 content = json.dumps(error_info, indent=2, cls=H5JSONEncoder)
+                content_type = 'application/json'
+        # Special handling for Excel files - return structured data as JSON
+        elif full_file_path.endswith(('.xlsx', '.xls')):
+            try:
+                import json
+                import pandas as pd
+                import numpy as np
+                import openpyxl
+                
+                # Get sheet names and basic structure
+                wb = openpyxl.load_workbook(full_file_path, read_only=True)
+                sheet_names = wb.sheetnames
+                wb.close()
+                
+                # Build a structured representation
+                excel_data = {
+                    "file_type": "excel",
+                    "sheets": [],
+                    "total_sheets": len(sheet_names)
+                }
+                
+                # Load each sheet with pandas for preview
+                for sheet_name in sheet_names:
+                    try:
+                        df = pd.read_excel(full_file_path, sheet_name=sheet_name)
+                        
+                        # Replace NaN/Infinity with None for JSON compatibility
+                        df_clean = df.head(10).replace({np.nan: None, np.inf: None, -np.inf: None})
+                        
+                        # Convert to records, handling any remaining issues
+                        sample_records = []
+                        if len(df_clean) > 0:
+                            for record in df_clean.to_dict('records'):
+                                clean_record = {}
+                                for k, v in record.items():
+                                    # Handle any remaining non-JSON-serializable values
+                                    if pd.isna(v) or (isinstance(v, float) and (np.isnan(v) or np.isinf(v))):
+                                        clean_record[str(k)] = None
+                                    else:
+                                        clean_record[str(k)] = v
+                                sample_records.append(clean_record)
+                        
+                        sheet_info = {
+                            "name": sheet_name,
+                            "rows": len(df),
+                            "columns": [str(c) for c in df.columns.tolist()],
+                            "shape": [len(df), len(df.columns)],
+                            "dtypes": {str(k): str(v) for k, v in df.dtypes.astype(str).to_dict().items()},
+                            "sample_data": sample_records
+                        }
+                        excel_data["sheets"].append(sheet_info)
+                    except Exception as sheet_error:
+                        excel_data["sheets"].append({
+                            "name": sheet_name,
+                            "error": str(sheet_error)
+                        })
+                
+                content = json.dumps(excel_data, indent=2, default=str)
+                content_type = 'application/json'
+            except Exception as e:
+                import json
+                error_info = {
+                    "error": f"Failed to process Excel file: {str(e)}",
+                    "file_type": "excel",
+                    "file_size": file_size
+                }
+                content = json.dumps(error_info, indent=2)
                 content_type = 'application/json'
         # Determine encoding based on content type
         elif content_type and content_type.startswith('image/'):

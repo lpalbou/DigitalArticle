@@ -26,21 +26,9 @@ import {
   CellUpdateRequest,
   ExecutionStatus,
   ExecutionResult,
-  LLMTrace
+  LLMTrace,
+  FileInfo
 } from '../types'
-
-interface FileInfo {
-  name: string
-  path: string
-  size: number
-  type: 'csv' | 'json' | 'xlsx' | 'txt' | 'other'
-  lastModified: string
-  preview?: {
-    rows: number
-    columns: string[]
-    shape: [number, number]
-  }
-}
 
 const NotebookContainer: React.FC = () => {
   const { notebookId } = useParams<{ notebookId: string }>()

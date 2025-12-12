@@ -106,7 +106,7 @@ export interface FileInfo {
   name: string
   path: string
   size: number
-  type: 'csv' | 'json' | 'xlsx' | 'txt' | 'h5' | 'hdf5' | 'h5ad' | 'other'
+  type: 'csv' | 'tsv' | 'json' | 'yaml' | 'xlsx' | 'txt' | 'md' | 'h5' | 'hdf5' | 'h5ad' | 'other'
   lastModified: string
   is_h5_file?: boolean
   preview?: {

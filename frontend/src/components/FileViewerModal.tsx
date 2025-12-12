@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
-import { X, Download, FileText, Image as ImageIcon, Table, Code, Eye } from 'lucide-react'
+import { X, FileText, Image as ImageIcon, Table, Code, Eye, FileSpreadsheet } from 'lucide-react'
 import { marked } from 'marked'
 import { filesAPI } from '../services/api'
 import { FileInfo } from '../types'
 import H5FileViewer from './H5FileViewer'
+import ExcelFileViewer from './ExcelFileViewer'
 
 interface FileViewerModalProps {
   isOpen: boolean
@@ -37,6 +38,8 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
       case 'txt': return 'txt'
       case 'md': return 'markdown'
       case 'json': return 'json'
+      case 'yaml': case 'yml': return 'yaml'
+      case 'xlsx': case 'xls': return 'excel'
       case 'h5': case 'hdf5': case 'h5ad': return 'h5'
       case 'jpg': case 'jpeg': case 'png': case 'gif': case 'webp': case 'tif': case 'tiff': return 'image'
       default: return 'text'
@@ -331,6 +334,32 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
       )
     }
 
+    // Excel files - use dedicated viewer
+    if (fileType === 'excel') {
+      try {
+        const excelData = JSON.parse(content)
+        return (
+          <div className="h-[450px]">
+            <ExcelFileViewer data={excelData} fileName={file?.name || 'Excel File'} />
+          </div>
+        )
+      } catch (e) {
+        // JSON parsing failed - show error with details
+        console.error('Excel JSON parse error:', e)
+        return (
+          <div className="p-4">
+            <div className="bg-red-100 border border-red-300 rounded-lg p-4 mb-4">
+              <h3 className="text-red-800 font-medium mb-2">Failed to parse Excel data</h3>
+              <p className="text-red-600 text-sm">{String(e)}</p>
+            </div>
+            <pre className="bg-gray-50 p-4 rounded-md overflow-auto max-h-80 text-xs whitespace-pre-wrap font-mono">
+              {content}
+            </pre>
+          </div>
+        )
+      }
+    }
+
     // Markdown files
     if (fileType === 'markdown' && viewMode === 'formatted') {
       const htmlContent = marked(content)
@@ -397,6 +426,48 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
       }
     }
 
+    // YAML files - syntax highlighting
+    if (fileType === 'yaml' && viewMode === 'formatted') {
+      // Simple YAML syntax highlighter
+      const highlightYaml = (yamlString: string): string => {
+        return yamlString
+          // Comments
+          .replace(/(#.*)$/gm, '<span class="text-gray-500 italic">$1</span>')
+          // Keys (before colon)
+          .replace(/^(\s*)([^:\n#]+)(:)/gm, '$1<span class="text-blue-600 font-medium">$2</span><span class="text-gray-500">$3</span>')
+          // Strings in quotes
+          .replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, '<span class="text-green-600">$1</span>')
+          // Booleans
+          .replace(/\b(true|false|yes|no|on|off)\b/gi, '<span class="text-purple-600 font-medium">$1</span>')
+          // Null
+          .replace(/\b(null|~)\b/gi, '<span class="text-red-500 font-medium">$1</span>')
+          // Numbers
+          .replace(/\b(-?\d+\.?\d*(?:e[+-]?\d+)?)\b/gi, '<span class="text-orange-600">$1</span>')
+          // YAML document markers
+          .replace(/^(---|\.\.\.)/gm, '<span class="text-gray-400 font-bold">$1</span>')
+      }
+
+      const highlightedYaml = highlightYaml(content)
+      const lineCount = content.split('\n').length
+
+      return (
+        <div className="overflow-auto max-h-96 border border-gray-200 rounded-md">
+          <div className="bg-yellow-50 px-4 py-2 border-b border-yellow-200 flex items-center justify-between">
+            <span className="text-sm font-medium text-yellow-800">YAML Configuration</span>
+            <div className="flex items-center space-x-3 text-xs text-yellow-700">
+              <span>{lineCount} lines</span>
+            </div>
+          </div>
+          <pre className="bg-white p-4 overflow-x-auto text-sm font-mono leading-relaxed yaml-content">
+            <code 
+              className="language-yaml"
+              dangerouslySetInnerHTML={{ __html: highlightedYaml }}
+            />
+          </pre>
+        </div>
+      )
+    }
+
     // Raw text or fallback
     return (
       <pre className="bg-gray-50 p-4 rounded-md overflow-auto max-h-96 text-sm whitespace-pre-wrap font-mono">
@@ -412,12 +483,16 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
       case 'csv':
       case 'tsv':
         return <Table className="h-5 w-5 text-green-600" />
+      case 'excel':
+        return <FileSpreadsheet className="h-5 w-5 text-green-600" />
       case 'image':
         return <ImageIcon className="h-5 w-5 text-purple-600" />
       case 'markdown':
         return <FileText className="h-5 w-5 text-blue-600" />
       case 'json':
         return <Code className="h-5 w-5 text-orange-600" />
+      case 'yaml':
+        return <Code className="h-5 w-5 text-yellow-600" />
       case 'h5':
         return <Code className="h-5 w-5 text-indigo-600" />
       default:
@@ -428,7 +503,7 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
   if (!isOpen || !file) return null
 
   const fileType = getFileTypeFromName(file.name)
-  const supportsFormatting = ['csv', 'tsv', 'markdown', 'json'].includes(fileType)
+  const supportsFormatting = ['csv', 'tsv', 'markdown', 'json', 'yaml', 'excel'].includes(fileType)
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -482,11 +557,6 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
                     </button>
                   </div>
                 )}
-
-                {/* Download button */}
-                <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-                  <Download className="h-4 w-4" />
-                </button>
 
                 {/* Close button */}
                 <button
