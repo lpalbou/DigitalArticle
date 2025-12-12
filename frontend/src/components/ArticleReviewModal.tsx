@@ -1,17 +1,9 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { X, ClipboardCheck, AlertTriangle, Info, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Activity, MessageCircle, Send, Loader2, Copy, Check } from 'lucide-react'
-import { marked } from 'marked'
 import ExecutionDetailsModal from './ExecutionDetailsModal'
+import MarkdownRenderer from './MarkdownRenderer'
 import { LLMTrace, ChatMessage } from '../types'
 import { chatAPI } from '../services/api'
-
-// Configure marked for review rendering
-marked.setOptions({
-  breaks: true,
-  gfm: true,
-  headerIds: false,
-  mangle: false
-})
 
 // Enhanced TypeScript interfaces matching backend models
 interface DimensionRating {
@@ -101,16 +93,6 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-
-  // Memoize marked configuration
-  useMemo(() => {
-    marked.setOptions({
-      breaks: true,
-      gfm: true,
-      headerIds: false,
-      mangle: false
-    })
-  }, [])
 
   // Load chat history from localStorage on mount OR when new review arrives
   useEffect(() => {
@@ -323,7 +305,7 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
                 {recommendationStyle.label}
               </div>
             </div>
-            <div className="review-markdown prose max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(review.overall_assessment) }} />
+            <MarkdownRenderer content={review.overall_assessment} variant="compact" />
           </div>
 
           {/* Dimensional Assessment Cards */}
@@ -351,15 +333,15 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
                 <div className="p-5 bg-white space-y-4 border-t border-gray-200">
                   <div>
                     <h4 className="text-sm font-semibold text-gray-800 mb-1">Relevance</h4>
-                    <div className="review-markdown prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(review.research_question.relevance) }} />
+                    <MarkdownRenderer content={review.research_question.relevance} variant="compact" />
                   </div>
                   <div>
                     <h4 className="text-sm font-semibold text-gray-800 mb-1">Clarity</h4>
-                    <div className="review-markdown prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(review.research_question.clarity) }} />
+                    <MarkdownRenderer content={review.research_question.clarity} variant="compact" />
                   </div>
                   <div>
                     <h4 className="text-sm font-semibold text-gray-800 mb-1">Scope</h4>
-                    <div className="review-markdown prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(review.research_question.scope) }} />
+                    <MarkdownRenderer content={review.research_question.scope} variant="compact" />
                   </div>
                 </div>
               )}
@@ -390,15 +372,15 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
                 <div className="p-5 bg-white space-y-4 border-t border-gray-200">
                   <div>
                     <h4 className="text-sm font-semibold text-gray-800 mb-1">Approach Validity</h4>
-                    <div className="review-markdown prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(review.methodology.approach_validity) }} />
+                    <MarkdownRenderer content={review.methodology.approach_validity} variant="compact" />
                   </div>
                   <div>
                     <h4 className="text-sm font-semibold text-gray-800 mb-1">Assumptions</h4>
-                    <div className="review-markdown prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(review.methodology.assumptions) }} />
+                    <MarkdownRenderer content={review.methodology.assumptions} variant="compact" />
                   </div>
                   <div>
                     <h4 className="text-sm font-semibold text-gray-800 mb-1">Reproducibility</h4>
-                    <div className="review-markdown prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(review.methodology.reproducibility) }} />
+                    <MarkdownRenderer content={review.methodology.reproducibility} variant="compact" />
                   </div>
                 </div>
               )}
@@ -429,19 +411,19 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
                 <div className="p-5 bg-white space-y-4 border-t border-gray-200">
                   <div>
                     <h4 className="text-sm font-semibold text-gray-800 mb-1">Accuracy</h4>
-                    <div className="review-markdown prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(review.results_communication.accuracy) }} />
+                    <MarkdownRenderer content={review.results_communication.accuracy} variant="compact" />
                   </div>
                   <div>
                     <h4 className="text-sm font-semibold text-gray-800 mb-1">Clarity</h4>
-                    <div className="review-markdown prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(review.results_communication.clarity) }} />
+                    <MarkdownRenderer content={review.results_communication.clarity} variant="compact" />
                   </div>
                   <div>
                     <h4 className="text-sm font-semibold text-gray-800 mb-1">Completeness</h4>
-                    <div className="review-markdown prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(review.results_communication.completeness) }} />
+                    <MarkdownRenderer content={review.results_communication.completeness} variant="compact" />
                   </div>
                   <div>
                     <h4 className="text-sm font-semibold text-gray-800 mb-1">Methodology Text</h4>
-                    <div className="review-markdown prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(review.results_communication.methodology_text) }} />
+                    <MarkdownRenderer content={review.results_communication.methodology_text} variant="compact" />
                   </div>
                 </div>
               )}
@@ -459,7 +441,7 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
                 {review.strengths.map((strength, index) => (
                   <li key={index} className="flex items-start space-x-3 bg-green-50 border border-green-100 rounded-lg p-3">
                     <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0 mt-1" />
-                    <div className="review-markdown prose-sm max-w-none flex-1" dangerouslySetInnerHTML={{ __html: marked.parse(strength) }} />
+                    <MarkdownRenderer content={strength} variant="compact" className="flex-1" />
                   </li>
                 ))}
               </ul>
@@ -503,15 +485,15 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
                         <div className="p-4 space-y-3 bg-white border-t">
                           <div>
                             <h5 className="text-xs font-semibold text-gray-700 mb-1">Description</h5>
-                            <div className="review-markdown prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(issue.description) }} />
+                            <MarkdownRenderer content={issue.description} variant="compact" />
                           </div>
                           <div>
                             <h5 className="text-xs font-semibold text-gray-700 mb-1">Impact</h5>
-                            <div className="review-markdown prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(issue.impact) }} />
+                            <MarkdownRenderer content={issue.impact} variant="compact" />
                           </div>
                           <div>
                             <h5 className="text-xs font-semibold text-gray-700 mb-1">💡 Suggestion</h5>
-                            <div className="review-markdown prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(issue.suggestion) }} />
+                            <MarkdownRenderer content={issue.suggestion} variant="compact" />
                           </div>
                         </div>
                       )}
@@ -530,7 +512,7 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
                 {review.recommendations.map((rec, index) => (
                   <li key={index} className="flex items-start space-x-3 bg-blue-50 border border-blue-100 rounded-lg p-3">
                     <span className="text-blue-700 font-bold flex-shrink-0 text-sm">{index + 1}.</span>
-                    <div className="review-markdown prose-sm max-w-none flex-1" dangerouslySetInnerHTML={{ __html: marked.parse(rec) }} />
+                    <MarkdownRenderer content={rec} variant="compact" className="flex-1" />
                   </li>
                 ))}
               </ul>
@@ -581,9 +563,10 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
                       </div>
                     ) : (
                       <>
-                        <div
-                          className={`chat-markdown ${message.role === 'user' ? 'chat-markdown-white' : ''} text-sm leading-relaxed`}
-                          dangerouslySetInnerHTML={{ __html: marked.parse(message.content) }}
+                        <MarkdownRenderer
+                          content={message.content}
+                          variant={message.role === 'user' ? 'inverted' : 'compact'}
+                          className="text-sm leading-relaxed"
                         />
                         {message.role === 'assistant' && (
                           <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
@@ -653,159 +636,6 @@ const ArticleReviewModal: React.FC<ArticleReviewModalProps> = ({ isVisible, revi
         />
       )}
 
-      {/* Markdown styles matching chat panel */}
-      <style>{`
-        .review-markdown h1, .review-markdown h2, .review-markdown h3 {
-          font-weight: 600;
-          margin-top: 0.75em;
-          margin-bottom: 0.5em;
-          line-height: 1.3;
-        }
-        .review-markdown h1 { font-size: 1.25em; }
-        .review-markdown h2 { font-size: 1.15em; }
-        .review-markdown h3 { font-size: 1.1em; }
-
-        .review-markdown p {
-          margin: 0.5em 0;
-        }
-
-        .review-markdown strong {
-          font-weight: 600;
-          color: inherit;
-        }
-
-        .review-markdown em {
-          font-style: italic;
-        }
-
-        .review-markdown ul, .review-markdown ol {
-          margin: 0.5em 0;
-          padding-left: 1.5em;
-        }
-
-        .review-markdown li {
-          margin: 0.25em 0;
-        }
-
-        .review-markdown code {
-          background-color: rgba(0, 0, 0, 0.05);
-          padding: 0.125em 0.25em;
-          border-radius: 0.25em;
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-          font-size: 0.9em;
-        }
-
-        .review-markdown pre {
-          background-color: rgba(0, 0, 0, 0.05);
-          padding: 0.75em;
-          border-radius: 0.375em;
-          overflow-x: auto;
-          margin: 0.5em 0;
-        }
-
-        .review-markdown pre code {
-          background-color: transparent;
-          padding: 0;
-        }
-
-        .review-markdown a {
-          color: #2563eb;
-          text-decoration: underline;
-        }
-
-        .review-markdown blockquote {
-          border-left: 3px solid rgba(0, 0, 0, 0.1);
-          padding-left: 1em;
-          margin: 0.5em 0;
-          color: rgba(0, 0, 0, 0.7);
-        }
-
-        /* Chat markdown styling (matches ArticleChatPanel) */
-        .chat-markdown h1, .chat-markdown h2, .chat-markdown h3 {
-          font-weight: 600;
-          margin-top: 0.75em;
-          margin-bottom: 0.5em;
-          line-height: 1.3;
-        }
-        .chat-markdown h1 { font-size: 1.25em; }
-        .chat-markdown h2 { font-size: 1.15em; }
-        .chat-markdown h3 { font-size: 1.1em; }
-
-        .chat-markdown p {
-          margin: 0.5em 0;
-        }
-
-        .chat-markdown strong {
-          font-weight: 600;
-          color: inherit;
-        }
-
-        .chat-markdown em {
-          font-style: italic;
-        }
-
-        .chat-markdown ul, .chat-markdown ol {
-          margin: 0.5em 0;
-          padding-left: 1.5em;
-        }
-
-        .chat-markdown li {
-          margin: 0.25em 0;
-        }
-
-        .chat-markdown code {
-          background-color: rgba(0, 0, 0, 0.05);
-          padding: 0.125em 0.25em;
-          border-radius: 0.25em;
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-          font-size: 0.9em;
-          word-break: break-word;
-        }
-
-        .chat-markdown pre {
-          background-color: rgba(0, 0, 0, 0.05);
-          padding: 0.75em;
-          border-radius: 0.375em;
-          overflow-x: auto;
-          margin: 0.5em 0;
-        }
-
-        .chat-markdown pre code {
-          background-color: transparent;
-          padding: 0;
-          word-break: normal;
-        }
-
-        .chat-markdown a {
-          color: #2563eb;
-          text-decoration: underline;
-        }
-
-        .chat-markdown blockquote {
-          border-left: 3px solid rgba(0, 0, 0, 0.1);
-          padding-left: 1em;
-          margin: 0.5em 0;
-          color: rgba(0, 0, 0, 0.7);
-        }
-
-        /* White text variant for user messages (amber background) */
-        .chat-markdown-white code {
-          background-color: rgba(255, 255, 255, 0.15);
-        }
-
-        .chat-markdown-white pre {
-          background-color: rgba(255, 255, 255, 0.15);
-        }
-
-        .chat-markdown-white a {
-          color: #fcd34d;
-        }
-
-        .chat-markdown-white blockquote {
-          border-left-color: rgba(255, 255, 255, 0.3);
-          color: rgba(255, 255, 255, 0.9);
-        }
-      `}</style>
     </div>
   )
 }

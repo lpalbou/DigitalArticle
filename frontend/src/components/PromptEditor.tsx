@@ -4,6 +4,7 @@ import { Cell, CellType, CellState } from '../types'
 import CodeDisplay from './CodeDisplay'
 import EnhancedCodeEditor from './EnhancedCodeEditor'
 import ReRunDropdown from './ReRunDropdown'
+import MarkdownRenderer from './MarkdownRenderer'
 
 interface PromptEditorProps {
   cell: Cell
@@ -345,14 +346,20 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
                 onUpdateCell={onUpdateCell}
                 onInvalidateCells={onInvalidateCells}
               />
+            ) : cell.cell_type === CellType.METHODOLOGY ? (
+              currentContent ? (
+                <MarkdownRenderer content={currentContent} variant="default" />
+              ) : (
+                <span className="text-gray-400 italic">
+                  Scientific explanation will appear here after code execution...
+                </span>
+              )
             ) : (
               <div className="whitespace-pre-wrap">
                 {currentContent || (
                   <span className="text-gray-400 italic">
                     {cell.cell_type === CellType.PROMPT 
                       ? "Click to add a prompt..."
-                      : cell.cell_type === CellType.METHODOLOGY
-                      ? "Scientific explanation will appear here after code execution..."
                       : cell.cell_type === CellType.CODE
                       ? "Click to add code..."
                       : "Click to add markdown..."}
