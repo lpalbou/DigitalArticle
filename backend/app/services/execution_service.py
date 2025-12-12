@@ -24,7 +24,7 @@ import plotly
 import pandas as pd
 import numpy as np
 
-from ..models.notebook import ExecutionResult, ExecutionStatus
+from ..models.notebook import ExecutionResult, ExecutionStatus, sanitize_for_json
 
 # Configure matplotlib for non-interactive backend
 matplotlib.use('Agg')
@@ -561,19 +561,29 @@ class ExecutionService:
             # 1. First capture explicitly displayed results (highest priority)
             # Pass notebook_id for sequential numbering across entire article
             displayed_tables, displayed_plots, other_displays = self._capture_displayed_results(globals_dict, notebook_id)
+            
+            # CRITICAL: Sanitize all data to convert numpy types (including new numpy.dtypes.*)
+            # to JSON-serializable Python types BEFORE storing in Pydantic models
+            displayed_tables = sanitize_for_json(displayed_tables)
+            displayed_plots = sanitize_for_json(displayed_plots)
+            other_displays = sanitize_for_json(other_displays)
+            
             result.tables = displayed_tables + other_displays  # Include HTML, JSON, text, model displays
             result.plots = displayed_plots  # Start with explicitly displayed plots
             logger.info(f"✅ Captured {len(displayed_tables)} table(s), {len(displayed_plots)} plot(s), {len(other_displays)} other display(s)")
 
             # 2. Then capture other outputs (auto-captured plots without labels)
             auto_plots = self._capture_plots()
+            auto_plots = sanitize_for_json(auto_plots)  # Sanitize numpy types
             result.plots.extend(auto_plots)  # Add auto-captured plots after displayed ones
             logger.info(f"📊 Captured {len(auto_plots)} additional auto-captured plot(s)")
 
-            result.interactive_plots = self._capture_interactive_plots(globals_dict)
+            interactive_plots = self._capture_interactive_plots(globals_dict)
+            result.interactive_plots = sanitize_for_json(interactive_plots)  # Sanitize numpy types
 
             # 3. Capture intermediary DataFrame variables (for debugging in Execution Details)
             variable_tables = self._capture_tables(globals_dict, pre_execution_vars, pre_execution_dataframes)
+            variable_tables = sanitize_for_json(variable_tables)  # Sanitize numpy types
             result.tables.extend(variable_tables)
 
             # NOTE: Stdout table parsing is now DISABLED in favor of explicit display()
@@ -864,7 +874,8 @@ class ExecutionService:
                         "display": "unknown"
                     }
 
-            return categorized
+            # Sanitize all data to handle numpy types before returning
+            return sanitize_for_json(categorized)
 
         except Exception as e:
             logger.warning(f"Failed to get variable info for notebook {notebook_id}: {e}")
@@ -912,7 +923,7 @@ class ExecutionService:
                         if isinstance(row[key], float) and math.isnan(row[key]):
                             row[key] = None
 
-                return {
+                result = {
                     "type": "DataFrame",
                     "shape": value.shape,
                     "columns": value.columns.tolist(),
@@ -921,6 +932,7 @@ class ExecutionService:
                     "preview_rows": preview_rows,
                     "total_rows": len(value)
                 }
+                return sanitize_for_json(result)
             elif var_type == 'Series':
                 # Pandas Series - handle separately (doesn't have .flatten())
                 import math
@@ -932,7 +944,7 @@ class ExecutionService:
                     if isinstance(preview_values[i], float) and math.isnan(preview_values[i]):
                         preview_values[i] = None
 
-                return {
+                result = {
                     "type": "Series",
                     "shape": value.shape,
                     "dtype": str(value.dtype),
@@ -941,6 +953,7 @@ class ExecutionService:
                     "preview_size": preview_size,
                     "total_size": len(value)
                 }
+                return sanitize_for_json(result)
             elif hasattr(value, 'shape') and hasattr(value, 'dtype'):
                 # NumPy array
                 import numpy as np
@@ -955,7 +968,7 @@ class ExecutionService:
                     if isinstance(flat_values[i], float) and math.isnan(flat_values[i]):
                         flat_values[i] = None
 
-                return {
+                result = {
                     "type": var_type,
                     "shape": getattr(value, 'shape', None),
                     "dtype": str(getattr(value, 'dtype', 'unknown')),
@@ -963,15 +976,17 @@ class ExecutionService:
                     "preview_size": preview_size,
                     "total_size": value.size
                 }
+                return sanitize_for_json(result)
             elif isinstance(value, (list, tuple)):
                 # List or tuple
                 preview_size = min(100, len(value))
-                return {
+                result = {
                     "type": var_type,
                     "preview": list(value[:preview_size]),
                     "preview_size": preview_size,
                     "total_size": len(value)
                 }
+                return sanitize_for_json(result)
             elif isinstance(value, dict):
                 # Dictionary
                 preview_size = min(100, len(value))
@@ -990,27 +1005,30 @@ class ExecutionService:
                         # Not JSON-serializable - convert to string
                         serializable_dict[k] = str(v)
 
-                return {
+                result = {
                     "type": "dict",
                     "preview": serializable_dict,
                     "preview_size": preview_size,
                     "total_size": len(value)
                 }
+                return sanitize_for_json(result)
             elif isinstance(value, str):
                 # String
                 preview_size = min(1000, len(value))
-                return {
+                result = {
                     "type": "str",
                     "preview": value[:preview_size],
                     "preview_size": preview_size,
                     "total_size": len(value)
                 }
+                return sanitize_for_json(result)
             else:
                 # Scalar or other types
-                return {
+                result = {
                     "type": var_type,
                     "value": str(value)
                 }
+                return sanitize_for_json(result)
 
         except Exception as e:
             logger.error(f"Failed to get variable content for '{variable_name}': {e}")

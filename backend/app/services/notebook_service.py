@@ -241,12 +241,21 @@ class NotebookService:
             except Exception as e:
                 logger.warning(f"Could not load persona combination: {e}")
 
-            # Add information about available data files
+            # Add information about available data files (use notebook-specific data manager)
             try:
-                execution_context = self.data_manager.get_execution_context()
+                from .data_manager_clean import get_data_manager
+                notebook_data_manager = get_data_manager(str(notebook.id))
+                execution_context = notebook_data_manager.get_execution_context()
                 context.update(execution_context)
+                files = execution_context.get('files_in_context', [])
+                logger.info(f"📁 Added {len(files)} files to context for notebook {notebook.id}")
+                if files:
+                    for f in files:
+                        logger.info(f"   - {f.get('name')}: {f.get('type')}, preview: {'yes' if f.get('preview') else 'no'}")
             except Exception as e:
                 logger.warning(f"Could not get data manager context: {e}")
+                import traceback
+                logger.warning(traceback.format_exc())
 
             # Get available variables from execution service (notebook-specific)
             try:

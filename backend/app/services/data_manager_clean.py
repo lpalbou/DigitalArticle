@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import pandas as pd
+import numpy as np
 from datetime import datetime
 import logging
 from .h5_service import h5_processor
@@ -75,6 +76,51 @@ class DataManager:
 
         logger.info(f"   Available files: {[f['name'] for f in self.list_available_files()]}")
     
+    def _is_data_dictionary(self, name: str, df: pd.DataFrame, max_rows: int = 1000, max_cols: int = 30) -> bool:
+        """
+        Detect if a file or sheet is a data dictionary based on name and structure.
+        
+        Data dictionaries describe variables/columns in a dataset and should be sent
+        in full (no truncation) to the LLM for complete understanding.
+        
+        Detection criteria:
+        1. Name contains dictionary-related keywords (case-insensitive)
+        2. Has relatively few rows (< max_rows, typically < 100)
+        3. Has relatively few columns (< max_cols)
+        
+        Args:
+            name: Filename or sheet name to check
+            df: DataFrame to analyze
+            max_rows: Maximum rows for dictionary detection (default 1000)
+            max_cols: Maximum columns for dictionary detection (default 30)
+        
+        Returns:
+            True if this appears to be a data dictionary
+        """
+        # Dictionary-related keywords (case-insensitive)
+        DICTIONARY_KEYWORDS = [
+            'dictionary', 'dict', 'codebook', 'metadata', 'schema',
+            'variables', 'legend', 'definitions', 'definition',
+            'data_dict', 'datadict', 'column_desc', 'vardesc',
+            'field_desc', 'variable_list', 'var_info'
+        ]
+        
+        name_lower = name.lower()
+        
+        # Check if name contains any dictionary keyword
+        has_keyword = any(keyword in name_lower for keyword in DICTIONARY_KEYWORDS)
+        
+        # Check structural constraints
+        has_few_rows = len(df) <= max_rows
+        has_few_cols = len(df.columns) <= max_cols
+        
+        is_dictionary = has_keyword and has_few_rows and has_few_cols
+        
+        if is_dictionary:
+            logger.info(f"📖 Detected data dictionary: '{name}' ({len(df)} rows × {len(df.columns)} cols)")
+        
+        return is_dictionary
+    
     def _copy_sample_data(self):
         """Copy sample data preserving ORIGINAL filenames."""
         sample_data_source = Path(__file__).parent.parent.parent.parent / "data"
@@ -119,22 +165,48 @@ class DataManager:
                 # Add preview for different file types
                 try:
                     if file_path.suffix == '.csv':
-                        df_preview = pd.read_csv(file_path, nrows=5)
                         df_full = pd.read_csv(file_path)
+                        # Check if this is a data dictionary - if so, send ALL rows
+                        is_dictionary = self._is_data_dictionary(file_path.name, df_full)
+                        if is_dictionary:
+                            df_sample = df_full.replace({np.nan: None, np.inf: None, -np.inf: None})
+                        else:
+                            # Get 20 sample rows with NaN/Infinity cleaned for JSON compatibility
+                            df_sample = df_full.head(20).replace({np.nan: None, np.inf: None, -np.inf: None})
+                        # Clean sample data records
+                        sample_records = []
+                        for record in df_sample.to_dict('records'):
+                            clean_record = {str(k): (None if pd.isna(v) else v) for k, v in record.items()}
+                            sample_records.append(clean_record)
                         file_info['preview'] = {
                             'rows': len(df_full),
-                            'columns': df_preview.columns.tolist(),
-                            'shape': [len(df_full), len(df_preview.columns)],
-                            'sample_data': df_preview.head(3).to_dict('records') if len(df_preview) > 0 else []
+                            'columns': [str(c) for c in df_full.columns.tolist()],  # No truncation
+                            'shape': [len(df_full), len(df_full.columns)],
+                            'dtypes': {str(k): str(v) for k, v in df_full.dtypes.astype(str).to_dict().items()},
+                            'sample_data': sample_records,  # All rows for dictionaries, 20 for others
+                            'is_dictionary': is_dictionary  # Flag for LLM context
                         }
                     elif file_path.suffix == '.tsv':
-                        df_preview = pd.read_csv(file_path, sep='\t', nrows=5)
                         df_full = pd.read_csv(file_path, sep='\t')
+                        # Check if this is a data dictionary - if so, send ALL rows
+                        is_dictionary = self._is_data_dictionary(file_path.name, df_full)
+                        if is_dictionary:
+                            df_sample = df_full.replace({np.nan: None, np.inf: None, -np.inf: None})
+                        else:
+                            # Get 20 sample rows with NaN/Infinity cleaned for JSON compatibility
+                            df_sample = df_full.head(20).replace({np.nan: None, np.inf: None, -np.inf: None})
+                        # Clean sample data records
+                        sample_records = []
+                        for record in df_sample.to_dict('records'):
+                            clean_record = {str(k): (None if pd.isna(v) else v) for k, v in record.items()}
+                            sample_records.append(clean_record)
                         file_info['preview'] = {
                             'rows': len(df_full),
-                            'columns': df_preview.columns.tolist(),
-                            'shape': [len(df_full), len(df_preview.columns)],
-                            'sample_data': df_preview.head(3).to_dict('records') if len(df_preview) > 0 else []
+                            'columns': [str(c) for c in df_full.columns.tolist()],  # No truncation
+                            'shape': [len(df_full), len(df_full.columns)],
+                            'dtypes': {str(k): str(v) for k, v in df_full.dtypes.astype(str).to_dict().items()},
+                            'sample_data': sample_records,  # All rows for dictionaries, 20 for others
+                            'is_dictionary': is_dictionary  # Flag for LLM context
                         }
                     elif file_path.suffix == '.md':
                         # First few lines of markdown file
@@ -198,14 +270,56 @@ class DataManager:
                                 'value': str(json_data)[:100]
                             }
                     elif file_path.suffix in ['.xlsx', '.xls']:
-                        # Basic Excel file info
+                        # Full Excel file info with all sheets, columns, dtypes, and sample data
                         import openpyxl
                         wb = openpyxl.load_workbook(file_path, read_only=True)
-                        file_info['preview'] = {
-                            'sheets': wb.sheetnames,
-                            'total_sheets': len(wb.sheetnames)
-                        }
+                        sheet_names = wb.sheetnames
                         wb.close()
+                        
+                        file_info['preview'] = {
+                            'sheets': [],
+                            'total_sheets': len(sheet_names)
+                        }
+                        
+                        # Load each sheet with pandas for full metadata
+                        for sheet_name in sheet_names:
+                            try:
+                                df = pd.read_excel(file_path, sheet_name=sheet_name)
+                                
+                                # Check if this sheet is a data dictionary - if so, send ALL rows
+                                # Check both filename AND sheet name for dictionary keywords
+                                is_dictionary = (
+                                    self._is_data_dictionary(sheet_name, df) or 
+                                    self._is_data_dictionary(file_path.name, df)
+                                )
+                                
+                                if is_dictionary:
+                                    df_sample = df.replace({np.nan: None, np.inf: None, -np.inf: None})
+                                else:
+                                    # Get 20 sample rows with NaN/Infinity cleaned
+                                    df_sample = df.head(20).replace({np.nan: None, np.inf: None, -np.inf: None})
+                                
+                                # Clean sample data records
+                                sample_records = []
+                                for record in df_sample.to_dict('records'):
+                                    clean_record = {str(k): (None if pd.isna(v) else v) for k, v in record.items()}
+                                    sample_records.append(clean_record)
+                                
+                                sheet_info = {
+                                    'name': sheet_name,
+                                    'rows': len(df),
+                                    'columns': [str(c) for c in df.columns.tolist()],  # No truncation
+                                    'shape': [len(df), len(df.columns)],
+                                    'dtypes': {str(k): str(v) for k, v in df.dtypes.astype(str).to_dict().items()},
+                                    'sample_data': sample_records,  # All rows for dictionaries, 20 for others
+                                    'is_dictionary': is_dictionary  # Flag for LLM context
+                                }
+                                file_info['preview']['sheets'].append(sheet_info)
+                            except Exception as sheet_error:
+                                file_info['preview']['sheets'].append({
+                                    'name': sheet_name,
+                                    'error': str(sheet_error)
+                                })
                     elif file_path.suffix == '.txt':
                         # First few lines of text file
                         with open(file_path, 'r', encoding='utf-8') as f:

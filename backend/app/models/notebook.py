@@ -11,9 +11,99 @@ from typing import Dict, List, Optional, Any, Union
 from uuid import UUID, uuid4
 
 import numpy as np
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..config import DEFAULT_LLM_PROVIDER, DEFAULT_LLM_MODEL
+
+
+def sanitize_for_json(obj: Any) -> Any:
+    """
+    Recursively convert numpy/pandas types to JSON-serializable Python types.
+    
+    This handles:
+    - numpy.dtypes.* classes (new in NumPy 2.x / Pandas 2.x)
+    - np.dtype instances
+    - np.ndarray
+    - np.integer, np.floating, np.generic
+    - Nested dicts and lists
+    
+    Args:
+        obj: Any object to sanitize
+        
+    Returns:
+        JSON-serializable version of the object
+    """
+    import pandas as pd
+    
+    # Handle None
+    if obj is None:
+        return None
+    
+    # Handle numpy dtype objects (including new numpy.dtypes.* types)
+    # Check for dtype attribute and name pattern - covers both old and new numpy dtype systems
+    if hasattr(obj, 'name') and hasattr(obj, 'kind') and hasattr(obj, 'itemsize'):
+        # This is a dtype object (old np.dtype or new numpy.dtypes.*)
+        return str(obj)
+    
+    # Also check if it's a dtype class/type itself (rare edge case)
+    if isinstance(obj, type) and 'dtype' in str(obj).lower():
+        return str(obj)
+    
+    # Handle np.dtype explicitly (catches instances)
+    if isinstance(obj, np.dtype):
+        return str(obj)
+    
+    # Handle pandas NaT and NaN
+    try:
+        if pd.isna(obj):
+            return None
+    except (TypeError, ValueError):
+        pass
+    
+    # Handle pandas Timestamp
+    if hasattr(pd, 'Timestamp') and isinstance(obj, pd.Timestamp):
+        return obj.isoformat()
+    
+    # Handle pandas Period
+    if hasattr(pd, 'Period') and isinstance(obj, pd.Period):
+        return str(obj)
+    
+    # Handle numpy scalar types
+    if isinstance(obj, (np.integer, np.floating)):
+        return obj.item()
+    
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    
+    if isinstance(obj, np.generic):
+        return obj.item()
+    
+    # Handle numpy arrays
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    
+    # Handle datetime
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    
+    # Handle UUID
+    if isinstance(obj, UUID):
+        return str(obj)
+    
+    # Handle dicts recursively
+    if isinstance(obj, dict):
+        return {sanitize_for_json(k): sanitize_for_json(v) for k, v in obj.items()}
+    
+    # Handle lists and tuples recursively
+    if isinstance(obj, (list, tuple)):
+        return [sanitize_for_json(item) for item in obj]
+    
+    # Handle sets
+    if isinstance(obj, set):
+        return [sanitize_for_json(item) for item in obj]
+    
+    # Return as-is for basic types (str, int, float, bool)
+    return obj
 
 
 class CellType(str, Enum):
@@ -63,14 +153,13 @@ class ExecutionResult(BaseModel):
     # Statistical and validation warnings (non-fatal issues)
     warnings: List[str] = Field(default_factory=list)
     
-    class Config:
-        """Pydantic configuration."""
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            np.dtype: lambda v: str(v),
-            np.generic: lambda v: v.item(),
-            np.ndarray: lambda v: v.tolist()
-        }
+    @model_validator(mode='before')
+    @classmethod
+    def sanitize_inputs(cls, data: Any) -> Any:
+        """Sanitize all inputs BEFORE validation to handle numpy/pandas types."""
+        if isinstance(data, dict):
+            return sanitize_for_json(data)
+        return data
 
 
 class Cell(BaseModel):
@@ -110,15 +199,13 @@ class Cell(BaseModel):
     # LLM Execution Traces (persistent storage of all LLM interactions)
     llm_traces: List[Dict[str, Any]] = Field(default_factory=list)
     
-    class Config:
-        """Pydantic configuration."""
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v),
-            np.dtype: lambda v: str(v),
-            np.generic: lambda v: v.item(),
-            np.ndarray: lambda v: v.tolist()
-        }
+    @model_validator(mode='before')
+    @classmethod
+    def sanitize_inputs(cls, data: Any) -> Any:
+        """Sanitize all inputs BEFORE validation to handle numpy/pandas types."""
+        if isinstance(data, dict):
+            return sanitize_for_json(data)
+        return data
 
 
 class Notebook(BaseModel):
@@ -151,15 +238,13 @@ class Notebook(BaseModel):
     abstract: str = ""  # Generated scientific abstract
     abstract_generated_at: Optional[datetime] = None  # When abstract was last generated
 
-    class Config:
-        """Pydantic configuration."""
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v),
-            np.dtype: lambda v: str(v),
-            np.generic: lambda v: v.item(),
-            np.ndarray: lambda v: v.tolist()
-        }
+    @model_validator(mode='before')
+    @classmethod
+    def sanitize_inputs(cls, data: Any) -> Any:
+        """Sanitize all inputs BEFORE validation to handle numpy/pandas types."""
+        if isinstance(data, dict):
+            return sanitize_for_json(data)
+        return data
     
     def add_cell(self, cell_type: CellType = CellType.PROMPT, content: str = "") -> Cell:
         """Add a new cell to the notebook."""
@@ -244,6 +329,14 @@ class CellExecuteResponse(BaseModel):
     """Response model for cell execution containing both the updated cell and execution result."""
     cell: 'Cell'
     result: ExecutionResult
+    
+    @model_validator(mode='before')
+    @classmethod
+    def sanitize_inputs(cls, data: Any) -> Any:
+        """Sanitize all inputs BEFORE validation to handle numpy/pandas types."""
+        if isinstance(data, dict):
+            return sanitize_for_json(data)
+        return data
 
 
 class NotebookCreateRequest(BaseModel):

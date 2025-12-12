@@ -763,12 +763,17 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
                 user_prompt += "  # NOT: np.random.seed(42); x = np.random.randn(20)  # ❌ BAD - system handles seeds\n"
                 user_prompt += "=" * 60 + "\n\n"
 
-        # THIRD: Add available files information
+        # THIRD: Add available files information with full preview data
         if context and 'files_in_context' in context:
             files = context['files_in_context']
             if files:
                 user_prompt += "AVAILABLE DATA FILES:\n"
                 user_prompt += "=" * 60 + "\n"
+                user_prompt += "NOTE: Below is METADATA + PREVIEW DATA (first 20 rows) for each file.\n"
+                user_prompt += "Use this to understand the data structure and write appropriate analysis code.\n"
+                user_prompt += "The full dataset is available at the specified path.\n"
+                user_prompt += "=" * 60 + "\n\n"
+                
                 for file_info in files:
                     user_prompt += f"📄 {file_info['name']}\n"
                     user_prompt += f"   Path: {file_info['path']}\n"
@@ -779,10 +784,74 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
                     if 'preview' in file_info and file_info['preview']:
                         preview = file_info['preview']
                         if 'error' not in preview:
-                            if file_info['type'] == 'csv':
-                                user_prompt += f"   Shape: {preview['shape'][0]} rows × {preview['shape'][1]} columns\n"
-                                cols_str = ', '.join(preview['columns'])  # Show all columns - no truncation
-                                user_prompt += f"   Columns: {cols_str}\n"
+                            # CSV and TSV files - full preview with dtypes and sample data
+                            if file_info['type'] in ['csv', 'tsv']:
+                                user_prompt += f"   Shape: {preview['shape'][0]} rows × {preview['shape'][1]} columns\n\n"
+                                
+                                # Columns with data types
+                                user_prompt += f"   Columns and Types:\n"
+                                for col in preview.get('columns', []):
+                                    dtype = preview.get('dtypes', {}).get(col, 'unknown')
+                                    user_prompt += f"      - {col}: {dtype}\n"
+                                
+                                # Sample data table (or full data for dictionaries)
+                                sample_data = preview.get('sample_data', [])
+                                is_dictionary = preview.get('is_dictionary', False)
+                                if sample_data:
+                                    if is_dictionary:
+                                        user_prompt += f"\n   📖 DATA DICTIONARY (COMPLETE - ALL {len(sample_data)} rows):\n"
+                                        user_prompt += "   This is a data dictionary describing variables/columns. Use this to understand the data.\n"
+                                    else:
+                                        user_prompt += f"\n   SAMPLE DATA (first {len(sample_data)} rows of {preview['shape'][0]} total):\n"
+                                    user_prompt += self._format_sample_data_table(
+                                        preview.get('columns', []),
+                                        sample_data,
+                                        preview.get('dtypes', {})
+                                    )
+                            
+                            # Excel files - full preview for each sheet
+                            elif file_info['type'] in ['xlsx', 'xls', 'excel']:
+                                sheets = preview.get('sheets', [])
+                                if isinstance(sheets, list) and len(sheets) > 0 and isinstance(sheets[0], dict):
+                                    # New format with full sheet details
+                                    user_prompt += f"   Excel file with {len(sheets)} sheet(s)\n\n"
+                                    for sheet in sheets:
+                                        if 'error' in sheet:
+                                            user_prompt += f"   SHEET: {sheet['name']} (Error: {sheet['error']})\n\n"
+                                            continue
+                                        
+                                        user_prompt += f"   SHEET: {sheet['name']}\n"
+                                        user_prompt += f"   Shape: {sheet.get('rows', 0)} rows × {len(sheet.get('columns', []))} columns\n\n"
+                                        
+                                        # Columns with data types
+                                        user_prompt += f"   Columns and Types:\n"
+                                        for col in sheet.get('columns', []):
+                                            dtype = sheet.get('dtypes', {}).get(col, 'unknown')
+                                            user_prompt += f"      - {col}: {dtype}\n"
+                                        
+                                        # Sample data table (or full data for dictionary sheets)
+                                        sample_data = sheet.get('sample_data', [])
+                                        is_dictionary = sheet.get('is_dictionary', False)
+                                        if sample_data:
+                                            if is_dictionary:
+                                                user_prompt += f"\n   📖 DATA DICTIONARY SHEET (COMPLETE - ALL {len(sample_data)} rows):\n"
+                                                user_prompt += "   This sheet is a data dictionary describing variables/columns. Use this to understand the data.\n"
+                                            else:
+                                                user_prompt += f"\n   SAMPLE DATA (first {len(sample_data)} rows of {sheet.get('rows', 0)} total):\n"
+                                            user_prompt += self._format_sample_data_table(
+                                                sheet.get('columns', []),
+                                                sample_data,
+                                                sheet.get('dtypes', {})
+                                            )
+                                        user_prompt += "\n"
+                                else:
+                                    # Legacy format - just sheet names
+                                    sheets_str = ', '.join(str(s) for s in sheets[:5])
+                                    if len(sheets) > 5:
+                                        sheets_str += f", ... ({len(sheets)} total)"
+                                    user_prompt += f"   Excel sheets: {sheets_str}\n"
+                            
+                            # JSON files
                             elif file_info['type'] == 'json':
                                 if preview.get('type') == 'array':
                                     user_prompt += f"   JSON array with {preview['length']} items\n"
@@ -793,18 +862,17 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
                                     if preview.get('keys'):
                                         keys_str = ', '.join(preview['keys'])  # Show all keys - no truncation
                                         user_prompt += f"   Keys: {keys_str}\n"
-                            elif file_info['type'] in ['xlsx', 'xls']:
-                                if 'sheets' in preview:
-                                    sheets_str = ', '.join(preview['sheets'][:3])
-                                    if len(preview['sheets']) > 3:
-                                        sheets_str += f", ... ({len(preview['sheets'])} total)"
-                                    user_prompt += f"   Excel sheets: {sheets_str}\n"
+                            
+                            # Text files
                             elif file_info['type'] == 'txt':
                                 if 'first_lines' in preview and preview['first_lines']:
-                                    user_prompt += f"   Text preview: {preview['first_lines'][0][:50]}...\n"
+                                    user_prompt += f"   Text preview:\n"
+                                    for line in preview['first_lines'][:5]:
+                                        user_prompt += f"      {line}\n"
+                    
                     user_prompt += "\n"
                 
-                user_prompt += "IMPORTANT: Use 'data/filename.csv' format to access these files!\n"
+                user_prompt += "IMPORTANT: Use 'data/filename.ext' format to access these files!\n"
                 user_prompt += "=" * 60 + "\n\n"
 
         user_prompt += f"CURRENT REQUEST:\n{prompt}\n\n"
@@ -847,6 +915,49 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
             return f"[{item_type}]"
         else:
             return schema.get('type', 'unknown')
+    
+    def _format_sample_data_table(self, columns: List[str], sample_data: List[dict], dtypes: dict = None) -> str:
+        """
+        Format sample data as a readable table for LLM context.
+        
+        Args:
+            columns: List of column names
+            sample_data: List of row dictionaries
+            dtypes: Optional dict of column data types
+            
+        Returns:
+            Formatted table string
+        """
+        if not columns or not sample_data:
+            return "   (No sample data available)\n"
+        
+        result = ""
+        
+        # Build header row
+        header = " | ".join(str(col) for col in columns)
+        result += f"   | {header} |\n"
+        
+        # Build separator
+        separator = " | ".join("-" * min(len(str(col)), 15) for col in columns)
+        result += f"   | {separator} |\n"
+        
+        # Build data rows
+        for row in sample_data:
+            values = []
+            for col in columns:
+                val = row.get(col, "")
+                if val is None:
+                    val_str = ""
+                else:
+                    val_str = str(val)
+                    # Truncate very long values in table display only
+                    if len(val_str) > 30:
+                        val_str = val_str[:27] + "..."
+                values.append(val_str)
+            row_str = " | ".join(values)
+            result += f"   | {row_str} |\n"
+        
+        return result
     
     def _extract_code_from_response(self, response: str) -> str:
         """
