@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.3.8] - 2025-12-11
+
+### Fixed
+
+- **Abstract Generation: Complete Data Access**
+  - Removed truncation that limited code to 200 chars, output to 300 chars, methodology to 400 chars
+  - Abstract now receives full cell prompts, code, stdout, and scientific explanations
+  - Added table data extraction (DataFrames, structured results)
+  - Added interactive plot metadata (titles, axes labels, trace types)
+  - Added static plot labels and warnings
+  - Files: `llm_service.py`, `notebook_service.py`
+
+
 ## [0.3.7] - 2025-12-11
 
 ### Added

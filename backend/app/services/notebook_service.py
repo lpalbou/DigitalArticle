@@ -2006,7 +2006,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 'cells': []
             }
             
-            # Convert cells to dictionary format
+            # Convert cells to dictionary format with COMPLETE data for abstract generation
             for cell in notebook.cells:
                 cell_data = {
                     'prompt': cell.prompt,
@@ -2015,12 +2015,18 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                     'last_result': None
                 }
                 
-                # Include execution results if available
+                # Include COMPLETE execution results for abstract generation
+                # The abstract needs all data to avoid hallucinations
                 if cell.last_result:
                     cell_data['last_result'] = {
-                        'output': cell.last_result.stdout,  # Use stdout instead of output
+                        'output': cell.last_result.stdout,
                         'status': cell.last_result.status.value if cell.last_result.status else None,
-                        'execution_time': cell.last_result.execution_time
+                        'execution_time': cell.last_result.execution_time,
+                        # Include rich output data
+                        'tables': cell.last_result.tables,
+                        'interactive_plots': cell.last_result.interactive_plots,
+                        'plots': cell.last_result.plots,
+                        'warnings': cell.last_result.warnings,
                     }
                 
                 notebook_data['cells'].append(cell_data)

@@ -1616,24 +1616,99 @@ Write a scientific explanation of what was done and the results obtained:"""
             notebook_id = notebook_data.get('id', 'unknown')
             seed = self._get_notebook_seed(notebook_id)
             
-            # Build comprehensive context from all cells
+            # Build comprehensive context from all cells - NO TRUNCATION
+            # The abstract needs complete information to avoid hallucinations
             cells_summary = []
             for i, cell in enumerate(notebook_data.get('cells', []), 1):
                 cell_summary = f"Cell {i}:"
                 
+                # Full prompt (the intent)
                 if cell.get('prompt'):
                     cell_summary += f"\n  Objective: {cell['prompt']}"
                 
+                # Full code (the implementation)
                 if cell.get('code'):
-                    cell_summary += f"\n  Implementation: {cell['code'][:200]}{'...' if len(cell['code']) > 200 else ''}"
+                    cell_summary += f"\n  Implementation:\n{cell['code']}"
                 
-                if cell.get('last_result') and cell['last_result'].get('output'):
-                    output = cell['last_result']['output']
-                    cell_summary += f"\n  Results: {output[:300]}{'...' if len(output) > 300 else ''}"
+                # Full results from execution
+                last_result = cell.get('last_result')
+                if last_result:
+                    # Stdout output
+                    if last_result.get('output'):
+                        cell_summary += f"\n  Output:\n{last_result['output']}"
+                    
+                    # Table data (DataFrames, structured results)
+                    if last_result.get('tables'):
+                        for j, table in enumerate(last_result['tables'], 1):
+                            cell_summary += f"\n  Table {j}:"
+                            if isinstance(table, dict):
+                                # Extract table metadata and content
+                                if table.get('label'):
+                                    cell_summary += f" ({table['label']})"
+                                if table.get('data'):
+                                    cell_summary += f"\n{table['data']}"
+                                elif table.get('html'):
+                                    # Strip HTML but keep content indication
+                                    cell_summary += f"\n[Structured table data available]"
+                            else:
+                                cell_summary += f"\n{table}"
+                    
+                    # Interactive plot metadata (titles, axes, data ranges)
+                    if last_result.get('interactive_plots'):
+                        for j, plot in enumerate(last_result['interactive_plots'], 1):
+                            cell_summary += f"\n  Figure {j}:"
+                            if isinstance(plot, dict):
+                                # Extract plot metadata from Plotly JSON
+                                layout = plot.get('layout', {})
+                                if layout.get('title'):
+                                    title = layout['title']
+                                    if isinstance(title, dict):
+                                        cell_summary += f" {title.get('text', '')}"
+                                    else:
+                                        cell_summary += f" {title}"
+                                if layout.get('xaxis', {}).get('title'):
+                                    xaxis = layout['xaxis']['title']
+                                    if isinstance(xaxis, dict):
+                                        cell_summary += f"\n    X-axis: {xaxis.get('text', '')}"
+                                    else:
+                                        cell_summary += f"\n    X-axis: {xaxis}"
+                                if layout.get('yaxis', {}).get('title'):
+                                    yaxis = layout['yaxis']['title']
+                                    if isinstance(yaxis, dict):
+                                        cell_summary += f"\n    Y-axis: {yaxis.get('text', '')}"
+                                    else:
+                                        cell_summary += f"\n    Y-axis: {yaxis}"
+                                # Include trace names/types for context
+                                data = plot.get('data', [])
+                                if data:
+                                    trace_info = []
+                                    for trace in data[:5]:  # Limit to first 5 traces
+                                        trace_type = trace.get('type', 'unknown')
+                                        trace_name = trace.get('name', '')
+                                        if trace_name:
+                                            trace_info.append(f"{trace_type}: {trace_name}")
+                                        else:
+                                            trace_info.append(trace_type)
+                                    if trace_info:
+                                        cell_summary += f"\n    Plot elements: {', '.join(trace_info)}"
+                    
+                    # Static plot descriptions
+                    if last_result.get('plots'):
+                        plot_count = len(last_result['plots'])
+                        cell_summary += f"\n  Static visualizations: {plot_count} plot(s) generated"
+                        for j, plot in enumerate(last_result['plots'], 1):
+                            if isinstance(plot, dict) and plot.get('label'):
+                                cell_summary += f"\n    Plot {j}: {plot['label']}"
+                    
+                    # Warnings (statistical/analytical context)
+                    if last_result.get('warnings'):
+                        cell_summary += f"\n  Warnings:"
+                        for warning in last_result['warnings']:
+                            cell_summary += f"\n    - {warning}"
                 
+                # Full scientific explanation (the methodology)
                 if cell.get('scientific_explanation'):
-                    explanation = cell['scientific_explanation']
-                    cell_summary += f"\n  Analysis: {explanation[:400]}{'...' if len(explanation) > 400 else ''}"
+                    cell_summary += f"\n  Methodology:\n{cell['scientific_explanation']}"
                 
                 cells_summary.append(cell_summary)
             
