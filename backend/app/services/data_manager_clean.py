@@ -121,6 +121,120 @@ class DataManager:
         
         return is_dictionary
     
+    def _analyze_column(self, series: pd.Series) -> Dict[str, Any]:
+        """
+        Analyze a column to provide semantic type and useful statistics for the LLM.
+        
+        Returns a compact summary with:
+        - Inferred semantic type (not just pandas dtype)
+        - Missing value info
+        - For numeric: min, max, mean
+        - For categorical: unique count, top values
+        """
+        # Special NA markers commonly used in datasets
+        NA_MARKERS = {'', 'NA', 'N/A', 'na', 'n/a', 'ND', 'nd', 'NaN', 'nan', 
+                      'NULL', 'null', 'None', 'none', '.', '-', '--', '?'}
+        
+        total = len(series)
+        null_count = series.isna().sum()
+        
+        # Count special NA markers in string values
+        special_na_count = 0
+        if series.dtype == 'object':
+            special_na_count = series.apply(
+                lambda x: str(x).strip() in NA_MARKERS if pd.notna(x) else False
+            ).sum()
+        
+        # Calculate effective missing (null + special NA markers)
+        effective_missing = null_count + special_na_count
+        missing_pct = round(100 * effective_missing / total, 1) if total > 0 else 0
+        
+        # Try to infer the semantic type
+        non_null = series.dropna()
+        if series.dtype == 'object':
+            # Filter out special NA markers for type inference
+            clean_values = non_null[~non_null.astype(str).str.strip().isin(NA_MARKERS)]
+            
+            if len(clean_values) == 0:
+                semantic_type = "empty"
+            else:
+                # Try to detect if it's actually numeric
+                try:
+                    numeric_vals = pd.to_numeric(clean_values, errors='coerce')
+                    numeric_pct = numeric_vals.notna().sum() / len(clean_values)
+                    if numeric_pct > 0.9:  # 90%+ values are numeric
+                        if (numeric_vals.dropna() % 1 == 0).all():
+                            semantic_type = "integer (as text)"
+                        else:
+                            semantic_type = "float (as text)"
+                    elif numeric_pct > 0.5:
+                        semantic_type = "mixed (mostly numeric)"
+                    else:
+                        # Check if categorical (few unique values) vs free text
+                        unique_ratio = clean_values.nunique() / len(clean_values)
+                        if unique_ratio < 0.05 or clean_values.nunique() <= 20:
+                            semantic_type = "categorical"
+                        else:
+                            semantic_type = "text"
+                except:
+                    semantic_type = "text"
+        elif pd.api.types.is_integer_dtype(series):
+            semantic_type = "integer"
+        elif pd.api.types.is_float_dtype(series):
+            semantic_type = "float"
+        elif pd.api.types.is_bool_dtype(series):
+            semantic_type = "boolean"
+        elif pd.api.types.is_datetime64_any_dtype(series):
+            semantic_type = "datetime"
+        else:
+            semantic_type = str(series.dtype)
+        
+        # Build result
+        result = {
+            'type': semantic_type,
+            'missing': f"{effective_missing}/{total} ({missing_pct}%)" if effective_missing > 0 else "0"
+        }
+        
+        # Add type-specific stats
+        if semantic_type in ['integer', 'float', 'integer (as text)', 'float (as text)']:
+            try:
+                if semantic_type in ['integer (as text)', 'float (as text)']:
+                    numeric_series = pd.to_numeric(non_null, errors='coerce').dropna()
+                else:
+                    numeric_series = non_null
+                
+                if len(numeric_series) > 0:
+                    result['range'] = f"[{numeric_series.min():.4g}, {numeric_series.max():.4g}]"
+                    result['mean'] = f"{numeric_series.mean():.4g}"
+            except:
+                pass
+        elif semantic_type == 'categorical':
+            unique_count = non_null.nunique()
+            result['unique'] = unique_count
+            if unique_count <= 10:
+                # Show all values if few
+                result['values'] = list(non_null.value_counts().head(10).index)
+            else:
+                # Show top 5
+                result['top_values'] = list(non_null.value_counts().head(5).index)
+        elif semantic_type == 'datetime':
+            try:
+                result['range'] = f"[{non_null.min()}, {non_null.max()}]"
+            except:
+                pass
+        
+        return result
+    
+    def _get_column_stats(self, df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
+        """
+        Get statistics for all columns in a DataFrame.
+        Returns a dict mapping column name to its analysis.
+        """
+        stats = {}
+        for col in df.columns:
+            stats[str(col)] = self._analyze_column(df[col])
+        return stats
+    
     def _copy_sample_data(self):
         """Copy sample data preserving ORIGINAL filenames."""
         sample_data_source = Path(__file__).parent.parent.parent.parent / "data"
@@ -182,7 +296,7 @@ class DataManager:
                             'rows': len(df_full),
                             'columns': [str(c) for c in df_full.columns.tolist()],  # No truncation
                             'shape': [len(df_full), len(df_full.columns)],
-                            'dtypes': {str(k): str(v) for k, v in df_full.dtypes.astype(str).to_dict().items()},
+                            'column_stats': self._get_column_stats(df_full),  # Rich column analysis
                             'sample_data': sample_records,  # All rows for dictionaries, 20 for others
                             'is_dictionary': is_dictionary  # Flag for LLM context
                         }
@@ -204,7 +318,7 @@ class DataManager:
                             'rows': len(df_full),
                             'columns': [str(c) for c in df_full.columns.tolist()],  # No truncation
                             'shape': [len(df_full), len(df_full.columns)],
-                            'dtypes': {str(k): str(v) for k, v in df_full.dtypes.astype(str).to_dict().items()},
+                            'column_stats': self._get_column_stats(df_full),  # Rich column analysis
                             'sample_data': sample_records,  # All rows for dictionaries, 20 for others
                             'is_dictionary': is_dictionary  # Flag for LLM context
                         }
@@ -310,7 +424,7 @@ class DataManager:
                                     'rows': len(df),
                                     'columns': [str(c) for c in df.columns.tolist()],  # No truncation
                                     'shape': [len(df), len(df.columns)],
-                                    'dtypes': {str(k): str(v) for k, v in df.dtypes.astype(str).to_dict().items()},
+                                    'column_stats': self._get_column_stats(df),  # Rich column analysis
                                     'sample_data': sample_records,  # All rows for dictionaries, 20 for others
                                     'is_dictionary': is_dictionary  # Flag for LLM context
                                 }

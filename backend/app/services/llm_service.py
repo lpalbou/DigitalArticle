@@ -784,15 +784,41 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
                     if 'preview' in file_info and file_info['preview']:
                         preview = file_info['preview']
                         if 'error' not in preview:
-                            # CSV and TSV files - full preview with dtypes and sample data
+                            # CSV and TSV files - full preview with column stats and sample data
                             if file_info['type'] in ['csv', 'tsv']:
                                 user_prompt += f"   Shape: {preview['shape'][0]} rows × {preview['shape'][1]} columns\n\n"
                                 
-                                # Columns with data types
-                                user_prompt += f"   Columns and Types:\n"
-                                for col in preview.get('columns', []):
-                                    dtype = preview.get('dtypes', {}).get(col, 'unknown')
-                                    user_prompt += f"      - {col}: {dtype}\n"
+                                # Columns with rich stats (type, missing, range/values)
+                                column_stats = preview.get('column_stats', {})
+                                if column_stats:
+                                    user_prompt += f"   COLUMN ANALYSIS:\n"
+                                    for col in preview.get('columns', []):
+                                        stats = column_stats.get(col, {})
+                                        col_type = stats.get('type', 'unknown')
+                                        missing = stats.get('missing', '0')
+                                        
+                                        # Build compact stats string
+                                        stats_parts = [col_type]
+                                        if missing != '0':
+                                            stats_parts.append(f"missing: {missing}")
+                                        if 'range' in stats:
+                                            stats_parts.append(f"range: {stats['range']}")
+                                        if 'mean' in stats:
+                                            stats_parts.append(f"mean: {stats['mean']}")
+                                        if 'unique' in stats:
+                                            stats_parts.append(f"{stats['unique']} unique")
+                                        if 'values' in stats:
+                                            stats_parts.append(f"values: {stats['values']}")
+                                        elif 'top_values' in stats:
+                                            stats_parts.append(f"top: {stats['top_values']}")
+                                        
+                                        user_prompt += f"      - {col}: {' | '.join(stats_parts)}\n"
+                                else:
+                                    # Fallback to old dtypes format
+                                    user_prompt += f"   Columns and Types:\n"
+                                    for col in preview.get('columns', []):
+                                        dtype = preview.get('dtypes', {}).get(col, 'unknown')
+                                        user_prompt += f"      - {col}: {dtype}\n"
                                 
                                 # Sample data table (or full data for dictionaries)
                                 sample_data = preview.get('sample_data', [])
@@ -806,7 +832,7 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
                                     user_prompt += self._format_sample_data_table(
                                         preview.get('columns', []),
                                         sample_data,
-                                        preview.get('dtypes', {})
+                                        column_stats if column_stats else preview.get('dtypes', {})
                                     )
                             
                             # Excel files - full preview for each sheet
@@ -823,11 +849,37 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
                                         user_prompt += f"   SHEET: {sheet['name']}\n"
                                         user_prompt += f"   Shape: {sheet.get('rows', 0)} rows × {len(sheet.get('columns', []))} columns\n\n"
                                         
-                                        # Columns with data types
-                                        user_prompt += f"   Columns and Types:\n"
-                                        for col in sheet.get('columns', []):
-                                            dtype = sheet.get('dtypes', {}).get(col, 'unknown')
-                                            user_prompt += f"      - {col}: {dtype}\n"
+                                        # Columns with rich stats (type, missing, range/values)
+                                        column_stats = sheet.get('column_stats', {})
+                                        if column_stats:
+                                            user_prompt += f"   COLUMN ANALYSIS:\n"
+                                            for col in sheet.get('columns', []):
+                                                stats = column_stats.get(col, {})
+                                                col_type = stats.get('type', 'unknown')
+                                                missing = stats.get('missing', '0')
+                                                
+                                                # Build compact stats string
+                                                stats_parts = [col_type]
+                                                if missing != '0':
+                                                    stats_parts.append(f"missing: {missing}")
+                                                if 'range' in stats:
+                                                    stats_parts.append(f"range: {stats['range']}")
+                                                if 'mean' in stats:
+                                                    stats_parts.append(f"mean: {stats['mean']}")
+                                                if 'unique' in stats:
+                                                    stats_parts.append(f"{stats['unique']} unique")
+                                                if 'values' in stats:
+                                                    stats_parts.append(f"values: {stats['values']}")
+                                                elif 'top_values' in stats:
+                                                    stats_parts.append(f"top: {stats['top_values']}")
+                                                
+                                                user_prompt += f"      - {col}: {' | '.join(stats_parts)}\n"
+                                        else:
+                                            # Fallback to old dtypes format
+                                            user_prompt += f"   Columns and Types:\n"
+                                            for col in sheet.get('columns', []):
+                                                dtype = sheet.get('dtypes', {}).get(col, 'unknown')
+                                                user_prompt += f"      - {col}: {dtype}\n"
                                         
                                         # Sample data table (or full data for dictionary sheets)
                                         sample_data = sheet.get('sample_data', [])
@@ -841,7 +893,7 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
                                             user_prompt += self._format_sample_data_table(
                                                 sheet.get('columns', []),
                                                 sample_data,
-                                                sheet.get('dtypes', {})
+                                                column_stats if column_stats else sheet.get('dtypes', {})
                                             )
                                         user_prompt += "\n"
                                 else:
