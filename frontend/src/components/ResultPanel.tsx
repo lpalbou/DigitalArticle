@@ -158,7 +158,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
                   <img
                     src={`data:image/png;base64,${table.data}`}
                     alt={table.label || 'Figure'}
-                    className="max-w-full h-auto"
+                    className="max-w-full max-h-[80vh] h-auto object-contain mx-auto"
                   />
                 ) : null
               )}
@@ -187,7 +187,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
                 <img
                   src={`data:image/png;base64,${table.data}`}
                   alt={table.label || 'Figure'}
-                  className="max-w-full h-auto"
+                  className="max-w-full max-h-[80vh] h-auto object-contain mx-auto"
                 />
               )}
             </div>
@@ -220,7 +220,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
               <img
                 src={`data:image/png;base64,${plotData}`}
                 alt={plotLabel || `Plot ${index + 1}`}
-                className="max-w-full h-auto"
+                className="max-w-full max-h-[80vh] h-auto object-contain mx-auto"
               />
                   </div>
                 </div>
@@ -284,7 +284,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
                 <img
                   src={`data:image/png;base64,${image}`}
                   alt={`Image ${index + 1}`}
-                  className="max-w-full h-auto"
+                  className="max-w-full max-h-[80vh] h-auto object-contain"
                 />
               </div>
             ))}

@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.3.12] - 2025-12-17
+
+### Fixed
+
+- **Figure Display: Images Now Fit Within Cell Containers**
+  - Root cause: Images had `max-w-full h-auto` CSS which only constrained width, not height
+  - Tall figures (like multi-panel dashboards) exceeded viewport height and got clipped by `overflow-hidden`
+  - Fix: Added `max-h-[80vh] object-contain` to all `<img>` elements
+  - Images now constrained to 80% viewport height while maintaining aspect ratio
+  - Files: `frontend/src/components/ResultPanel.tsx`
+
+
 ## [0.3.11] - 2025-12-17
 
 ### Fixed
