@@ -127,15 +127,15 @@ CHANGES:
             # Route through ErrorAnalyzer system for proper error handling
             logger.info("🔄 Routing through ErrorAnalyzer system for error-based fix")
             try:
-                # Use suggest_improvements which will enhance error context via ErrorAnalyzer
-                fixed_code = llm_service.suggest_improvements(
+                # Use async suggest_improvements for non-blocking LLM call
+                fixed_code, _, _ = await llm_service.asuggest_improvements(
                     prompt=f"User request: {request.fix_request}",
                     code=request.current_code,
                     error_message=f"User reported issue: {request.fix_request}",
                     error_type="UserReportedIssue",
                     traceback=""
                 )
-                
+
                 # Create explanation and changes from the fix
                 explanation = f"Applied fix based on user request: {request.fix_request}"
                 changes = [
@@ -143,20 +143,20 @@ CHANGES:
                     "Applied domain-specific fixes based on error patterns",
                     f"Addressed user concern: {request.fix_request[:100]}..."
                 ]
-                
+
             except Exception as e:
                 logger.warning(f"ErrorAnalyzer route failed, falling back to direct LLM: {e}")
-                # Fallback to direct LLM call
-                response = llm_service.llm.generate(
+                # Fallback to direct async LLM call
+                response = await llm_service.llm.agenerate(
                     fix_prompt,
                     max_tokens=2000,
                     temperature=0.1
                 )
                 fixed_code, explanation, changes = _parse_fix_response(response.content)
         else:
-            # For non-error improvements (performance, style, etc.), direct LLM is fine
+            # For non-error improvements (performance, style, etc.), direct async LLM is fine
             logger.info("🎨 Using direct LLM for non-error improvement request")
-            response = llm_service.llm.generate(
+            response = await llm_service.llm.agenerate(
                 fix_prompt,
                 max_tokens=2000,
                 temperature=0.1

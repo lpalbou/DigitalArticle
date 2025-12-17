@@ -106,7 +106,7 @@ class LLMProfileExtractor:
 
         logger.info(f"💾 Cached LLM profile graph (key: {cache_key[:8]}...)")
 
-    def extract_profile(self, notebook: Notebook, use_cache: bool = True) -> Dict[str, Any]:
+    async def extract_profile(self, notebook: Notebook, use_cache: bool = True) -> Dict[str, Any]:
         """
         Extract hierarchical profile using LLM analysis.
 
@@ -136,10 +136,10 @@ class LLMProfileExtractor:
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt(context)
 
-        # Call LLM
+        # Call LLM (async for multi-user support)
         try:
             logger.info(f"🔍 Calling LLM for profile extraction...")
-            response = self.llm.generate(
+            response = await self.llm.agenerate(
                 user_prompt,
                 system_prompt=system_prompt,
                 max_tokens=32000,

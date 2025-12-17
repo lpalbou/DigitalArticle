@@ -209,8 +209,8 @@ async def export_notebook(notebook_id: str, format: str = "json", include_code: 
     
     try:
         if format == "pdf":
-            # Handle PDF export separately
-            content = notebook_service.export_notebook_pdf(notebook_id, include_code)
+            # Handle PDF export separately (ASYNC for multi-user support)
+            content = await notebook_service.export_notebook_pdf(notebook_id, include_code)
             if content is None:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -227,8 +227,8 @@ async def export_notebook(notebook_id: str, format: str = "json", include_code: 
                 headers={"Content-Disposition": f"attachment; filename={filename}"}
             )
         else:
-            # Handle other formats
-            content = notebook_service.export_notebook(notebook_id, format)
+            # Handle other formats (async for multi-user support - semantic exports use LLM)
+            content = await notebook_service.export_notebook(notebook_id, format)
             if content is None:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -292,7 +292,7 @@ async def set_notebook_seed(notebook_id: str, seed_data: dict):
 async def generate_abstract(notebook_id: str):
     """Generate a scientific abstract for the entire digital article."""
     try:
-        abstract = notebook_service.generate_abstract(notebook_id)
+        abstract = await notebook_service.generate_abstract(notebook_id)
         return {"abstract": abstract}
     except ValueError as e:
         raise HTTPException(

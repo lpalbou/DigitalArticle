@@ -76,8 +76,8 @@ async def review_cell_endpoint(
                 detail=f"Cell {cell_id} not found in notebook {notebook_id}"
             )
 
-        # Run review
-        cell_review = review_service.review_cell(cell, notebook, force=force)
+        # Run review (async for multi-user support)
+        cell_review = await review_service.review_cell(cell, notebook, force=force)
 
         # Save review to cell metadata
         cell.metadata['review'] = cell_review.model_dump()
@@ -112,8 +112,8 @@ async def review_article_endpoint(
         # Load notebook
         notebook = notebook_service.get_notebook(notebook_id)
 
-        # Run article review (returns tuple: review, trace)
-        article_review, review_trace = review_service.review_article(notebook, force=force)
+        # Run article review (async for multi-user support - returns tuple: review, trace)
+        article_review, review_trace = await review_service.review_article(notebook, force=force)
 
         # Save review to notebook metadata (replace old review)
         notebook.metadata['article_review'] = article_review.model_dump()

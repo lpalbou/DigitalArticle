@@ -130,7 +130,7 @@ class SemanticAnalysisService:
 
         logger.info(f"💾 Cached {graph_type} graph (key: {cache_key[:8]}...)")
 
-    def extract_analysis_graph(self, notebook: Notebook, use_cache: bool = True) -> Dict[str, Any]:
+    async def extract_analysis_graph(self, notebook: Notebook, use_cache: bool = True) -> Dict[str, Any]:
         """
         Extract analysis-focused knowledge graph showing data lineage.
 
@@ -253,8 +253,8 @@ class SemanticAnalysisService:
                 # Get previous cells for context
                 previous_cells = notebook.cells[:idx] if idx > 0 else None
 
-                # Extract using LLM
-                extraction = self.llm_extractor.extract_rich_semantics(
+                # Extract using LLM (async for multi-user support)
+                extraction = await self.llm_extractor.extract_rich_semantics(
                     cell=cell,
                     notebook=notebook,
                     previous_cells=previous_cells

@@ -44,9 +44,13 @@ class CodeImprovementRequest(BaseModel):
 
 @router.post("/generate-code")
 async def generate_code(request: CodeGenerationRequest):
-    """Generate Python code from a natural language prompt."""
+    """Generate Python code from a natural language prompt.
+
+    Uses async LLM calls to keep the event loop responsive.
+    """
     try:
-        code = llm_service.generate_code_from_prompt(
+        # Use async method for non-blocking LLM call
+        code, _, _, _ = await llm_service.agenerate_code_from_prompt(
             request.prompt,
             request.context if request.context else None
         )
@@ -60,9 +64,13 @@ async def generate_code(request: CodeGenerationRequest):
 
 @router.post("/explain-code")
 async def explain_code(request: CodeExplanationRequest):
-    """Generate a natural language explanation of Python code."""
+    """Generate a natural language explanation of Python code.
+
+    Uses async LLM calls to keep the event loop responsive.
+    """
     try:
-        explanation = llm_service.explain_code(request.code)
+        # Use async method for non-blocking LLM call
+        explanation, _ = await llm_service.aexplain_code(request.code)
         return {"explanation": explanation}
     except Exception as e:
         raise HTTPException(
@@ -73,9 +81,13 @@ async def explain_code(request: CodeExplanationRequest):
 
 @router.post("/improve-code")
 async def improve_code(request: CodeImprovementRequest):
-    """Suggest improvements or fixes for Python code."""
+    """Suggest improvements or fixes for Python code.
+
+    Uses async LLM calls to keep the event loop responsive.
+    """
     try:
-        improved_code = llm_service.suggest_improvements(
+        # Use async method for non-blocking LLM call
+        improved_code, _, _ = await llm_service.asuggest_improvements(
             request.prompt,
             request.code,
             request.error_message

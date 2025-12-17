@@ -27,7 +27,6 @@ from reportlab.platypus.flowables import HRFlowable, Flowable
 from PIL import Image as PILImage
 
 from ..models.notebook import Notebook, Cell, CellType
-from .scientific_analysis_service import ScientificAnalysisService
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +51,6 @@ class ScientificPDFService:
     
     def __init__(self):
         self.styles = getSampleStyleSheet()
-        self.scientific_analysis = ScientificAnalysisService()
         self._setup_consistent_styles()
         
         # Counters for figures and tables
@@ -213,74 +211,6 @@ class ScientificPDFService:
             textColor=colors.HexColor('#2d3748'),
             alignment=TA_LEFT
         ))
-    
-    def generate_pdf(self, notebook: Notebook, include_code: bool = False) -> bytes:
-        """
-        Generate a publication-quality PDF with LLM-generated scientific content.
-        
-        Args:
-            notebook: The notebook to convert to PDF
-            include_code: Whether to include generated code in the PDF
-            
-        Returns:
-            PDF content as bytes
-        """
-        logger.info(f"Generating scientific PDF for notebook: {notebook.title}")
-        
-        # Reset counters
-        self.figure_counter = 1
-        self.table_counter = 1
-        
-        # Generate comprehensive scientific content using LLM with FULL context
-        logger.info("Generating comprehensive scientific content with complete context...")
-        scientific_content = self.scientific_analysis.generate_scientific_content(notebook)
-        
-        # Generate scientific methodology sections for each cell
-        logger.info("Generating scientific methodology sections for each cell...")
-        methodology_sections = self.scientific_analysis.generate_scientific_methodology_sections(notebook)
-        
-        # Create PDF buffer
-        buffer = io.BytesIO()
-        
-        # Create document with consistent layout
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=A4,
-            rightMargin=2.5*cm,
-            leftMargin=2.5*cm,
-            topMargin=2.5*cm,
-            bottomMargin=2.5*cm,
-            title=notebook.title,
-            author=notebook.author
-        )
-        
-        # Build document content
-        story = []
-        
-        # Title page
-        self._add_title_page(story, notebook)
-        
-        # Abstract (use notebook's stored abstract)
-        self._add_abstract(story, notebook.abstract)
-        
-        # Introduction (now with analysis plan)
-        self._add_introduction(story, scientific_content.get('introduction', ''))
-        
-        # Enhanced Methodology with scientific sections
-        self._add_enhanced_methodology_section(story, notebook, methodology_sections, include_code)
-        
-        # Results
-        self._add_results_section(story, notebook, scientific_content.get('findings_conclusions', ''))
-        
-        # Build PDF
-        doc.build(story)
-        
-        # Get PDF bytes
-        pdf_bytes = buffer.getvalue()
-        buffer.close()
-        
-        logger.info(f"Scientific PDF generated successfully: {len(pdf_bytes)} bytes")
-        return pdf_bytes
 
     def generate_scientific_article_pdf(self, scientific_article: Dict[str, Any], notebook: Notebook, include_code: bool = False) -> bytes:
         """

@@ -84,7 +84,8 @@ async def ask_about_article(request: ChatRequest):
         ] if request.conversation_history else []
 
         # Ask the question (with mode for article vs reviewer)
-        result = chat_service.ask_question(
+        # Use await for async LLM call - keeps event loop responsive
+        result = await chat_service.ask_question(
             notebook_id=request.notebook_id,
             question=request.message,
             conversation_history=history,

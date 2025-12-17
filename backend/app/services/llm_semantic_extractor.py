@@ -54,7 +54,7 @@ class LLMSemanticExtractor:
             logger.error(f"❌ Failed to initialize LLM for semantic extraction: {e}")
             self.llm = None
 
-    def extract_rich_semantics(
+    async def extract_rich_semantics(
         self,
         cell: Cell,
         notebook: Notebook,
@@ -90,9 +90,9 @@ class LLMSemanticExtractor:
             system_prompt = self._build_extraction_system_prompt()
             user_prompt = self._build_extraction_user_prompt(extraction_context)
 
-            # Call LLM
+            # Call LLM (async for multi-user support)
             logger.info(f"🔍 Calling LLM for semantic extraction of cell {cell.id}...")
-            response = self.llm.generate(
+            response = await self.llm.agenerate(
                 user_prompt,
                 system_prompt=system_prompt,
                 max_tokens=32000,  # Full active context

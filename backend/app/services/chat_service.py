@@ -76,7 +76,7 @@ Be helpful, specific, and always reference your review findings when relevant.""
         # Access LLM service from notebook service
         self.llm_service = notebook_service.llm_service
 
-    def ask_question(
+    async def ask_question(
         self,
         notebook_id: str,
         question: str,
@@ -85,6 +85,8 @@ Be helpful, specific, and always reference your review findings when relevant.""
     ) -> Dict[str, Any]:
         """
         Answer a question about the notebook.
+
+        Uses async LLM calls to keep the event loop responsive.
 
         Args:
             notebook_id: UUID of the notebook
@@ -128,12 +130,13 @@ Be helpful, specific, and always reference your review findings when relevant.""
 
         user_prompt = "\n".join(prompt_parts)
 
-        # Get answer from LLM
+        # Get answer from LLM using async for non-blocking
         try:
             if not self.llm_service.llm:
                 raise ValueError("LLM service not initialized")
 
-            response = self.llm_service.llm.generate(
+            # Use async agenerate() for non-blocking LLM call
+            response = await self.llm_service.llm.agenerate(
                 user_prompt,  # First positional argument
                 system_prompt=system_prompt,  # Use mode-specific prompt
                 max_tokens=32000,  # Full active context (article + question + history)

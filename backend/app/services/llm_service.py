@@ -176,10 +176,13 @@ class LLMService:
         """Get current timestamp in ISO format."""
         return datetime.now().isoformat()
 
-    def generate_code_from_prompt(self, prompt: str, context: Optional[Dict[str, Any]] = None,
+    async def agenerate_code_from_prompt(self, prompt: str, context: Optional[Dict[str, Any]] = None,
                                   step_type: str = 'code_generation', attempt_number: int = 1) -> Tuple[str, Optional[float], Optional[str], Optional[Dict[str, Any]]]:
         """
-        Convert a natural language prompt to Python code with full tracing.
+        ASYNC version: Convert a natural language prompt to Python code with full tracing.
+
+        Uses AbstractCore's agenerate() for non-blocking LLM calls.
+        Keeps FastAPI event loop responsive during 10-60+ second LLM operations.
 
         Args:
             prompt: Natural language description of the desired analysis
@@ -195,46 +198,40 @@ class LLMService:
         """
         if not self.llm:
             raise LLMError(f"LLM provider '{self.provider}' is not available. Please check that {self.provider} is running and accessible.")
-        
+
         # Build the system prompt for code generation
         system_prompt = self._build_system_prompt(context)
-        
+
         # Construct the user prompt
         user_prompt = self._build_user_prompt(prompt, context)
-        
+
         try:
-            logger.info(f"🚨 CALLING LLM with prompt: {prompt[:100]}...")
-            logger.info(f"🚨 System prompt length: {len(system_prompt)}")
-            
+            logger.info(f"🚨 ASYNC: Calling LLM with prompt: {prompt[:100]}...")
+            logger.info(f"🚨 ASYNC: System prompt length: {len(system_prompt)}")
+
             # Debug: Log available variables
             if context and 'available_variables' in context:
-                logger.info(f"🚨 Available variables: {context['available_variables']}")
-            else:
-                logger.info("🚨 No available variables in context")
-            
+                logger.info(f"🚨 ASYNC: Available variables: {context['available_variables']}")
+
             # Get notebook-specific seed for LLM generation reproducibility
-            # Note: This seed affects LLM code generation consistency, while execution 
-            # environment seeds (in ExecutionService) ensure consistent random data results
             notebook_seed = None
             if context and 'notebook_id' in context:
                 notebook_seed = self._get_notebook_seed(context['notebook_id'])
-            
+
             # Prepare generation parameters
-            # max_tokens = FULL ACTIVE CONTEXT (input + output)
-            # max_output_tokens = OUTPUT LIMIT (includes thinking tokens for models like o1/o3)
             generation_params = {
-                "max_tokens": 32000,  # Full active context size
-                "max_output_tokens": 8192,  # 8k output limit (includes thinking tokens)
-                "temperature": 0.1  # Low temperature for consistent code generation
+                "max_tokens": 32000,
+                "max_output_tokens": 8192,
+                "temperature": 0.1
             }
-            
-            # Add seed parameter if provider supports it (all except Anthropic in AbstractCore 2.5.2)
+
+            # Add seed parameter if provider supports it
             if notebook_seed is not None and self.provider != 'anthropic':
                 generation_params["seed"] = notebook_seed
-                logger.info(f"🎲 Using LLM generation seed {notebook_seed} for {self.provider}")
+                logger.info(f"🎲 ASYNC: Using LLM generation seed {notebook_seed}")
 
-            #  Call LLM with trace metadata for full observability
-            response = self.llm.generate(
+            # ASYNC: Use agenerate() instead of generate() - NON-BLOCKING!
+            response = await self.llm.agenerate(
                 user_prompt,
                 system_prompt=system_prompt,
                 trace_metadata={
@@ -246,43 +243,25 @@ class LLMService:
                 **generation_params
             )
 
-            logger.info(f"🚨 LLM RAW RESPONSE: {response.content[:200]}...")
+            logger.info(f"🚨 ASYNC: LLM RAW RESPONSE: {response.content[:200]}...")
 
-            # Debug: Check what's in the response object
-            logger.info(f"🔍 Response attributes: {dir(response)}")
-            logger.info(f"🔍 response.usage type: {type(response.usage) if hasattr(response, 'usage') else 'NO USAGE ATTR'}")
-            logger.info(f"🔍 response.usage value: {response.usage if hasattr(response, 'usage') else 'NO USAGE'}")
-
-            # Track actual token usage and generation time from AbstractCore response
+            # Track actual token usage from AbstractCore response
             if context and 'notebook_id' in context and 'cell_id' in context:
-                logger.info(f"📝 Context has notebook_id={context['notebook_id']}, cell_id={context['cell_id']}")
-
                 usage_data = getattr(response, 'usage', None)
-                generation_time = getattr(response, 'gen_time', None)  # AbstractCore 2.5.2+ provides gen_time in ms
-                
-                logger.info(f"📊 About to track generation with usage_data: {usage_data}")
-                logger.info(f"⏱️ Generation time: {generation_time}ms" if generation_time else "⏱️ No generation time available")
+                generation_time = getattr(response, 'gen_time', None)
 
                 self.token_tracker.track_generation(
                     notebook_id=context['notebook_id'],
                     cell_id=context['cell_id'],
-                    usage_data=usage_data,  # AbstractCore provides: {input_tokens, output_tokens, total_tokens} or legacy names
+                    usage_data=usage_data,
                     generation_time_ms=generation_time
                 )
 
                 if usage_data:
-                    # Support both new and legacy field names
                     input_tokens = usage_data.get('input_tokens') or usage_data.get('prompt_tokens', 'N/A')
                     output_tokens = usage_data.get('output_tokens') or usage_data.get('completion_tokens', 'N/A')
                     total_tokens = usage_data.get('total_tokens', 'N/A')
-                    
-                    logger.info(
-                        f"✅ Token usage - input: {input_tokens}, "
-                        f"output: {output_tokens}, total: {total_tokens}"
-                        f"{f', time: {generation_time}ms' if generation_time else ''}"
-                    )
-                else:
-                    logger.warning(f"⚠️ NO USAGE DATA in response!")
+                    logger.info(f"✅ ASYNC Token usage - input: {input_tokens}, output: {output_tokens}, total: {total_tokens}")
 
             # Extract code from the response
             code = self._extract_code_from_response(response.content)
@@ -293,30 +272,25 @@ class LLMService:
             full_trace = None
             if hasattr(response, 'metadata') and response.metadata:
                 trace_id = response.metadata.get('trace_id')
-                logger.info(f"📝 Trace ID: {trace_id}")
-
-                # Fetch full trace for persistent storage
                 if trace_id and self.llm:
                     try:
                         traces = self.llm.get_traces(trace_id=trace_id)
                         if traces:
                             full_trace = traces if isinstance(traces, dict) else traces[0] if isinstance(traces, list) else None
-                            logger.info(f"✅ Retrieved full trace for {trace_id}")
+                            logger.info(f"✅ ASYNC: Retrieved full trace for {trace_id}")
                     except Exception as e:
-                        logger.warning(f"⚠️ Could not retrieve full trace: {e}")
+                        logger.warning(f"⚠️ ASYNC: Could not retrieve full trace: {e}")
 
-            logger.info(f"🚨 EXTRACTED CODE: {code}")
-            logger.info(f"Generated code for prompt: {prompt[:50]}...")
-
+            logger.info(f"🚨 ASYNC: Generated code for prompt: {prompt[:50]}...")
             return code, generation_time, trace_id, full_trace
-            
+
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
-            logger.error(f"LLM API error during code generation: {e}")
+            logger.error(f"ASYNC LLM API error during code generation: {e}")
             raise LLMError(f"LLM API error: {e}")
         except Exception as e:
-            logger.error(f"Code generation failed: {e}")
+            logger.error(f"ASYNC Code generation failed: {e}")
             raise LLMError(f"Failed to generate code: {e}")
-    
+
     def _build_system_prompt(self, context: Optional[Dict[str, Any]] = None) -> str:
         """Build the system prompt for code generation.
 
@@ -1105,8 +1079,8 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
             cleaned_lines.pop()
         
         return '\n'.join(cleaned_lines)
-    
-    def explain_code(
+
+    async def aexplain_code(
         self,
         code: str,
         step_type: str = 'methodology_generation',
@@ -1114,7 +1088,9 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
         context: Optional[Dict[str, Any]] = None
     ) -> Tuple[str, Optional[str]]:
         """
-        Generate a natural language explanation of Python code with full tracing.
+        Async version - Generate a natural language explanation of Python code with full tracing.
+
+        Uses AbstractCore's agenerate() for non-blocking LLM calls.
 
         Args:
             code: Python code to explain
@@ -1127,7 +1103,7 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
         """
         if not self.llm:
             raise LLMError("LLM not initialized")
-        
+
         prompt = f"""Explain this Python code in simple terms for non-technical users:
 
 ```python
@@ -1143,7 +1119,8 @@ Provide a clear, concise explanation focusing on:
 Keep the explanation accessible to biologists, clinicians, and other domain experts."""
 
         try:
-            response = self.llm.generate(
+            # Use async agenerate() for non-blocking LLM calls
+            response = await self.llm.agenerate(
                 prompt,
                 trace_metadata={
                     'step_type': step_type,
@@ -1166,13 +1143,13 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
             return explanation, trace_id
 
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
-            logger.error(f"LLM API error during code explanation: {e}")
+            logger.error(f"LLM API error during async code explanation: {e}")
             raise LLMError(f"LLM API error: {e}")
         except Exception as e:
-            logger.error(f"Code explanation failed: {e}")
+            logger.error(f"Async code explanation failed: {e}")
             raise LLMError(f"Failed to explain code: {e}")
-    
-    def suggest_improvements(
+
+    async def asuggest_improvements(
         self,
         prompt: str,
         code: str,
@@ -1184,7 +1161,10 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
         context: Optional[Dict[str, Any]] = None
     ) -> Tuple[str, Optional[str], Optional[Dict[str, Any]]]:
         """
-        Suggest improvements or fixes for generated code with full tracing.
+        ASYNC version: Suggest improvements or fixes for generated code with full tracing.
+
+        Uses AbstractCore's agenerate() for non-blocking LLM calls.
+        Keeps FastAPI event loop responsive during retry attempts.
 
         Args:
             prompt: Original natural language prompt
@@ -1215,29 +1195,30 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
                 error_type or "Unknown",
                 traceback or "",
                 code,
-                context  # Pass context to error analyzer for DataFrame column info
+                context
             )
 
             improvement_prompt += f"\n\nBut it failed with this error:\n\n{enhanced_error}\n\nRegenerate the COMPLETE working Python code that fixes this error. Output the FULL code, not just the fixed line."
 
-            logger.info("Enhanced error context provided to LLM for auto-retry")
+            logger.info("ASYNC: Enhanced error context provided to LLM for auto-retry")
         else:
             improvement_prompt += "\n\nImprove this code to be more robust, efficient, and user-friendly."
 
         improvement_prompt += "\n\nGenerate the improved Python code:"
 
         try:
-            response = self.llm.generate(
+            # ASYNC: Use agenerate() instead of generate() - NON-BLOCKING!
+            response = await self.llm.agenerate(
                 improvement_prompt,
-                system_prompt=self._build_system_prompt(context),  # Pass context for available variables
+                system_prompt=self._build_system_prompt(context),
                 trace_metadata={
                     'step_type': step_type,
                     'attempt_number': attempt_number,
                     'notebook_id': context.get('notebook_id') if context else None,
                     'cell_id': context.get('cell_id') if context else None
                 },
-                max_tokens=32000,  # Full active context
-                max_output_tokens=8192,  # 8k output limit
+                max_tokens=32000,
+                max_output_tokens=8192,
                 temperature=0.1
             )
 
@@ -1246,26 +1227,25 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
             full_trace = None
             if hasattr(response, 'metadata') and response.metadata:
                 trace_id = response.metadata.get('trace_id')
-                logger.info(f"📝 Code fix trace ID: {trace_id}")
+                logger.info(f"📝 ASYNC: Code fix trace ID: {trace_id}")
 
-                # Fetch full trace for persistent storage
                 if trace_id and self.llm:
                     try:
                         traces = self.llm.get_traces(trace_id=trace_id)
                         if traces:
                             full_trace = traces if isinstance(traces, dict) else traces[0] if isinstance(traces, list) else None
-                            logger.info(f"✅ Retrieved full trace for code fix {trace_id}")
+                            logger.info(f"✅ ASYNC: Retrieved full trace for code fix {trace_id}")
                     except Exception as e:
-                        logger.warning(f"⚠️ Could not retrieve full trace: {e}")
+                        logger.warning(f"⚠️ ASYNC: Could not retrieve full trace: {e}")
 
             improved_code = self._extract_code_from_response(response.content)
             return improved_code, trace_id, full_trace
 
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
-            logger.error(f"LLM API error during code improvement: {e}")
+            logger.error(f"ASYNC LLM API error during code improvement: {e}")
             raise LLMError(f"LLM API error: {e}")
         except Exception as e:
-            logger.error(f"Code improvement failed: {e}")
+            logger.error(f"ASYNC Code improvement failed: {e}")
             raise LLMError(f"Failed to improve code: {e}")
 
     def _enhance_traceback_with_code(self, traceback: str, code: str) -> str:
@@ -1380,7 +1360,7 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
             # Fallback to original error message if analysis fails
             return f"{error_type}: {error_message}\n\nTraceback:\n{enhanced_traceback}"
     
-    def generate_scientific_explanation(
+    async def agenerate_scientific_explanation(
         self,
         prompt: str,
         code: str,
@@ -1391,7 +1371,10 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
         previous_methodologies: Optional[List[str]] = None
     ) -> Tuple[str, Optional[float], Optional[str], Optional[Dict[str, Any]]]:
         """
-        Generate a scientific article-style explanation of what was done and why with full tracing.
+        ASYNC version: Generate a scientific article-style explanation with full tracing.
+
+        Uses AbstractCore's agenerate() for non-blocking LLM calls.
+        Keeps FastAPI event loop responsive during methodology generation.
 
         Args:
             prompt: The original natural language prompt
@@ -1416,7 +1399,6 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
 
         # Convert execution_result dict to ExecutionResult object if needed
         if isinstance(execution_result, dict):
-            # Create a simple object to hold the data
             class ResultObj:
                 def __init__(self, data):
                     for key, value in data.items():
@@ -1429,7 +1411,7 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
         insights = ExecutionInsightsExtractor.extract_insights(result_obj, code, context)
         formatted_insights = ExecutionInsightsExtractor.format_for_methodology_prompt(insights)
 
-        # Build the system prompt for scientific writing
+        # Build the system prompt for scientific writing (same as sync version)
         system_prompt = """You are a scientific writing assistant that creates high-impact scientific article sections.
 
 TASK: Write a clear, professional scientific explanation of a data analysis step that reads like a Nature/Science article.
@@ -1453,13 +1435,6 @@ When tables or figures are generated, you MUST reference them by their labels:
 - Use "Table 1", "Table 2", "Figure 1", "Figure 2" etc. in your text
 - Include actual quantitative results from the tables/figures
 - Format: "As shown in Table 1, the cohort comprised 50 patients with mean age 52.3 ± 8.7 years..."
-- Format: "The dashboard visualization (Figure 1) revealed..."
-
-EXAMPLE OUTPUT WITH ASSET REFERENCES:
-"To assess the distribution of gene expression levels across samples, a comprehensive statistical analysis was performed on the normalized expression matrix (Table 1; 20 genes × 6 conditions). The analysis revealed a mean expression level of 15.3 ± 4.2 across all genes, with significant variability observed between experimental conditions (CV = 28%). Visualization of the expression patterns (Figure 1) demonstrated clear clustering of samples by treatment condition, with treated samples showing 2.5-fold higher expression of key marker genes (p < 0.001)."
-
-EXAMPLE OUTPUT FOR DASHBOARD:
-"A comprehensive clinical trial dashboard (Figure 1) was constructed to visualize key metrics and trends from the SDTM dataset of 50 TNBC patients. The dashboard revealed a cohort with mean age of 52.3 ± 8.7 years, predominantly female (95%), and mean tumor size of 4.2 ± 1.8 mm. Treatment response analysis showed complete response (CR) in 20% of patients, partial response (PR) in 30%, with the remaining showing stable disease (30%) or progression (20%). Correlation analysis revealed a positive association between tumor size and treatment duration (Spearman ρ = 0.45, p < 0.01)."
 
 GUIDELINES:
 - ALWAYS reference tables and figures by their labels when they exist
@@ -1470,7 +1445,6 @@ GUIDELINES:
 - Maintain objective, analytical tone
 - VERIFY claims against data: If console output shows specific results, use EXACT values from the output
 - Never invent or guess values - only report what is explicitly shown in the data
-- When multiple models are compared, report results for EACH model accurately
 - Length: 3-5 sentences, maximum 200 words for complex analyses"""
 
         # Inject persona guidance for methodology if available
@@ -1526,32 +1500,26 @@ CRITICAL INSTRUCTIONS:
 Write a scientific explanation of what was done and the results obtained:"""
 
         try:
-            print("🔬 LLM SERVICE: Starting scientific explanation generation...")
-            logger.info("Generating scientific explanation...")
-            
-            print("🔬 LLM SERVICE: About to call self.llm.generate...")
-            import time
-            start_time = time.time()
+            logger.info("ASYNC: Generating scientific explanation...")
+
             # Get notebook-specific seed for LLM generation reproducibility
             notebook_seed = None
             if context and 'notebook_id' in context:
                 notebook_seed = self._get_notebook_seed(context['notebook_id'])
-            
+
             # Prepare generation parameters
-            # max_tokens = FULL ACTIVE CONTEXT (input + output)
-            # max_output_tokens = OUTPUT LIMIT (includes thinking tokens for models like o1/o3)
             generation_params = {
-                "max_tokens": 32000,  # Full active context size
-                "max_output_tokens": 8192,  # 8k output limit
-                "temperature": 0.2  # Slightly higher for more natural writing
+                "max_tokens": 32000,
+                "max_output_tokens": 8192,
+                "temperature": 0.2
             }
-            
-            # Add seed parameter if provider supports it (all except Anthropic in AbstractCore 2.5.2)
+
+            # Add seed parameter if provider supports it
             if notebook_seed is not None and self.provider != 'anthropic':
                 generation_params["seed"] = notebook_seed
-                logger.info(f"🎲 Using LLM generation seed {notebook_seed} for scientific explanation with {self.provider}")
-            
-            response = self.llm.generate(
+
+            # ASYNC: Use agenerate() instead of generate() - NON-BLOCKING!
+            response = await self.llm.agenerate(
                 user_prompt,
                 system_prompt=system_prompt,
                 trace_metadata={
@@ -1562,52 +1530,42 @@ Write a scientific explanation of what was done and the results obtained:"""
                 },
                 **generation_params
             )
-            elapsed_time = time.time() - start_time
-            print(f"🔬 LLM SERVICE: LLM call took {elapsed_time:.1f} seconds")
-            print(f"🔬 LLM SERVICE: Got response: {type(response)}")
-            print(f"🔬 LLM SERVICE: Response content: {response.content[:100]}...")
 
             # Extract trace_id and full trace from AbstractCore's tracing system
             trace_id = None
             full_trace = None
             if hasattr(response, 'metadata') and response.metadata:
                 trace_id = response.metadata.get('trace_id')
-                logger.info(f"📝 Methodology trace ID: {trace_id}")
+                logger.info(f"📝 ASYNC: Methodology trace ID: {trace_id}")
 
-                # Fetch full trace for persistent storage
                 if trace_id and self.llm:
                     try:
                         traces = self.llm.get_traces(trace_id=trace_id)
                         if traces:
                             full_trace = traces if isinstance(traces, dict) else traces[0] if isinstance(traces, list) else None
-                            logger.info(f"✅ Retrieved full trace for methodology {trace_id}")
+                            logger.info(f"✅ ASYNC: Retrieved full trace for methodology {trace_id}")
                     except Exception as e:
-                        logger.warning(f"⚠️ Could not retrieve full trace: {e}")
+                        logger.warning(f"⚠️ ASYNC: Could not retrieve full trace: {e}")
 
             explanation = response.content.strip()
             generation_time = getattr(response, 'gen_time', None)
-            print(f"🔬 LLM SERVICE: Final explanation: {len(explanation)} characters")
-            logger.info(f"Generated scientific explanation: {len(explanation)} characters")
+            logger.info(f"ASYNC: Generated scientific explanation: {len(explanation)} characters")
             return explanation, generation_time, trace_id, full_trace
-            
+
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
-            print(f"🔬 LLM SERVICE: API error: {e}")
-            logger.error(f"LLM API error during explanation generation: {e}")
+            logger.error(f"ASYNC LLM API error during explanation generation: {e}")
             raise LLMError(f"LLM API error: {e}")
         except Exception as e:
-            print(f"🔬 LLM SERVICE: Exception: {e}")
-            import traceback
-            print(f"🔬 LLM SERVICE: Traceback: {traceback.format_exc()}")
-            logger.error(f"Scientific explanation generation failed: {e}")
+            logger.error(f"ASYNC Scientific explanation generation failed: {e}")
             raise LLMError(f"Failed to generate scientific explanation: {e}")
 
-    def generate_abstract(self, notebook_data: Dict[str, Any]) -> str:
+    async def agenerate_abstract(self, notebook_data: Dict[str, Any]) -> str:
         """
-        Generate a scientific abstract for the entire digital article.
-        
+        Async version: Generate a scientific abstract for the entire digital article.
+
         Args:
             notebook_data: Complete notebook data including all cells with prompts, code, results, and methodologies
-            
+
         Returns:
             Generated abstract as a string
         """
@@ -1615,128 +1573,93 @@ Write a scientific explanation of what was done and the results obtained:"""
             # Get notebook seed for consistent generation
             notebook_id = notebook_data.get('id', 'unknown')
             seed = self._get_notebook_seed(notebook_id)
-            
+
             # Build comprehensive context from all cells - NO TRUNCATION
-            # The abstract needs complete information to avoid hallucinations
             cells_summary = []
             for i, cell in enumerate(notebook_data.get('cells', []), 1):
                 cell_summary = f"Cell {i}:"
-                
-                # Full prompt (the intent)
+
                 if cell.get('prompt'):
                     cell_summary += f"\n  Objective: {cell['prompt']}"
-                
-                # Full code (the implementation)
+
                 if cell.get('code'):
                     cell_summary += f"\n  Implementation:\n{cell['code']}"
-                
-                # Full results from execution
+
                 last_result = cell.get('last_result')
                 if last_result:
-                    # Stdout output
                     if last_result.get('output'):
                         cell_summary += f"\n  Output:\n{last_result['output']}"
-                    
-                    # Table metadata + 20-row preview (same format as cell code generation)
+
                     if last_result.get('tables'):
                         for j, table in enumerate(last_result['tables'], 1):
                             cell_summary += f"\n  Table {j}:"
                             if isinstance(table, dict):
-                                # Table identification
                                 if table.get('label'):
                                     cell_summary += f" {table['label']}"
                                 if table.get('name'):
                                     cell_summary += f" ({table['name']})"
-                                
-                                # Shape
                                 shape = table.get('shape', [0, 0])
                                 cell_summary += f"\n    Shape: {shape[0]} rows × {shape[1]} columns"
-                                
-                                # Columns with data types (same format as cell code generation)
                                 columns = table.get('columns', [])
                                 info = table.get('info', {})
                                 dtypes = info.get('dtypes', {})
-                                
                                 if columns:
                                     cell_summary += f"\n    COLUMNS:"
                                     for col in columns:
                                         dtype = dtypes.get(col, 'unknown')
                                         cell_summary += f"\n      - {col}: {dtype}"
-                                
-                                # Sample data table (first 20 rows, same format as cell code generation)
                                 data = table.get('data', [])
                                 if data and columns:
                                     sample_data = data[:20]
                                     cell_summary += f"\n    SAMPLE DATA (first {len(sample_data)} rows of {shape[0]} total):\n"
                                     cell_summary += self._format_sample_data_table(columns, sample_data, dtypes)
-                    
-                    # Interactive plot METADATA only (titles, axes - not data arrays)
+
                     if last_result.get('interactive_plots'):
                         for j, plot in enumerate(last_result['interactive_plots'], 1):
                             cell_summary += f"\n  Figure {j}:"
                             if isinstance(plot, dict):
-                                # Get layout from nested 'figure' or direct
                                 figure = plot.get('figure', plot)
                                 layout = figure.get('layout', {})
-                                
                                 if layout.get('title'):
                                     title = layout['title']
-                                    if isinstance(title, dict):
-                                        cell_summary += f" {title.get('text', '')}"
-                                    else:
-                                        cell_summary += f" {title}"
+                                    cell_summary += f" {title.get('text', '') if isinstance(title, dict) else title}"
                                 if layout.get('xaxis', {}).get('title'):
                                     xaxis = layout['xaxis']['title']
-                                    if isinstance(xaxis, dict):
-                                        cell_summary += f"\n    X-axis: {xaxis.get('text', '')}"
-                                    else:
-                                        cell_summary += f"\n    X-axis: {xaxis}"
+                                    cell_summary += f"\n    X-axis: {xaxis.get('text', '') if isinstance(xaxis, dict) else xaxis}"
                                 if layout.get('yaxis', {}).get('title'):
                                     yaxis = layout['yaxis']['title']
-                                    if isinstance(yaxis, dict):
-                                        cell_summary += f"\n    Y-axis: {yaxis.get('text', '')}"
-                                    else:
-                                        cell_summary += f"\n    Y-axis: {yaxis}"
-                                        
-                                # Include trace names/types ONLY (not data arrays)
+                                    cell_summary += f"\n    Y-axis: {yaxis.get('text', '') if isinstance(yaxis, dict) else yaxis}"
                                 data = figure.get('data', [])
                                 if data:
                                     trace_info = []
-                                    for trace in data[:5]:  # Limit to first 5 traces
+                                    for trace in data[:5]:
                                         trace_type = trace.get('type', 'unknown')
                                         trace_name = trace.get('name', '')
-                                        if trace_name:
-                                            trace_info.append(f"{trace_type}: {trace_name}")
-                                        else:
-                                            trace_info.append(trace_type)
+                                        trace_info.append(f"{trace_type}: {trace_name}" if trace_name else trace_type)
                                     if trace_info:
                                         cell_summary += f"\n    Plot elements: {', '.join(trace_info)}"
                                     if len(data) > 5:
                                         cell_summary += f" (+{len(data) - 5} more)"
-                    
-                    # Static plot descriptions (labels only, not image data)
+
                     if last_result.get('plots'):
                         plot_count = len(last_result['plots'])
                         cell_summary += f"\n  Static visualizations: {plot_count} plot(s) generated"
                         for j, plot in enumerate(last_result['plots'], 1):
                             if isinstance(plot, dict) and plot.get('label'):
                                 cell_summary += f"\n    Plot {j}: {plot['label']}"
-                    
-                    # Warnings (statistical/analytical context)
+
                     if last_result.get('warnings'):
                         cell_summary += f"\n  Warnings:"
                         for warning in last_result['warnings']:
                             cell_summary += f"\n    - {warning}"
-                
-                # Full scientific explanation (the methodology)
+
                 if cell.get('scientific_explanation'):
                     cell_summary += f"\n  Methodology:\n{cell['scientific_explanation']}"
-                
+
                 cells_summary.append(cell_summary)
-            
+
             cells_content = "\n\n".join(cells_summary)
-            
-            # Create system prompt for abstract generation
+
             system_prompt = """You are a scientific writing expert specializing in creating high-quality abstracts for data analysis articles.
 
 Your task is to generate a concise, professional abstract that follows scientific writing standards.
@@ -1783,20 +1706,18 @@ INSTRUCTIONS:
 
 Generate a professional scientific abstract now:"""
 
-            print(f"🎯 ABSTRACT GENERATION: Generating abstract for notebook {notebook_id}")
-            logger.info(f"Generating abstract for notebook {notebook_id}")
-            
-            response = self.llm.generate(
+            print(f"🎯 ABSTRACT GENERATION (async): Generating abstract for notebook {notebook_id}")
+            logger.info(f"Generating abstract (async) for notebook {notebook_id}")
+
+            response = await self.llm.agenerate(
                 user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=32000,  # Full active context
-                max_output_tokens=8192,  # 8k output limit
-                seed=seed  # Use AbstractCore's native SEED parameter
+                max_tokens=32000,
+                max_output_tokens=8192,
+                seed=seed
             )
-            
-            # Track token usage
+
             if hasattr(response, 'usage') and response.usage:
-                # Handle both dict and object formats
                 if isinstance(response.usage, dict):
                     usage_data = response.usage
                     prompt_tokens = response.usage.get('prompt_tokens', 0)
@@ -1809,70 +1730,67 @@ Generate a professional scientific abstract now:"""
                     }
                     prompt_tokens = response.usage.prompt_tokens
                     completion_tokens = response.usage.completion_tokens
-                
+
                 self.token_tracker.track_generation(
                     notebook_id=notebook_id,
-                    cell_id='abstract',  # Use 'abstract' as placeholder cell_id
+                    cell_id='abstract',
                     usage_data=usage_data
                 )
-                print(f"🎯 ABSTRACT GENERATION: Used {prompt_tokens} input + {completion_tokens} output tokens")
-            
+                print(f"🎯 ABSTRACT GENERATION (async): Used {prompt_tokens} input + {completion_tokens} output tokens")
+
             abstract = response.content.strip()
-            print(f"🎯 ABSTRACT GENERATION: Generated {len(abstract)} character abstract")
-            logger.info(f"Abstract generation successful for notebook {notebook_id}")
-            
+            print(f"🎯 ABSTRACT GENERATION (async): Generated {len(abstract)} character abstract")
+            logger.info(f"Abstract generation (async) successful for notebook {notebook_id}")
+
             return abstract
-            
+
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
-            print(f"🎯 ABSTRACT GENERATION: API error: {e}")
-            logger.error(f"LLM API error during abstract generation: {e}")
+            print(f"🎯 ABSTRACT GENERATION (async): API error: {e}")
+            logger.error(f"LLM API error during async abstract generation: {e}")
             raise LLMError(f"LLM API error: {e}")
         except Exception as e:
-            print(f"🎯 ABSTRACT GENERATION: Exception: {e}")
+            print(f"🎯 ABSTRACT GENERATION (async): Exception: {e}")
             import traceback
-            print(f"🎯 ABSTRACT GENERATION: Traceback: {traceback.format_exc()}")
-            logger.error(f"Abstract generation failed: {e}")
+            print(f"🎯 ABSTRACT GENERATION (async): Traceback: {traceback.format_exc()}")
+            logger.error(f"Async abstract generation failed: {e}")
             raise LLMError(f"Failed to generate abstract: {e}")
 
-    def generate_article_plan(self, notebook_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def agenerate_article_plan(self, notebook_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Generate a comprehensive article plan/outline for the digital article.
-        
+        Async version: Generate a comprehensive article plan/outline for the digital article.
+
         Args:
             notebook_data: Complete notebook data including all cells with prompts, code, results, and methodologies
-            
+
         Returns:
             Dictionary with article structure and section plans
         """
         try:
-            # Get notebook seed for consistent generation
             notebook_id = notebook_data.get('id', 'unknown')
             seed = self._get_notebook_seed(notebook_id)
-            
-            # Build comprehensive context from all cells
+
             cells_summary = []
             for i, cell in enumerate(notebook_data.get('cells', []), 1):
                 cell_summary = f"Cell {i}:"
-                
+
                 if cell.get('prompt'):
                     cell_summary += f"\n  Research Question/Objective: {cell['prompt']}"
-                
+
                 if cell.get('code'):
                     cell_summary += f"\n  Implementation: {cell['code'][:300]}{'...' if len(cell['code']) > 300 else ''}"
-                
+
                 if cell.get('last_result') and cell['last_result'].get('output'):
                     output = cell['last_result']['output']
                     cell_summary += f"\n  Results: {output[:400]}{'...' if len(output) > 400 else ''}"
-                
+
                 if cell.get('scientific_explanation'):
                     explanation = cell['scientific_explanation']
                     cell_summary += f"\n  Analysis: {explanation[:500]}{'...' if len(explanation) > 500 else ''}"
-                
+
                 cells_summary.append(cell_summary)
-            
+
             cells_content = "\n\n".join(cells_summary)
-            
-            # Create system prompt for article planning
+
             system_prompt = """You are a scientific writing expert specializing in creating comprehensive article outlines for data analysis research.
 
 Your task is to analyze the provided research work and create a detailed article plan that will guide the writing of a complete scientific article.
@@ -1930,20 +1848,18 @@ INSTRUCTIONS:
 
 Create the article plan now:"""
 
-            print(f"🎯 ARTICLE PLANNING: Generating article plan for notebook {notebook_id}")
-            logger.info(f"Generating article plan for notebook {notebook_id}")
+            print(f"🎯 ARTICLE PLANNING (async): Generating article plan for notebook {notebook_id}")
+            logger.info(f"Generating article plan (async) for notebook {notebook_id}")
 
-            response = self.llm.generate(
+            response = await self.llm.agenerate(
                 user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=32000,  # Full active context
-                max_output_tokens=8192,  # 8k output limit
+                max_tokens=32000,
+                max_output_tokens=8192,
                 seed=seed
             )
-            
-            # Track token usage
+
             if hasattr(response, 'usage') and response.usage:
-                # Handle both dict and object formats
                 if isinstance(response.usage, dict):
                     usage_data = response.usage
                     prompt_tokens = response.usage.get('prompt_tokens', 0)
@@ -1956,22 +1872,20 @@ Create the article plan now:"""
                     }
                     prompt_tokens = response.usage.prompt_tokens
                     completion_tokens = response.usage.completion_tokens
-                
+
                 self.token_tracker.track_generation(
                     notebook_id=notebook_id,
                     cell_id='article_plan',
                     usage_data=usage_data
                 )
-                print(f"🎯 ARTICLE PLANNING: Used {prompt_tokens} input + {completion_tokens} output tokens")
-            
+                print(f"🎯 ARTICLE PLANNING (async): Used {prompt_tokens} input + {completion_tokens} output tokens")
+
             plan_text = response.content.strip()
-            
-            # Try to parse as JSON, fallback to text if needed
+
             try:
                 import json
                 article_plan = json.loads(plan_text)
             except json.JSONDecodeError:
-                # If JSON parsing fails, create a basic structure
                 article_plan = {
                     "title": notebook_data.get('title', 'Data Analysis Study'),
                     "sections": {
@@ -1983,58 +1897,55 @@ Create the article plan now:"""
                     },
                     "narrative_flow": plan_text
                 }
-            
-            print(f"🎯 ARTICLE PLANNING: Generated plan with {len(article_plan.get('sections', {}))} sections")
-            logger.info(f"Article plan generation successful for notebook {notebook_id}")
-            
+
+            print(f"🎯 ARTICLE PLANNING (async): Generated plan with {len(article_plan.get('sections', {}))} sections")
+            logger.info(f"Article plan generation (async) successful for notebook {notebook_id}")
+
             return article_plan
-            
+
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
-            print(f"🎯 ARTICLE PLANNING: API error: {e}")
-            logger.error(f"LLM API error during article planning: {e}")
+            print(f"🎯 ARTICLE PLANNING (async): API error: {e}")
+            logger.error(f"LLM API error during async article planning: {e}")
             raise LLMError(f"LLM API error: {e}")
         except Exception as e:
-            print(f"🎯 ARTICLE PLANNING: Exception: {e}")
+            print(f"🎯 ARTICLE PLANNING (async): Exception: {e}")
             import traceback
-            print(f"🎯 ARTICLE PLANNING: Traceback: {traceback.format_exc()}")
-            logger.error(f"Article planning failed: {e}")
+            print(f"🎯 ARTICLE PLANNING (async): Traceback: {traceback.format_exc()}")
+            logger.error(f"Async article planning failed: {e}")
             raise LLMError(f"Failed to generate article plan: {e}")
 
-    def generate_article_section(self, section_name: str, section_plan: Dict[str, Any], 
-                                notebook_data: Dict[str, Any], article_plan: Dict[str, Any]) -> str:
+    async def agenerate_article_section(self, section_name: str, section_plan: Dict[str, Any],
+                                        notebook_data: Dict[str, Any], article_plan: Dict[str, Any]) -> str:
         """
-        Generate a specific section of the scientific article.
-        
+        Async version: Generate a specific section of the scientific article.
+
         Args:
             section_name: Name of the section (introduction, methodology, results, discussion, conclusions)
             section_plan: Plan for this specific section
             notebook_data: Complete notebook data
             article_plan: Complete article plan for context
-            
+
         Returns:
             Generated section content as a string
         """
         try:
-            # Get notebook seed for consistent generation
             notebook_id = notebook_data.get('id', 'unknown')
             seed = self._get_notebook_seed(notebook_id)
-            
-            # Build comprehensive context from all cells
+
             cells_summary = []
             for i, cell in enumerate(notebook_data.get('cells', []), 1):
                 cell_summary = f"Cell {i}:"
-                
+
                 if cell.get('prompt'):
                     cell_summary += f"\n  Research Question/Objective: {cell['prompt']}"
-                
+
                 if cell.get('code'):
                     cell_summary += f"\n  Implementation: {cell['code']}"
-                
+
                 if cell.get('last_result') and cell['last_result'].get('output'):
                     output = cell['last_result']['output']
                     cell_summary += f"\n  Results: {output}"
-                
-                # Check for figures/plots
+
                 if cell.get('last_result') and cell['last_result'].get('plots'):
                     plots = cell['last_result']['plots']
                     if plots:
@@ -2042,16 +1953,15 @@ Create the article plan now:"""
                         for j, plot in enumerate(plots):
                             figure_num = sum(len(c.get('last_result', {}).get('plots', [])) for c in notebook_data.get('cells', [])[:i-1]) + j + 1
                             cell_summary += f"\n    - Figure {figure_num}: Available for referencing in text"
-                
+
                 if cell.get('scientific_explanation'):
                     explanation = cell['scientific_explanation']
                     cell_summary += f"\n  Analysis: {explanation}"
-                
+
                 cells_summary.append(cell_summary)
-            
+
             cells_content = "\n\n".join(cells_summary)
-            
-            # Create section-specific system prompt
+
             system_prompt = f"""You are a scientific writing expert specializing in writing high-quality {section_name} sections for data analysis research articles.
 
 Your task is to write a comprehensive, engaging, and scientifically rigorous {section_name} section based on the provided research work and article plan.
@@ -2119,20 +2029,18 @@ INSTRUCTIONS:
 
 Write the {section_name} section now:"""
 
-            print(f"🎯 SECTION WRITING: Generating {section_name} section for notebook {notebook_id}")
-            logger.info(f"Generating {section_name} section for notebook {notebook_id}")
+            print(f"🎯 SECTION WRITING (async): Generating {section_name} section for notebook {notebook_id}")
+            logger.info(f"Generating {section_name} section (async) for notebook {notebook_id}")
 
-            response = self.llm.generate(
+            response = await self.llm.agenerate(
                 user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=32000,  # Full active context
-                max_output_tokens=8192,  # 8k output limit
+                max_tokens=32000,
+                max_output_tokens=8192,
                 seed=seed
             )
-            
-            # Track token usage
+
             if hasattr(response, 'usage') and response.usage:
-                # Handle both dict and object formats
                 if isinstance(response.usage, dict):
                     usage_data = response.usage
                     prompt_tokens = response.usage.get('prompt_tokens', 0)
@@ -2145,31 +2053,31 @@ Write the {section_name} section now:"""
                     }
                     prompt_tokens = response.usage.prompt_tokens
                     completion_tokens = response.usage.completion_tokens
-                
+
                 self.token_tracker.track_generation(
                     notebook_id=notebook_id,
                     cell_id=f'article_{section_name}',
                     usage_data=usage_data
                 )
-                print(f"🎯 SECTION WRITING: Used {prompt_tokens} input + {completion_tokens} output tokens for {section_name}")
-            
+                print(f"🎯 SECTION WRITING (async): Used {prompt_tokens} input + {completion_tokens} output tokens for {section_name}")
+
             section_content = response.content.strip()
-            print(f"🎯 SECTION WRITING: Generated {len(section_content)} character {section_name} section")
-            logger.info(f"{section_name} section generation successful for notebook {notebook_id}")
-            
+            print(f"🎯 SECTION WRITING (async): Generated {len(section_content)} character {section_name} section")
+            logger.info(f"{section_name} section generation (async) successful for notebook {notebook_id}")
+
             return section_content
-            
+
         except (ProviderAPIError, ModelNotFoundError, AuthenticationError) as e:
-            print(f"🎯 SECTION WRITING: API error: {e}")
-            logger.error(f"LLM API error during {section_name} section generation: {e}")
+            print(f"🎯 SECTION WRITING (async): API error: {e}")
+            logger.error(f"LLM API error during async {section_name} section generation: {e}")
             raise LLMError(f"LLM API error: {e}")
         except Exception as e:
-            print(f"🎯 SECTION WRITING: Exception: {e}")
+            print(f"🎯 SECTION WRITING (async): Exception: {e}")
             import traceback
-            print(f"🎯 SECTION WRITING: Traceback: {traceback.format_exc()}")
-            logger.error(f"{section_name} section generation failed: {e}")
+            print(f"🎯 SECTION WRITING (async): Traceback: {traceback.format_exc()}")
+            logger.error(f"Async {section_name} section generation failed: {e}")
             raise LLMError(f"Failed to generate {section_name} section: {e}")
-    
+
     def _get_figure_list(self, notebook_data: Dict[str, Any]) -> str:
         """Generate a list of available figures for LLM reference."""
         figure_list = []

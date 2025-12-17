@@ -676,6 +676,17 @@ const NotebookContainer: React.FC = () => {
         console.log('🔬 Auto-switched to Methodology tab')
       }
 
+      // AUTO-SAVE after successful execution with methodology
+      // This is the ONLY auto-save for cell execution - prevents conflicts during LLM processing
+      const isSuccessful = response.result.status === 'success'
+      const hasMethodology = response.cell.scientific_explanation?.trim()
+
+      if (isSuccessful && hasMethodology) {
+        console.log('✅ Auto-saving after successful execution with methodology')
+        await saveNotebook()
+        console.log('✅ Auto-save complete')
+      }
+
     } catch (err) {
       const apiError = handleAPIError(err)
       
@@ -716,7 +727,7 @@ const NotebookContainer: React.FC = () => {
         return newSet
       })
     }
-  }, [notebook])
+  }, [notebook, saveNotebook])
 
   // Check for dependent cells and show modal if needed
   const checkDependenciesAndExecute = useCallback(async (cellId: string, action: 'execute' | 'regenerate') => {

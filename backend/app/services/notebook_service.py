@@ -26,21 +26,9 @@ from .pdf_service_scientific import ScientificPDFService
 from .semantic_service import SemanticExtractionService
 from .semantic_analysis_service import SemanticAnalysisService
 from .semantic_profile_service import SemanticProfileService
-from .analysis_planner import AnalysisPlanner
-from .analysis_critic import AnalysisCritic
 from .review_service import ReviewService
-from ..models.analysis_plan import AnalysisPlan
-from ..models.analysis_critique import AnalysisCritique
 
 logger = logging.getLogger(__name__)
-
-# PERFORMANCE: Disable expensive optional phases to reduce LLM overhead
-# Planning Phase: 4 LLM calls, 15-40s overhead (intent → variables → validation → method)
-# Critique Phase: 1 LLM call, 10-30s overhead (currently broken with str/dict error)
-# Disabling these reduces execution time from 30-120s to 10-30s (70-88% faster)
-ENABLE_PLANNING = False  # Set to True to enable analysis planning before code generation
-ENABLE_CRITIQUE = False  # Set to True to enable post-execution critique (currently broken)
-
 
 class NotebookService:
     """Service for managing notebooks and coordinating cell operations."""
@@ -778,13 +766,17 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         
         return False
     
-    def execute_cell(self, request: CellExecuteRequest) -> Optional[tuple[Cell, ExecutionResult]]:
+    async def execute_cell(self, request: CellExecuteRequest) -> Optional[tuple[Cell, ExecutionResult]]:
         """
         Execute a cell (generate code from prompt if needed and run it).
-        
+
+        Uses async LLM calls via AbstractCore's agenerate() to keep the event loop
+        responsive during code generation, retries, and methodology generation.
+        This prevents FastAPI from blocking on LLM calls (which can take 10-60+ seconds).
+
         Args:
             request: Execution request parameters
-            
+
         Returns:
             Execution result or None if cell not found
         """
@@ -841,163 +833,65 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
 
             # Generate code if needed
             if not cell.code or request.force_regenerate:
-                # ===================================================================
-                # PLANNING PHASE (OPTIONAL) - Reason about analysis before generating code
-                # ===================================================================
-                if ENABLE_PLANNING and cell.cell_type == CellType.PROMPT and cell.prompt:
-                    logger.info(f"🧠 PLANNING PHASE: Analyzing request logic for: {cell.prompt[:100]}...")
+                logger.info(f"Generating code for prompt: {cell.prompt[:100]}...")
 
+                try:
+                    # Update LLM service configuration
+                    if notebook.llm_provider != self.llm_service.provider or notebook.llm_model != self.llm_service.model:
+                        logger.info(f"Updating LLM service: {notebook.llm_provider}/{notebook.llm_model}")
+                        self.llm_service = LLMService(notebook.llm_provider, notebook.llm_model)
+
+                    # Generate code with full tracing (ASYNC - non-blocking)
+                    logger.info("Calling LLM service for code generation (async)...")
+                    generated_code, generation_time, trace_id, full_trace = await self.llm_service.agenerate_code_from_prompt(
+                        cell.prompt,
+                        context,
+                        step_type='code_generation',
+                        attempt_number=1
+                    )
+                    cell.code = generated_code
+                    cell.last_generation_time_ms = generation_time
+                    cell.last_execution_timestamp = datetime.now()
+                    cell.updated_at = datetime.now()
+
+                    # Store trace IDs for backward compatibility
+                    if 'trace_ids' not in cell.metadata:
+                        cell.metadata['trace_ids'] = []
+                    if trace_id:
+                        cell.metadata['trace_ids'].append(trace_id)
+
+                    # Store full trace for persistent observability
+                    if full_trace:
+                        cell.llm_traces.append(full_trace)
+                        logger.info(f"✅ Stored full trace for code generation {trace_id}")
+
+                    logger.info(f"Successfully generated {len(generated_code)} characters of code" +
+                              (f" in {generation_time}ms" if generation_time else '') +
+                              (f", trace_id: {trace_id}" if trace_id else ""))
+
+                    # Update notebook's last context tokens from the generation
                     try:
-                        # Initialize planner with notebook-specific LLM config
-                        planner = AnalysisPlanner(
-                            llm_provider=notebook.llm_provider,
-                            llm_model=notebook.llm_model
-                        )
+                        # Get the most recent cell usage which should have the input tokens
+                        cell_usage = self.llm_service.token_tracker.get_cell_usage(str(cell.id))
+                        if cell_usage and cell_usage.get('input_tokens', 0) > 0:
+                            notebook.last_context_tokens = cell_usage['input_tokens']
+                            logger.info(f"📊 Updated notebook last_context_tokens: {cell_usage['input_tokens']}")
+                    except Exception as token_err:
+                        logger.warning(f"Could not update last_context_tokens: {token_err}")
 
-                        # Plan analysis with full context
-                        analysis_plan, reasoning_trace = planner.plan_analysis(
-                            user_prompt=cell.prompt,
-                            available_data=context,
-                            previous_cells=context.get('previous_cells', [])
-                        )
+                except Exception as e:
+                    logger.error(f"❌ LLM code generation failed for cell {cell.id}")
+                    logger.error(f"   Prompt: {cell.prompt[:100]}...")
+                    logger.error(f"   Error type: {type(e).__name__}")
+                    logger.error(f"   Error message: {str(e)}")
+                    import traceback
+                    logger.error(f"   Traceback:\n{traceback.format_exc()}")
+                    logger.error(f"   Check: API keys, rate limits, network connectivity, or LLM service availability")
 
-                        # Store plan in cell metadata
-                        cell.metadata['analysis_plan'] = analysis_plan.to_dict()
-                        cell.metadata['reasoning_trace'] = reasoning_trace.model_dump()
-
-                        logger.info(
-                            f"✅ Planning complete: method={analysis_plan.suggested_method}, "
-                            f"issues={len(analysis_plan.validation_issues)}, "
-                            f"confidence={analysis_plan.confidence_level}"
-                        )
-
-                        # ADD ANALYSIS PLAN TO CONTEXT for code generation guidance
-                        # This ensures the LLM sees the planning results when generating code
-                        context['analysis_plan'] = cell.metadata['analysis_plan']
-                        logger.info("📋 Added analysis plan to context for code generation")
-
-                        # CHECK FOR CRITICAL ISSUES
-                        if analysis_plan.has_critical_issues():
-                            critical_issues = analysis_plan.get_critical_issues()
-                            logger.warning(
-                                f"🚨 CRITICAL ISSUES DETECTED ({len(critical_issues)}): "
-                                f"{[issue.message for issue in critical_issues]}"
-                            )
-
-                            # Store critical issues for UI display
-                            cell.metadata['planning_blocked'] = True
-                            cell.metadata['critical_issues'] = [
-                                {
-                                    'severity': issue.severity.value,
-                                    'type': issue.type.value,
-                                    'message': issue.message,
-                                    'explanation': issue.explanation,
-                                    'suggestion': issue.suggestion,
-                                    'affected_variables': issue.affected_variables
-                                }
-                                for issue in critical_issues
-                            ]
-
-                            # Build comprehensive error message from all critical issues
-                            issues_details = "\n\n".join(
-                                f"{i+1}. {issue.message}\n   {issue.explanation}\n   Suggestion: {issue.suggestion}"
-                                for i, issue in enumerate(critical_issues)
-                            )
-
-                            # Raise exception to trigger retry mechanism with planning feedback
-                            # This allows LLM to revise the approach based on planning analysis
-                            error_msg = (
-                                f"CRITICAL PLANNING ISSUES - Approach has fundamental logical flaws:\n\n"
-                                f"{issues_details}\n\n"
-                                f"PLANNING ANALYSIS:\n{analysis_plan.get_summary()}\n\n"
-                                f"Please REVISE your analytical approach to address these logical issues, "
-                                f"then generate code implementing the corrected approach."
-                            )
-
-                            logger.warning(f"🚫 Planning detected critical issues - will trigger retry with planning feedback")
-                            raise ValueError(error_msg)
-
-                    except ValueError as planning_critical_error:
-                        # Planning detected critical issues - create error result for retry mechanism
-                        logger.warning(f"🔄 Planning critical issues detected - preparing for retry mechanism")
-                        result = ExecutionResult(
-                            status=ExecutionStatus.ERROR,
-                            error_type="PlanningCriticalIssue",
-                            error_message=str(planning_critical_error),
-                            traceback=""
-                        )
-                        cell.code = ""  # No code generated - planning blocked it
-                        # DON'T re-raise - continue to retry logic with error result
-                    except Exception as planning_error:
-                        logger.warning(f"⚠️ Planning phase failed (non-critical): {planning_error}")
-                        # Continue with code generation even if planning fails (fail-safe)
-                        pass
-
-                # ===================================================================
-                # CODE GENERATION PHASE - Skip if planning detected critical issues
-                # ===================================================================
-                if result is None:  # Only generate code if no planning error
-                    logger.info(f"Generating code for prompt: {cell.prompt[:100]}...")
-
-                    try:
-                        # Update LLM service configuration
-                        if notebook.llm_provider != self.llm_service.provider or notebook.llm_model != self.llm_service.model:
-                            logger.info(f"Updating LLM service: {notebook.llm_provider}/{notebook.llm_model}")
-                            self.llm_service = LLMService(notebook.llm_provider, notebook.llm_model)
-
-                        # Generate code with full tracing
-                        logger.info("Calling LLM service for code generation...")
-                        generated_code, generation_time, trace_id, full_trace = self.llm_service.generate_code_from_prompt(
-                            cell.prompt,
-                            context,
-                            step_type='code_generation',
-                            attempt_number=1
-                        )
-                        cell.code = generated_code
-                        cell.last_generation_time_ms = generation_time
-                        cell.last_execution_timestamp = datetime.now()
-                        cell.updated_at = datetime.now()
-
-                        # Store trace IDs for backward compatibility
-                        if 'trace_ids' not in cell.metadata:
-                            cell.metadata['trace_ids'] = []
-                        if trace_id:
-                            cell.metadata['trace_ids'].append(trace_id)
-
-                        # Store full trace for persistent observability
-                        if full_trace:
-                            cell.llm_traces.append(full_trace)
-                            logger.info(f"✅ Stored full trace for code generation {trace_id}")
-
-                        logger.info(f"Successfully generated {len(generated_code)} characters of code" +
-                                  (f" in {generation_time}ms" if generation_time else '') +
-                                  (f", trace_id: {trace_id}" if trace_id else ""))
-
-                        # Update notebook's last context tokens from the generation
-                        try:
-                            # Get the most recent cell usage which should have the input tokens
-                            cell_usage = self.llm_service.token_tracker.get_cell_usage(str(cell.id))
-                            if cell_usage and cell_usage.get('input_tokens', 0) > 0:
-                                notebook.last_context_tokens = cell_usage['input_tokens']
-                                logger.info(f"📊 Updated notebook last_context_tokens: {cell_usage['input_tokens']}")
-                        except Exception as token_err:
-                            logger.warning(f"Could not update last_context_tokens: {token_err}")
-
-                    except Exception as e:
-                        logger.error(f"❌ LLM code generation failed for cell {cell.id}")
-                        logger.error(f"   Prompt: {cell.prompt[:100]}...")
-                        logger.error(f"   Error type: {type(e).__name__}")
-                        logger.error(f"   Error message: {str(e)}")
-                        import traceback
-                        logger.error(f"   Traceback:\n{traceback.format_exc()}")
-                        logger.error(f"   Check: API keys, rate limits, network connectivity, or LLM service availability")
-
-                        # DO NOT use fallback code - let the error surface properly
-                        # If LLM is completely unavailable, user needs to know
-                        cell.code = ""  # Empty code, will show error to user
-                        raise  # Re-raise the exception so it's properly handled
-                else:
-                    logger.info(f"⏭️ Skipping code generation - planning created error result for retry")
+                    # DO NOT use fallback code - let the error surface properly
+                    # If LLM is completely unavailable, user needs to know
+                    cell.code = ""  # Empty code, will show error to user
+                    raise  # Re-raise the exception so it's properly handled
             
             # Execute code if available OR handle planning errors
             if cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
@@ -1058,7 +952,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                             # Build full context for retry (includes available variables, DataFrames, previous cells)
                             retry_context = self._build_execution_context(notebook, cell)
 
-                            fixed_code, trace_id, full_trace = self.llm_service.suggest_improvements(
+                            fixed_code, trace_id, full_trace = await self.llm_service.asuggest_improvements(
                                 prompt=cell.prompt,
                                 code=original_generated_code,  # CRITICAL: Always use original code, not mutated version
                                 error_message=result.error_message,
@@ -1145,68 +1039,6 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             cell.is_executing = False
             notebook.updated_at = datetime.now()
 
-            # ===================================================================
-            # CRITIQUE PHASE - Evaluate completed analysis
-            # ===================================================================
-            if ENABLE_CRITIQUE and result.status == ExecutionStatus.SUCCESS and cell.prompt and cell.code:
-                logger.info(f"🔍 CRITIQUE PHASE: Evaluating analysis quality...")
-
-                try:
-                    # Initialize critic with notebook-specific LLM config
-                    critic = AnalysisCritic(
-                        llm_provider=notebook.llm_provider,
-                        llm_model=notebook.llm_model
-                    )
-
-                    # Prepare execution result data
-                    execution_data = {
-                        'stdout': result.stdout,
-                        'stderr': result.stderr,
-                        'tables': result.tables,
-                        'plots': result.plots,
-                        'interactive_plots': result.interactive_plots
-                    }
-
-                    # Get analysis plan if it exists
-                    analysis_plan = None
-                    if 'analysis_plan' in cell.metadata:
-                        try:
-                            analysis_plan = AnalysisPlan.from_dict(cell.metadata['analysis_plan'])
-                        except Exception as e:
-                            logger.warning(f"Could not load analysis plan from metadata: {e}")
-
-                    # Critique the analysis
-                    critique, critique_trace = critic.critique_analysis(
-                        user_intent=cell.prompt,
-                        code=cell.code,
-                        execution_result=execution_data,
-                        analysis_plan=analysis_plan,
-                        context=context
-                    )
-
-                    # Store critique in cell metadata
-                    cell.metadata['critique'] = critique.to_dict()
-                    cell.metadata['critique_trace'] = critique_trace.model_dump()
-
-                    logger.info(
-                        f"✅ Critique complete: quality={critique.overall_quality}, "
-                        f"confidence={critique.confidence_in_results}, "
-                        f"findings={len(critique.findings)}"
-                    )
-
-                    # If critique found critical issues, log them
-                    if critique.has_critical_findings():
-                        critical_findings = critique.get_critical_findings()
-                        logger.warning(
-                            f"🚨 CRITICAL FINDINGS IN RESULTS ({len(critical_findings)}): "
-                            f"{[f.title for f in critical_findings]}"
-                        )
-
-                except Exception as critique_error:
-                    logger.warning(f"⚠️ Critique phase failed (non-critical): {critique_error}")
-                    # Don't let critique failure break execution (fail-safe)
-                    pass
-
             # Generate scientific explanation for successful prompt cells
             print(f"🔬 ALWAYS CHECKING scientific explanation conditions:")
             print(f"   - Result status: {result.status} (SUCCESS={ExecutionStatus.SUCCESS})")
@@ -1269,7 +1101,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                             logger.warning(f"Could not collect previous methodologies: {prev_error}")
                             previous_methodologies = []
 
-                        explanation, explanation_gen_time, trace_id, full_trace = self.llm_service.generate_scientific_explanation(
+                        explanation, explanation_gen_time, trace_id, full_trace = await self.llm_service.agenerate_scientific_explanation(
                             cell.prompt,
                             cell.code,
                             execution_data,
@@ -1482,7 +1314,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             # This ensures the API returns an error and the frontend knows save failed
             raise RuntimeError(f"Failed to save notebook {notebook.id}: {e}") from e
     
-    def export_notebook(self, notebook_id: str, format: str = "json") -> Optional[str]:
+    async def export_notebook(self, notebook_id: str, format: str = "json") -> Optional[str]:
         """
         Export a notebook in various formats.
 
@@ -1500,10 +1332,10 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         if format == "json":
             return json.dumps(self._create_clean_export_structure(notebook), indent=2, default=str)
         elif format == "jsonld" or format == "semantic" or format == "analysis":
-            # All semantic formats now use the same LLM-based analysis graph
-            return self._export_analysis_graph(notebook)
+            # All semantic formats now use the same LLM-based analysis graph (async for multi-user)
+            return await self._export_analysis_graph(notebook)
         elif format == "profile":
-            return self._export_profile_graph(notebook)
+            return await self._export_profile_graph(notebook)
         elif format == "markdown":
             return self._export_to_markdown(notebook)
         elif format == "html":
@@ -1669,7 +1501,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         
         return "\n".join(md_lines)
 
-    def _export_analysis_graph(self, notebook: Notebook) -> str:
+    async def _export_analysis_graph(self, notebook: Notebook) -> str:
         """
         Export analysis flow knowledge graph.
 
@@ -1680,7 +1512,8 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         - Method application order
         """
         try:
-            analysis_graph = self.analysis_graph_service.extract_analysis_graph(notebook)
+            # Async for multi-user support (LLM extraction is async)
+            analysis_graph = await self.analysis_graph_service.extract_analysis_graph(notebook)
 
             # Save notebook to persist cached graph
             self._save_notebook(notebook)
@@ -1697,7 +1530,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 "error": f"Analysis graph extraction failed: {str(e)}"
             }, indent=2)
 
-    def _export_profile_graph(self, notebook: Notebook) -> str:
+    async def _export_profile_graph(self, notebook: Notebook) -> str:
         """
         Export hierarchical profile knowledge graph using LLM.
 
@@ -1716,7 +1549,8 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 model=self.config.get_llm_model()
             )
 
-            profile_graph = extractor.extract_profile(notebook)
+            # Async for multi-user support
+            profile_graph = await extractor.extract_profile(notebook)
 
             # Save notebook to persist cached graph
             self._save_notebook(notebook)
@@ -1769,48 +1603,50 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         html += "</body></html>"
         return html
     
-    def export_notebook_pdf(self, notebook_id: str, include_code: bool = False) -> Optional[bytes]:
+    async def export_notebook_pdf(self, notebook_id: str, include_code: bool = False) -> Optional[bytes]:
         """
         Export a notebook to PDF format as a complete scientific article.
-        
+
+        Uses async LLM calls for multi-user support (non-blocking).
+
         This method:
         1. Regenerates the abstract to ensure it's current
         2. Uses LLM to generate a complete article plan and content
         3. Creates a human-readable scientific article with proper structure
         4. Includes empirical evidence and acknowledgments
-        
+
         Args:
             notebook_id: Notebook UUID
             include_code: Whether to include generated code in the PDF
-            
+
         Returns:
             PDF content as bytes or None if notebook not found
         """
         notebook = self._notebooks.get(notebook_id)
         if not notebook:
             return None
-        
+
         try:
             logger.info(f"Exporting notebook {notebook_id} to LLM-generated scientific article PDF (include_code={include_code})")
-            
-            # Step 1: Regenerate abstract to ensure it's current
+
+            # Step 1: Regenerate abstract to ensure it's current (ASYNC)
             logger.info("🎯 Step 1: Regenerating abstract for PDF export...")
             try:
-                self.generate_abstract(notebook_id)
+                await self.generate_abstract(notebook_id)
                 # Reload notebook to get updated abstract
                 notebook = self._notebooks.get(notebook_id)
             except Exception as e:
                 logger.warning(f"Failed to regenerate abstract for PDF: {e}")
                 # Continue with existing abstract or empty if none
-            
-            # Step 2: Generate complete scientific article using LLM
+
+            # Step 2: Generate complete scientific article using LLM (ASYNC)
             logger.info("🎯 Step 2: Generating complete scientific article...")
-            scientific_article = self.generate_scientific_article(notebook_id)
-            
+            scientific_article = await self.generate_scientific_article(notebook_id)
+
             # Step 3: Generate PDF from the LLM-generated article
             logger.info("🎯 Step 3: Creating PDF from scientific article...")
             pdf_bytes = self.pdf_service.generate_scientific_article_pdf(scientific_article, notebook, include_code)
-            
+
             logger.info(f"🎯 LLM-driven scientific PDF export successful: {len(pdf_bytes)} bytes")
             return pdf_bytes
         except Exception as e:
@@ -1852,9 +1688,9 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         yield {'stage': 'extracting', 'progress': 20, 'message': 'Analyzing article...'}
 
         if graph_type == 'analysis':
-            # LLM-based extraction (slower, needs progress tracking)
+            # LLM-based extraction (slower, needs progress tracking, async for multi-user)
             logger.info("🤖 Running LLM-based analysis extraction...")
-            graph = service.extract_analysis_graph(notebook, use_cache=False)
+            graph = await service.extract_analysis_graph(notebook, use_cache=False)
 
             # Yield final result
             yield {'stage': 'complete', 'progress': 100, 'message': 'Graph ready', 'result': graph}
@@ -1889,20 +1725,20 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         logger.info(f"📄 Streaming PDF export for notebook {notebook.id} (include_code={include_code})")
 
         try:
-            # Step 1: Regenerate abstract
+            # Step 1: Regenerate abstract (ASYNC - non-blocking for multi-user)
             yield {'stage': 'regenerating_abstract', 'progress': 15, 'message': 'Regenerating abstract...'}
             logger.info("🎯 Step 1: Regenerating abstract...")
             try:
-                self.generate_abstract(str(notebook.id))
+                await self.generate_abstract(str(notebook.id))
                 # Reload notebook to get updated abstract
                 notebook = self._notebooks.get(str(notebook.id))
             except Exception as e:
                 logger.warning(f"Failed to regenerate abstract: {e}")
 
-            # Step 2: Generate scientific article
+            # Step 2: Generate scientific article (ASYNC - non-blocking for multi-user)
             yield {'stage': 'writing_introduction', 'progress': 30, 'message': 'Writing introduction...'}
             logger.info("🎯 Step 2: Generating complete scientific article...")
-            scientific_article = self.generate_scientific_article(str(notebook.id))
+            scientific_article = await self.generate_scientific_article(str(notebook.id))
 
             # Progress through article sections
             yield {'stage': 'writing_methodology', 'progress': 45, 'message': 'Writing methodology...'}
@@ -1978,16 +1814,18 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             logger.error(f"Failed to set custom seed: {e}")
             return False
 
-    def generate_abstract(self, notebook_id: str) -> str:
+    async def generate_abstract(self, notebook_id: str) -> str:
         """
         Generate a scientific abstract for the entire digital article.
-        
+
+        Uses async LLM calls for multi-user support (non-blocking).
+
         Args:
             notebook_id: ID of the notebook to generate abstract for
-            
+
         Returns:
             Generated abstract as a string
-            
+
         Raises:
             ValueError: If notebook not found
             Exception: If abstract generation fails
@@ -1995,7 +1833,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         notebook = self._notebooks.get(notebook_id)
         if not notebook:
             raise ValueError(f"Notebook {notebook_id} not found")
-        
+
         try:
             # Convert notebook to dictionary format for LLM service
             notebook_data = {
@@ -2005,7 +1843,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 'author': notebook.author,
                 'cells': []
             }
-            
+
             # Convert cells to dictionary format with COMPLETE data for abstract generation
             for cell in notebook.cells:
                 cell_data = {
@@ -2014,7 +1852,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                     'scientific_explanation': cell.scientific_explanation,
                     'last_result': None
                 }
-                
+
                 # Include COMPLETE execution results for abstract generation
                 # The abstract needs all data to avoid hallucinations
                 if cell.last_result:
@@ -2028,34 +1866,36 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                         'plots': cell.last_result.plots,
                         'warnings': cell.last_result.warnings,
                     }
-                
+
                 notebook_data['cells'].append(cell_data)
-            
-            # Generate abstract using LLM service
-            abstract = self.llm_service.generate_abstract(notebook_data)
-            
+
+            # Generate abstract using ASYNC LLM service (non-blocking for multi-user)
+            abstract = await self.llm_service.agenerate_abstract(notebook_data)
+
             # Save abstract to notebook
             notebook.abstract = abstract
             notebook.abstract_generated_at = datetime.now()
             self._save_notebook(notebook)
-            
+
             logger.info(f"🎯 Generated and saved abstract for notebook {notebook_id}: {len(abstract)} characters")
             return abstract
-            
+
         except Exception as e:
             logger.error(f"Failed to generate abstract for notebook {notebook_id}: {e}")
             raise
 
-    def generate_scientific_article(self, notebook_id: str) -> Dict[str, Any]:
+    async def generate_scientific_article(self, notebook_id: str) -> Dict[str, Any]:
         """
         Generate a complete scientific article with LLM-driven content.
-        
+
+        Uses async LLM calls for multi-user support (non-blocking).
+
         Args:
             notebook_id: ID of the notebook to generate article for
-            
+
         Returns:
             Dictionary with article structure and content
-            
+
         Raises:
             ValueError: If notebook not found
             Exception: If article generation fails
@@ -2063,10 +1903,10 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         notebook = self._notebooks.get(notebook_id)
         if not notebook:
             raise ValueError(f"Notebook {notebook_id} not found")
-        
+
         try:
             logger.info(f"🎯 Generating complete scientific article for notebook {notebook_id}")
-            
+
             # Convert notebook to dictionary format for LLM service
             notebook_data = {
                 'id': str(notebook.id),
@@ -2076,7 +1916,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 'abstract': notebook.abstract,
                 'cells': []
             }
-            
+
             # Convert cells to dictionary format
             for cell in notebook.cells:
                 cell_data = {
@@ -2085,7 +1925,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                     'scientific_explanation': cell.scientific_explanation,
                     'last_result': None
                 }
-                
+
                 # Include execution results if available
                 if cell.last_result:
                     cell_data['last_result'] = {
@@ -2094,29 +1934,29 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                         'execution_time': cell.last_result.execution_time,
                         'plots': cell.last_result.plots if cell.last_result.plots else []
                     }
-                
+
                 notebook_data['cells'].append(cell_data)
-            
-            # Step 1: Generate article plan
+
+            # Step 1: Generate article plan (ASYNC for multi-user)
             logger.info("🎯 Step 1: Generating article plan...")
-            article_plan = self.llm_service.generate_article_plan(notebook_data)
-            
-            # Step 2: Generate each section based on the plan
+            article_plan = await self.llm_service.agenerate_article_plan(notebook_data)
+
+            # Step 2: Generate each section based on the plan (ASYNC for multi-user)
             logger.info("🎯 Step 2: Generating article sections...")
             sections = {}
             section_names = ['introduction', 'methodology', 'results', 'discussion', 'conclusions']
-            
+
             for section_name in section_names:
                 if section_name in article_plan.get('sections', {}):
                     logger.info(f"🎯 Generating {section_name} section...")
                     section_plan = article_plan['sections'][section_name]
-                    section_content = self.llm_service.generate_article_section(
+                    section_content = await self.llm_service.agenerate_article_section(
                         section_name, section_plan, notebook_data, article_plan
                     )
                     sections[section_name] = section_content
                 else:
                     logger.warning(f"🎯 No plan found for {section_name} section, skipping...")
-            
+
             # Step 3: Compile complete article
             complete_article = {
                 'title': article_plan.get('title', notebook.title),
@@ -2130,13 +1970,13 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 },
                 'plan': article_plan
             }
-            
+
             logger.info(f"🎯 Generated complete scientific article for notebook {notebook_id}")
             logger.info(f"🎯 Article sections: {list(sections.keys())}")
             logger.info(f"🎯 Total content length: {sum(len(content) for content in sections.values())} characters")
-            
+
             return complete_article
-            
+
         except Exception as e:
             logger.error(f"Failed to generate scientific article for notebook {notebook_id}: {e}")
             raise

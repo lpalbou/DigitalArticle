@@ -177,11 +177,17 @@ async def delete_cell(notebook_id: str, cell_id: str):
 
 @router.post("/execute", response_model=CellExecuteResponse)
 async def execute_cell(request: CellExecuteRequest):
-    """Execute a cell (generate code from prompt if needed and run it)."""
+    """
+    Execute a cell (generate code from prompt if needed and run it).
+
+    This endpoint is fully async - uses AbstractCore's agenerate() for non-blocking
+    LLM calls during code generation, retries, and methodology generation.
+    Other API requests can be processed while this cell executes (10-60+ seconds).
+    """
     try:
         logger.info(f"🚀 API: Executing cell: {request.cell_id}")
         logger.info(f"🚀 API: Force regenerate: {request.force_regenerate}")
-        execution_result = notebook_service.execute_cell(request)
+        execution_result = await notebook_service.execute_cell(request)
         if not execution_result:
             logger.error(f"🚀 API: Cell {request.cell_id} not found in notebook service")
             raise HTTPException(

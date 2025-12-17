@@ -190,7 +190,7 @@ EXAMPLE OF CORRECT FORMAT:
         self.llm_service = llm_service or LLMService()
         self.persona_service = PersonaService()
 
-    def review_cell(
+    async def review_cell(
         self,
         cell: Cell,
         notebook: Notebook,
@@ -229,12 +229,12 @@ EXAMPLE OF CORRECT FORMAT:
 
         # Phase 1: Implementation Review (code)
         if cell.code:
-            impl_findings = self._review_implementation(cell, notebook, reviewer)
+            impl_findings = await self._review_implementation(cell, notebook, reviewer)
             findings.extend(impl_findings)
 
         # Phase 2: Results Review (outputs + methodology)
         if cell.last_result and cell.last_result.status == "success":
-            results_findings = self._review_results(cell, notebook, reviewer)
+            results_findings = await self._review_results(cell, notebook, reviewer)
             findings.extend(results_findings)
 
         # Determine overall quality
@@ -258,7 +258,7 @@ EXAMPLE OF CORRECT FORMAT:
         logger.info(f"✅ Cell review complete: {overall_quality} ({len(findings)} findings)")
         return review
 
-    def _review_implementation(
+    async def _review_implementation(
         self,
         cell: Cell,
         notebook: Notebook,
@@ -295,9 +295,9 @@ EXAMPLE OF CORRECT FORMAT:
         # Fill template
         review_prompt = impl_capability.prompt_template.format(**context)
 
-        # Call LLM for review
+        # Call LLM for review (async for multi-user support)
         try:
-            response = self.llm_service.llm.generate(
+            response = await self.llm_service.llm.agenerate(
                 review_prompt,
                 system_prompt="You are a scientific code reviewer. Provide structured, actionable feedback.",
                 temperature=0.3,  # Lower temperature for more consistent reviews
@@ -314,7 +314,7 @@ EXAMPLE OF CORRECT FORMAT:
             logger.error(f"Implementation review failed: {e}")
             return []
 
-    def _review_results(
+    async def _review_results(
         self,
         cell: Cell,
         notebook: Notebook,
@@ -351,9 +351,9 @@ EXAMPLE OF CORRECT FORMAT:
         # Fill template
         review_prompt = results_capability.prompt_template.format(**context)
 
-        # Call LLM for review
+        # Call LLM for review (async for multi-user support)
         try:
-            response = self.llm_service.llm.generate(
+            response = await self.llm_service.llm.agenerate(
                 review_prompt,
                 system_prompt="You are a scientific results reviewer. Focus on interpretation accuracy and completeness.",
                 temperature=0.3,
@@ -370,7 +370,7 @@ EXAMPLE OF CORRECT FORMAT:
             logger.error(f"Results review failed: {e}")
             return []
 
-    def review_article(
+    async def review_article(
         self,
         notebook: Notebook,
         force: bool = False,
@@ -414,10 +414,10 @@ EXAMPLE OF CORRECT FORMAT:
         # Fill template
         review_prompt = synthesis_capability.prompt_template.format(**context)
 
-        # Call LLM for synthesis review with SOTA system prompt
+        # Call LLM for synthesis review with SOTA system prompt (async for multi-user support)
         try:
             logger.info("🤖 Calling LLM for article review with SOTA guidance...")
-            response = self.llm_service.llm.generate(
+            response = await self.llm_service.llm.agenerate(
                 review_prompt,
                 system_prompt=self.REVIEW_SYSTEM_PROMPT,  # Comprehensive SOTA prompt
                 temperature=0.3,
@@ -549,7 +549,7 @@ EXAMPLE OF CORRECT FORMAT:
             token_count = 0
 
             logger.info("🤖 Calling LLM for streaming article review...")
-            response_stream = self.llm_service.llm.generate(
+            response_stream = await self.llm_service.llm.agenerate(
                 review_prompt,
                 system_prompt=self.REVIEW_SYSTEM_PROMPT,
                 temperature=0.3,
@@ -561,8 +561,8 @@ EXAMPLE OF CORRECT FORMAT:
                 },
             )
 
-            # Process streaming chunks
-            for chunk in response_stream:
+            # Process streaming chunks (async iteration for multi-user support)
+            async for chunk in response_stream:
                 if hasattr(chunk, 'content') and chunk.content:
                     accumulated_content += chunk.content
                     token_count += len(chunk.content.split())  # Approximate token count
@@ -811,22 +811,6 @@ EXAMPLE OF CORRECT FORMAT:
             context_parts.append("\n".join(cell_context))
 
         return "\n\n".join(context_parts) if context_parts else "No cells to review"
-
-    def _summarize_cells(self, notebook: Notebook) -> str:
-        """DEPRECATED: Use _build_full_article_context() instead.
-
-        This method severely truncates content and should not be used for review.
-        Kept for backward compatibility only.
-        """
-        summaries = []
-        for i, cell in enumerate(notebook.cells, 1):
-            if cell.prompt:
-                summary = f"Cell {i}: {cell.prompt[:100]}"
-                if cell.scientific_explanation:
-                    summary += f"\n  Methodology: {cell.scientific_explanation[:150]}..."
-                summaries.append(summary)
-
-        return "\n\n".join(summaries) if summaries else "No cells with analysis"
 
     def _parse_review_findings(self, review_text: str, cell_id: Optional[str] = None) -> List[ReviewFinding]:
         """Parse LLM review response into structured findings.
