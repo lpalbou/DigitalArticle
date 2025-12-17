@@ -3,5 +3,5 @@ Version for Digital Article backend.
 Source of truth: digitalarticle/_version.py
 """
 
-from digitalarticle._version import __version__
+from digitalarticle._version import __version__, __release_date__
 

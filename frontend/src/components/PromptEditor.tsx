@@ -228,15 +228,17 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
             </div>
           )}
 
-          {/* View LLM Traces Button */}
-          {onViewTraces && cell.llm_traces && cell.llm_traces.length > 0 && (
+          {/* View LLM Traces Button - Show if cell has been executed OR has traces */}
+          {onViewTraces && (cell.execution_count > 0 || (cell.llm_traces && cell.llm_traces.length > 0)) && (
             <button
               onClick={() => onViewTraces(cell.id)}
               className="text-xs bg-blue-50 px-2 py-1 rounded text-blue-600 hover:bg-blue-100 hover:text-blue-700 transition-all duration-200 cursor-pointer hover:shadow-sm flex items-center space-x-1"
-              title={`View ${cell.llm_traces.length} LLM trace${cell.llm_traces.length > 1 ? 's' : ''}`}
+              title={cell.llm_traces && cell.llm_traces.length > 0
+                ? `View ${cell.llm_traces.length} LLM trace${cell.llm_traces.length > 1 ? 's' : ''}`
+                : 'View execution details'}
             >
               <Activity className="h-3 w-3" />
-              <span>{cell.llm_traces.length}</span>
+              <span>{cell.llm_traces?.length || 0}</span>
             </button>
           )}
 

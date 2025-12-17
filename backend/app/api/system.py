@@ -7,7 +7,7 @@ import getpass
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from .._version import __version__
+from .._version import __version__, __release_date__
 
 router = APIRouter()
 
@@ -20,6 +20,7 @@ class UserResponse(BaseModel):
 class VersionResponse(BaseModel):
     """Response model for version information."""
     version: str
+    release_date: str
 
 
 @router.get("/user", response_model=UserResponse)
@@ -43,9 +44,9 @@ async def get_current_user():
 @router.get("/version", response_model=VersionResponse)
 async def get_version():
     """
-    Get the current Digital Article backend version.
-    
+    Get the current Digital Article backend version and release date.
+
     Returns:
-        VersionResponse: Current version information
+        VersionResponse: Current version information including release date
     """
-    return VersionResponse(version=__version__)
+    return VersionResponse(version=__version__, release_date=__release_date__)

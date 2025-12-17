@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.3.13] - 2025-12-17
+
+### Fixed
+- **Execution Details Button Missing After Async Changes**
+  - Root cause: AbstractCore's `agenerate()` didn't capture traces like sync `generate()` did
+  - Button only showed when `cell.llm_traces.length > 0`, which was always empty with async
+  - Fix 1: Button now shows when `execution_count > 0` OR traces exist
+  - Fix 2: AbstractCore 2.6.8 adds trace capture to `agenerate()` for all providers
+  - Files: `frontend/src/components/PromptEditor.tsx`
+
+### Changed
+- **Dependency Update: AbstractCore 2.6.8**
+  - Includes fix for async generation tracing
+  - Required for Execution Details button to show trace data
+
+
 ## [0.3.12] - 2025-12-17
 
 ### Fixed

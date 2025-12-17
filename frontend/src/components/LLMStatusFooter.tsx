@@ -19,6 +19,7 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ notebookId }) => {
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [version, setVersion] = useState<string>('...')
+  const [releaseDate, setReleaseDate] = useState<string>('')
 
   const fetchStatus = async () => {
     try {
@@ -45,9 +46,11 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ notebookId }) => {
     try {
       const data = await systemAPI.getVersion()
       setVersion(data.version)
+      setReleaseDate(data.release_date || '')
     } catch (error) {
       console.error('Failed to fetch version:', error)
       setVersion('?')
+      setReleaseDate('')
     }
   }
 
@@ -173,7 +176,7 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ notebookId }) => {
           <div className="flex items-center space-x-3 text-xs text-gray-500">
             <span>v{version}</span>
             <div className="text-gray-400">|</div>
-            <span>Updated Dec 2025</span>
+            <span>Updated {releaseDate || '...'}</span>
           </div>
         </div>
       </div>

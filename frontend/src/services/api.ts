@@ -281,8 +281,8 @@ export const filesAPI = {
 
 // System API
 export const systemAPI = {
-  // Get backend version
-  getVersion: async (): Promise<{ version: string }> => {
+  // Get backend version and release date
+  getVersion: async (): Promise<{ version: string; release_date: string }> => {
     const response = await api.get('/system/version')
     return response.data
   },
