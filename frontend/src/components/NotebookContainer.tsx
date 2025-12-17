@@ -1055,25 +1055,6 @@ const NotebookContainer: React.FC = () => {
     setShowSettingsModal(true)
   }, [])
 
-  // Auto-save functionality - ONLY triggers when hasUnsavedChanges flag changes
-  useEffect(() => {
-    // Only save if there are actual unsaved changes
-    if (!hasUnsavedChanges) return
-    if (!notebook) return
-
-    console.log('Auto-save scheduled due to unsaved changes')
-
-    const timeoutId = setTimeout(() => {
-      console.log('Auto-save executing...')
-      saveNotebook()
-    }, 2000) // Auto-save after 2 seconds of inactivity
-
-    return () => {
-      console.log('Auto-save cancelled (new changes detected)')
-      clearTimeout(timeoutId)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasUnsavedChanges]) // CRITICAL: Only hasUnsavedChanges - saveNotebook is stable via useCallback
 
   // Memoized values
   const hasCells = useMemo(() => notebook?.cells && notebook.cells.length > 0, [notebook])
@@ -1377,7 +1358,7 @@ const NotebookContainer: React.FC = () => {
           </div>
           <span>
             {hasUnsavedChanges && <span className="text-orange-600 mr-2">• Unsaved changes</span>}
-            Last updated: {new Date(notebook.updated_at).toLocaleDateString()}
+            Last updated: {new Date(notebook.updated_at).toLocaleDateString()} {new Date(notebook.updated_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}
           </span>
         </div>
       </div>
