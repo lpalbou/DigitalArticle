@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Images now constrained to 80% viewport height while maintaining aspect ratio
   - Files: `frontend/src/components/ResultPanel.tsx`
 
+### Changed
+
+- **Dependency Update: AbstractCore 2.6.8**
+  - Updated abstractcore dependency from `>=2.6.2` to `>=2.6.8`
+  - Includes latest provider fixes and improvements
+  - Files: `backend/pyproject.toml`, `pyproject.toml`
+
 
 ## [0.3.11] - 2025-12-17
 
