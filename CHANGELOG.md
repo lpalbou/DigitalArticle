@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.3.11] - 2025-12-17
+
+### Fixed
+
+- **Chat Panel 400 Error on Remote Deployment**
+  - Root cause: Frontend sends `id` and `loading` fields in ChatMessage that backend Pydantic model didn't expect
+  - Pydantic V2 rejected extra fields with HTTP 400 error
+  - Fix: Added `id: Optional[str]` and `loading: Optional[bool]` to ChatMessage model
+  - Files: `backend/app/api/chat.py`
+
+- **Docker ENV Variables Not Applied at Startup**
+  - Root cause: Persisted `user_settings.json` from previous runs overrode Docker ENV vars
+  - LLMService initialized with stale localhost URLs instead of Docker-provided URLs
+  - Fix: Added `apply_env_var_overrides()` called at startup BEFORE LLMService initialization
+  - Docker-provided base URLs (non-localhost) now take priority over saved settings
+  - Files: `backend/app/services/user_settings_service.py`, `backend/app/services/shared.py`
+
+- **LLMService Reinitialization on Settings Change**
+  - When user changes base URLs in Settings UI, LLMService now reinitializes
+  - Ensures chat/review/cell execution use updated URLs immediately
+  - Files: `backend/app/api/settings.py`
+
+
 ## [0.3.10] - 2025-12-12
 
 ### Fixed
