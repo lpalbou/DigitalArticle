@@ -113,7 +113,18 @@ async def update_settings(request: SettingsUpdateRequest):
         if updates:
             service.update_settings(updates)
             logger.info(f"Settings updated: {list(updates.keys())}")
-        
+
+            # CRITICAL: Reinitialize LLMService when LLM settings change
+            # This ensures base_url changes take effect immediately (fixes remote deployment issue)
+            llm_updates = updates.get('llm', {})
+            if 'base_urls' in llm_updates or 'provider' in llm_updates or 'model' in llm_updates:
+                try:
+                    from ..services.shared import notebook_service
+                    notebook_service.llm_service._initialize_llm()
+                    logger.info("✅ LLMService reinitialized with new settings")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to reinitialize LLM (non-critical): {e}")
+
         # Return updated settings (with masked keys)
         settings = service.get_settings_for_api()
         return SettingsResponse(**settings)
