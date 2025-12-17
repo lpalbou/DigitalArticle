@@ -187,6 +187,44 @@ class UserSettingsService:
         settings = self.get_settings(username)
         return settings.llm.api_keys.get(provider, "")
 
+    def apply_env_var_overrides(self, username: Optional[str] = None) -> None:
+        """
+        Apply Docker ENV variable overrides to settings.
+
+        Called at startup to ensure Docker-provided base URLs take priority
+        over stale saved settings from previous runs.
+
+        Only applies if env vars are actually set (non-empty).
+        """
+        env_base_urls = {
+            'ollama': os.getenv('OLLAMA_BASE_URL', ''),
+            'lmstudio': os.getenv('LMSTUDIO_BASE_URL', ''),
+            'vllm': os.getenv('VLLM_BASE_URL', ''),
+            'openai-compatible': os.getenv('OPENAI_COMPATIBLE_BASE_URL', ''),
+        }
+
+        # Only apply if at least one env var is set AND differs from localhost default
+        # This distinguishes Docker deployment from local development
+        env_vars_with_values = {k: v for k, v in env_base_urls.items() if v and 'localhost' not in v}
+
+        if not env_vars_with_values:
+            logger.debug("No Docker ENV var overrides to apply (using saved or default settings)")
+            return
+
+        # Get current settings
+        settings = self.get_settings(username)
+
+        # Override base URLs with env vars
+        for provider, url in env_vars_with_values.items():
+            old_url = settings.llm.base_urls.get(provider, '')
+            if old_url != url:
+                settings.llm.base_urls[provider] = url
+                logger.info(f"🐳 Docker ENV override: {provider} base_url = {url}")
+
+        # Save updated settings
+        self.save_settings(settings, username)
+        logger.info("✅ Applied Docker ENV var base URLs to settings")
+
 
 # Global service instance
 _user_settings_service: Optional[UserSettingsService] = None

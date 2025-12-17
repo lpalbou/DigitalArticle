@@ -23,9 +23,11 @@ chat_service = ArticleChatService(notebook_service)
 
 class ChatMessage(BaseModel):
     """A single message in the conversation."""
+    id: Optional[str] = None  # Frontend sends message ID
     role: str  # 'user' or 'assistant'
     content: str
     timestamp: str
+    loading: Optional[bool] = None  # Frontend sends loading state
 
 
 class ChatRequest(BaseModel):
