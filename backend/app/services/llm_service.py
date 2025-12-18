@@ -11,6 +11,7 @@ Token Tracking:
 
 import logging
 import os
+import uuid
 from typing import Optional, Dict, Any, Tuple, List
 from datetime import datetime
 from abstractcore import create_llm, ProviderAPIError, ModelNotFoundError, AuthenticationError
@@ -267,19 +268,40 @@ class LLMService:
             code = self._extract_code_from_response(response.content)
             generation_time = getattr(response, 'gen_time', None)
 
-            # Get trace_id and full trace from AbstractCore's tracing system
-            trace_id = None
-            full_trace = None
-            if hasattr(response, 'metadata') and response.metadata:
-                trace_id = response.metadata.get('trace_id')
-                if trace_id and self.llm:
-                    try:
-                        traces = self.llm.get_traces(trace_id=trace_id)
-                        if traces:
-                            full_trace = traces if isinstance(traces, dict) else traces[0] if isinstance(traces, list) else None
-                            logger.info(f"✅ ASYNC: Retrieved full trace for {trace_id}")
-                    except Exception as e:
-                        logger.warning(f"⚠️ ASYNC: Could not retrieve full trace: {e}")
+            # Build trace directly (more robust than relying on AbstractCore's buffer)
+            # This ensures traces are captured regardless of provider implementation
+            trace_id = str(uuid.uuid4())
+            full_trace = {
+                'trace_id': trace_id,
+                'timestamp': datetime.now().isoformat(),
+                'provider': self.provider,
+                'model': self.model,
+                'system_prompt': system_prompt,
+                'prompt': user_prompt,
+                'messages': None,
+                'tools': None,
+                'parameters': {
+                    'temperature': generation_params.get('temperature', 0.1),
+                    'max_tokens': generation_params.get('max_tokens'),
+                    'max_output_tokens': generation_params.get('max_output_tokens'),
+                    'seed': generation_params.get('seed'),
+                },
+                'response': {
+                    'content': response.content,
+                    'raw_response': None,  # Omit for memory efficiency
+                    'tool_calls': getattr(response, 'tool_calls', None),
+                    'finish_reason': getattr(response, 'finish_reason', None),
+                    'usage': getattr(response, 'usage', None),
+                    'generation_time_ms': getattr(response, 'gen_time', None),
+                },
+                'metadata': {
+                    'step_type': step_type,
+                    'attempt_number': attempt_number,
+                    'notebook_id': context.get('notebook_id') if context else None,
+                    'cell_id': context.get('cell_id') if context else None,
+                }
+            }
+            logger.info(f"✅ ASYNC: Built trace {trace_id} for {step_type}")
 
             logger.info(f"🚨 ASYNC: Generated code for prompt: {prompt[:50]}...")
             return code, generation_time, trace_id, full_trace
@@ -1222,21 +1244,39 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
                 temperature=0.1
             )
 
-            # Extract trace_id and full trace from AbstractCore's tracing system
-            trace_id = None
-            full_trace = None
-            if hasattr(response, 'metadata') and response.metadata:
-                trace_id = response.metadata.get('trace_id')
-                logger.info(f"📝 ASYNC: Code fix trace ID: {trace_id}")
-
-                if trace_id and self.llm:
-                    try:
-                        traces = self.llm.get_traces(trace_id=trace_id)
-                        if traces:
-                            full_trace = traces if isinstance(traces, dict) else traces[0] if isinstance(traces, list) else None
-                            logger.info(f"✅ ASYNC: Retrieved full trace for code fix {trace_id}")
-                    except Exception as e:
-                        logger.warning(f"⚠️ ASYNC: Could not retrieve full trace: {e}")
+            # Build trace directly (more robust than relying on AbstractCore's buffer)
+            trace_id = str(uuid.uuid4())
+            system_prompt = self._build_system_prompt(context)
+            full_trace = {
+                'trace_id': trace_id,
+                'timestamp': datetime.now().isoformat(),
+                'provider': self.provider,
+                'model': self.model,
+                'system_prompt': system_prompt,
+                'prompt': improvement_prompt,
+                'messages': None,
+                'tools': None,
+                'parameters': {
+                    'temperature': 0.1,
+                    'max_tokens': 32000,
+                    'max_output_tokens': 8192,
+                },
+                'response': {
+                    'content': response.content,
+                    'raw_response': None,
+                    'tool_calls': getattr(response, 'tool_calls', None),
+                    'finish_reason': getattr(response, 'finish_reason', None),
+                    'usage': getattr(response, 'usage', None),
+                    'generation_time_ms': getattr(response, 'gen_time', None),
+                },
+                'metadata': {
+                    'step_type': step_type,
+                    'attempt_number': attempt_number,
+                    'notebook_id': context.get('notebook_id') if context else None,
+                    'cell_id': context.get('cell_id') if context else None,
+                }
+            }
+            logger.info(f"✅ ASYNC: Built trace {trace_id} for {step_type}")
 
             improved_code = self._extract_code_from_response(response.content)
             return improved_code, trace_id, full_trace
@@ -1531,21 +1571,39 @@ Write a scientific explanation of what was done and the results obtained:"""
                 **generation_params
             )
 
-            # Extract trace_id and full trace from AbstractCore's tracing system
-            trace_id = None
-            full_trace = None
-            if hasattr(response, 'metadata') and response.metadata:
-                trace_id = response.metadata.get('trace_id')
-                logger.info(f"📝 ASYNC: Methodology trace ID: {trace_id}")
-
-                if trace_id and self.llm:
-                    try:
-                        traces = self.llm.get_traces(trace_id=trace_id)
-                        if traces:
-                            full_trace = traces if isinstance(traces, dict) else traces[0] if isinstance(traces, list) else None
-                            logger.info(f"✅ ASYNC: Retrieved full trace for methodology {trace_id}")
-                    except Exception as e:
-                        logger.warning(f"⚠️ ASYNC: Could not retrieve full trace: {e}")
+            # Build trace directly (more robust than relying on AbstractCore's buffer)
+            trace_id = str(uuid.uuid4())
+            full_trace = {
+                'trace_id': trace_id,
+                'timestamp': datetime.now().isoformat(),
+                'provider': self.provider,
+                'model': self.model,
+                'system_prompt': system_prompt,
+                'prompt': user_prompt,
+                'messages': None,
+                'tools': None,
+                'parameters': {
+                    'temperature': generation_params.get('temperature', 0.1),
+                    'max_tokens': generation_params.get('max_tokens'),
+                    'max_output_tokens': generation_params.get('max_output_tokens'),
+                    'seed': generation_params.get('seed'),
+                },
+                'response': {
+                    'content': response.content,
+                    'raw_response': None,
+                    'tool_calls': getattr(response, 'tool_calls', None),
+                    'finish_reason': getattr(response, 'finish_reason', None),
+                    'usage': getattr(response, 'usage', None),
+                    'generation_time_ms': getattr(response, 'gen_time', None),
+                },
+                'metadata': {
+                    'step_type': step_type,
+                    'attempt_number': attempt_number,
+                    'notebook_id': context.get('notebook_id') if context else None,
+                    'cell_id': context.get('cell_id') if context else None,
+                }
+            }
+            logger.info(f"✅ ASYNC: Built trace {trace_id} for {step_type}")
 
             explanation = response.content.strip()
             generation_time = getattr(response, 'gen_time', None)

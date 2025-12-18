@@ -18,7 +18,7 @@ dependencies = [
     "uvicorn==0.38.0",
     "pydantic==2.12.3",
     "requests==2.32.5",
-    "python-multipart==0.0.9",  # Required for file uploads
+    "python-multipart>=0.0.9",  # Required for file uploads
     "pyyaml>=6.0",  # YAML file parsing
 
     # LLM Integration - all providers except MLX (Apple Silicon only)
