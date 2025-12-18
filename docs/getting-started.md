@@ -54,8 +54,8 @@ pip install -e .
 **Dependencies installed** (from `requirements.txt`):
 - `fastapi` - Backend web framework
 - `uvicorn` - ASGI server
-- `abstractcore[all]` **>= 2.5.3** - LLM provider abstraction (supports LMStudio, Ollama, OpenAI, etc.)
-  - **Note**: Version 2.5.3 or higher is required for LLM tracing support
+- `abstractcore[all]` **>= 2.6.9** - LLM provider abstraction (supports LMStudio, Ollama, OpenAI, etc.)
+  - **Note**: Version 2.6.9 or higher is required for reliable async trace capture
 - `pandas`, `numpy`, `matplotlib`, `plotly`, `seaborn` - Data analysis and visualization
 - `scikit-learn`, `scipy` - Machine learning and scientific computing
 - `reportlab`, `weasyprint` - PDF generation
