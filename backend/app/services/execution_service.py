@@ -744,21 +744,39 @@ class ExecutionService:
                                 warnings_list.append(f"⚠️ STATISTICAL: {param_name} has %CV = {cv_value:.1f}% (>100%) - poor parameter precision. Consider more data or simpler model.")
 
                 # Check for parameters at common optimizer bounds
-                estimate_col = None
+                # ONLY if this looks like a statistical modeling output table
+                # (must have a Parameter/param column AND specific estimate column, not just any table with values)
+
+                # First, find a parameter name column (required for modeling tables)
+                param_col = None
                 for col in columns:
                     col_lower = str(col).lower()
-                    if 'estimate' in col_lower or 'value' in col_lower or 'fitted' in col_lower:
+                    if col_lower in ['parameter', 'param', 'name', 'variable']:
+                        param_col = col
+                        break
+
+                # Find estimate column (exclude generic columns that cause false positives)
+                estimate_col = None
+                generic_columns = {'value', 'count', 'total', 'n', 'frequency', 'metric', 'number', 'qty'}
+                for col in columns:
+                    col_lower = str(col).lower()
+                    # Only match specific statistical estimate columns, not generic "value" columns
+                    if col_lower in generic_columns:
+                        continue  # Skip generic columns
+                    if 'estimate' in col_lower or 'fitted' in col_lower or 'mle' in col_lower or 'coefficient' in col_lower:
                         estimate_col = col
                         break
 
-                if estimate_col and data:
+                # Only proceed if we have BOTH a parameter column AND a proper estimate column
+                # This ensures we only check actual statistical modeling output, not summary tables
+                if param_col and estimate_col and data:
                     # Common optimizer bounds in PK/PD modeling
                     common_bounds = {0.1, 1.0, 10.0, 100.0, 0.01, 0.001, 1000.0, 0.0001, 10000.0}
                     for row in data:
                         est_value = row.get(estimate_col)
                         if isinstance(est_value, (int, float)):
-                            # Try to get parameter name
-                            param_name = row.get('Parameter', row.get('parameter', row.get('param', 'Unknown')))
+                            # Get parameter name from the parameter column
+                            param_name = row.get(param_col, 'Unknown')
                             # Check if value matches a common bound (within floating point tolerance)
                             for bound in common_bounds:
                                 if abs(est_value - bound) < 1e-6:
