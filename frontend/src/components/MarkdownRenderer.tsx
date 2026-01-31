@@ -186,10 +186,12 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       wrapper.appendChild(copyBtn)
     })
 
+    const container = containerRef.current
+    if (!container) return
+
     // Cleanup function to remove event listeners
     return () => {
-      if (!containerRef.current) return
-      const buttons = containerRef.current.querySelectorAll('.md-code-copy-btn')
+      const buttons = container.querySelectorAll('.md-code-copy-btn')
       buttons.forEach(btn => {
         btn.replaceWith(btn.cloneNode(true))
       })

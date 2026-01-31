@@ -47,7 +47,7 @@ const CodeDisplay: React.FC<CodeDisplayProps> = ({
           },
           wordWrap: 'on',
           automaticLayout: true,
-          padding: { left: 8, right: 8 }
+          padding: { top: 8, bottom: 8 }
         }}
         loading={
           <div className="flex items-center justify-center h-full bg-white text-gray-600">

@@ -38,7 +38,7 @@ Introduce and enforce the truncation/compaction rules from ADR 0003: no truncati
 ## Dependencies
 
 ### Backlog dependencies (ordering)
-- Should follow: [`0003_fix_test_suite_regressions.md`](0003_fix_test_suite_regressions.md)
+- Should follow: [`0003_fix_test_suite_regressions.md`](../completed/0003_fix_test_suite_regressions.md)
 
 ### ADR dependencies (must comply)
 - **All ADRs are mandatory**: [`docs/adr/README.md`](../../adr/README.md)

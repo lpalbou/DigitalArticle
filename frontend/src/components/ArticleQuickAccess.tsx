@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { ChevronDown, Clock, Plus, Search, BookOpen } from 'lucide-react'
 import { notebookAPI, handleAPIError } from '../services/api'
 
@@ -44,28 +44,9 @@ const ArticleQuickAccess: React.FC<ArticleQuickAccessProps> = ({
   const [loading, setLoading] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  // Load recent articles when dropdown opens
-  useEffect(() => {
-    if (isOpen && recentArticles.length === 0) {
-      loadRecentArticles()
-    }
-  }, [isOpen])
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
-  const loadRecentArticles = async () => {
+  const loadRecentArticles = useCallback(async () => {
     setLoading(true)
-    
+
     try {
       const summaries = await notebookAPI.getSummaries()
       // Get the 8 most recent articles (excluding current if present)
@@ -78,7 +59,26 @@ const ArticleQuickAccess: React.FC<ArticleQuickAccessProps> = ({
     } finally {
       setLoading(false)
     }
-  }
+  }, [currentArticleId])
+
+  // Load recent articles when dropdown opens
+  useEffect(() => {
+    if (isOpen && recentArticles.length === 0) {
+      loadRecentArticles()
+    }
+  }, [isOpen, recentArticles.length, loadRecentArticles])
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const handleSelectArticle = (articleId: string) => {
     onSelectArticle(articleId)

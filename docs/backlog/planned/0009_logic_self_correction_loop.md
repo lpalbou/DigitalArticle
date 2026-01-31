@@ -39,7 +39,7 @@ After code executes successfully, add a bounded loop that checks whether the ana
 
 ### Backlog dependencies (ordering)
 - Should follow:
-  - [`0003_fix_test_suite_regressions.md`](0003_fix_test_suite_regressions.md)
+  - [`0003_fix_test_suite_regressions.md`](../completed/0003_fix_test_suite_regressions.md)
   - [`0007_perfect_observability_llm_agentic_tracing.md`](0007_perfect_observability_llm_agentic_tracing.md) (must be debuggable/auditable)
 
 ### ADR dependencies (must comply)

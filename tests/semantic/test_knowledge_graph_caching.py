@@ -6,6 +6,7 @@ notebook state hasn't changed.
 """
 
 import pytest
+import asyncio
 from datetime import datetime
 from uuid import uuid4
 
@@ -147,7 +148,7 @@ class TestAnalysisGraphCaching:
         mock_llm = mocker.patch.object(service, 'llm_extractor')
 
         # Extract with cache enabled
-        result = service.extract_analysis_graph(sample_notebook, use_cache=True)
+        result = asyncio.run(service.extract_analysis_graph(sample_notebook, use_cache=True))
 
         # Should return cached graph
         assert result == cached_graph
@@ -166,7 +167,7 @@ class TestAnalysisGraphCaching:
         # Extract with cache disabled (will use real LLM extraction which might fail)
         # Just verify it doesn't return the cached graph
         try:
-            result = service.extract_analysis_graph(sample_notebook, use_cache=False)
+            result = asyncio.run(service.extract_analysis_graph(sample_notebook, use_cache=False))
             assert result != cached_graph  # Should be different (newly generated)
         except Exception:
             # LLM extraction might fail in test environment, that's okay

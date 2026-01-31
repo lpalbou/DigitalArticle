@@ -40,7 +40,7 @@ Workspace files (uploads, previews, user settings) are stored under `Config.get_
 ## Dependencies
 
 ### Backlog dependencies (ordering)
-- Should follow: [`0003_fix_test_suite_regressions.md`](0003_fix_test_suite_regressions.md)
+- Should follow: [`0003_fix_test_suite_regressions.md`](../completed/0003_fix_test_suite_regressions.md)
 - Strongly related to: [`0004_unify_llm_config_surfaces.md`](0004_unify_llm_config_surfaces.md)
 
 ### ADR dependencies (must comply)

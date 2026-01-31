@@ -34,7 +34,7 @@ The backend currently executes generated/user code in-process (via `exec()`), wh
 ## Dependencies
 
 ### Backlog dependencies (ordering)
-- Should follow: [`0003_fix_test_suite_regressions.md`](0003_fix_test_suite_regressions.md)
+- Should follow: [`0003_fix_test_suite_regressions.md`](../completed/0003_fix_test_suite_regressions.md)
 - Strongly related to:
   - [`0005_unify_persistence_roots.md`](0005_unify_persistence_roots.md) (state and artifact storage)
   - [`0007_perfect_observability_llm_agentic_tracing.md`](0007_perfect_observability_llm_agentic_tracing.md) (auditability of execution)

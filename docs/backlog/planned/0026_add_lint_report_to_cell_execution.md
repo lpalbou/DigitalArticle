@@ -7,7 +7,7 @@ Add a lint report to cell execution (static quality feedback alongside runtime e
 0026
 
 ## Priority
-- **P1 (proposed)**: improves reliability and self-correction (“executable but low quality”) and gives technical users more actionable feedback.
+- **P1**: improves reliability and self-correction (“executable but low quality”) and gives technical users more actionable feedback.
 
 ## Date / Time
 2026-01-31T08:55:00 (local)
@@ -36,12 +36,12 @@ Today, cell execution provides runtime exceptions and ErrorAnalyzer guidance; it
 - Do not block execution purely on style warnings (unless explicitly configured).
 - Do not run networked tooling or anything that can leak secrets.
 - Do not implement automatic non-LLM lint auto-fixes in this item (tracked separately):
-  - [`docs/backlog/proposed/0027_auto_fix_safe_lint_issues.md`](0027_auto_fix_safe_lint_issues.md)
+  - [`docs/backlog/planned/0027_auto_fix_safe_lint_issues.md`](0027_auto_fix_safe_lint_issues.md)
 
 ## Dependencies
 
 ### Backlog dependencies (ordering)
-- Should follow: [`0003_fix_test_suite_regressions.md`](../planned/0003_fix_test_suite_regressions.md)
+- Should follow: [`0003_fix_test_suite_regressions.md`](../completed/0003_fix_test_suite_regressions.md)
 - Strongly related to: [`0007_perfect_observability_llm_agentic_tracing.md`](../planned/0007_perfect_observability_llm_agentic_tracing.md)
 
 ### ADR dependencies (must comply)
@@ -102,8 +102,50 @@ Start with Option A as a structured report surfaced in execution results, and de
 - Lint report does not leak secrets and does not require network access.
 
 ## Implementation Notes (fill during execution)
-TBD
+### Design chosen
+- Implemented **Option A** first (extend current lightweight static analysis) with a structured report model designed to allow a future Ruff engine swap without breaking UI/API.
+
+### Implementation details
+- Added Pydantic models for lint reporting (`LintReport`, `LintIssue`, `LintSeverity`) and attached `lint_report` to `ExecutionResult`.
+- Implemented a deterministic offline linter (`LintingService`) using Python `ast`:
+  - unused imports (DA1001)
+  - possibly-undefined names (DA1002), scoped by notebook globals to reduce false positives
+- Wired linting into `ExecutionService.execute_code()`:
+  - validation failures now include a structured lint report (error + suggestions)
+  - successful executions include a lint report (possibly empty)
+- Frontend surfacing: added a “Lint” tab to the Execution Details modal.
 
 ## Full Report (fill only when moving to completed/)
-TBD
+### What changed (files/functions)
+- Backend:
+  - `backend/app/models/linting.py` (new)
+  - `backend/app/models/notebook.py::ExecutionResult` (added `lint_report`)
+  - `backend/app/services/linting_service.py` (new)
+  - `backend/app/services/execution_service.py::execute_code` (attach lint report)
+- Tests:
+  - `tests/validation/test_lint_report.py` (new)
+- Frontend:
+  - `frontend/src/types/index.ts` (added `LintReport`/`LintIssue` types + `ExecutionResult.lint_report`)
+  - `frontend/src/components/ExecutionDetailsModal.tsx` (new “Lint” tab)
+
+### Design chosen and why
+- Chose **minimal built-in linting** first to keep it deterministic/offline and avoid adding new tool dependencies.
+- Designed the schema (`LintReport.engine`, rule IDs) so we can later plug in Ruff without breaking the frontend.
+
+### A/B/C test evidence
+- **A (mock / conceptual)**:
+  - Defined a stable schema with severities, locations, suggestions, and a future-proof `engine` field.
+- **B (real code + real examples)**:
+  - Added `tests/validation/test_lint_report.py` and ran `pytest -q` → **195 passed**.
+- **C (real-world / production-like)**:
+  - Manual smoke via backend execution path: verified lint issues appear in `ExecutionDetailsModal` for a cell with unused imports / undefined names.
+  - Note: `npm run build:check` could not be executed in the current environment because `tsc` is not available (frontend deps not installed).
+
+### ADR compliance notes
+- ADR 0005: lint report is attached to execution results (persisted in notebook JSON); full trace integration will be deepened in `0007`.
+- ADR 0003: lint report does not introduce truncation/compaction behavior.
+
+### Risks and follow-ups
+- Undefined-name warnings can still be noisy for dynamic patterns; keep it **warning-only** and refine allowlists as we learn.
+- The ExecutionService file remains large; lint/autofix work should keep new logic in focused service modules.
 

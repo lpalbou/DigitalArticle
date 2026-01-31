@@ -5,7 +5,6 @@ import {
   CheckCircle,
   Image as ImageIcon,
   BarChart3,
-  Table,
   ChevronRight,
   ChevronDown,
   ChevronUp,
@@ -199,7 +198,6 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
             {result.plots.map((plot: any, index: number) => {
               const plotData = typeof plot === 'string' ? plot : plot.data;
               let plotLabel = typeof plot === 'object' && plot.label ? plot.label : null;
-              const isDisplayed = typeof plot === 'object' && plot.source === 'display';
 
               // If no label and there's an orphaned label, use it
               if (!plotLabel && orphanedLabels.length > index) {
@@ -316,7 +314,7 @@ const TableDisplay: React.FC<{ table: TableData }> = ({ table }) => {
   const [hiddenColumns, setHiddenColumns] = React.useState<Set<string>>(new Set())
   const [currentPage, setCurrentPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(10)
-  const [columnWidths, setColumnWidths] = React.useState<Record<string, number>>({})
+  const [columnWidths] = React.useState<Record<string, number>>({})
 
   // Filter data based on search term
   const filteredData = React.useMemo(() => {
@@ -600,127 +598,6 @@ const formatCellValue = (value: any): string => {
     return value ? 'True' : 'False'
   }
   return String(value)
-}
-
-// Simplified console output - tables are now parsed on backend and shown in Tables section
-const ConsoleOutput: React.FC<{ output: string }> = ({ output }) => {
-  return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
-      {/* Header */}
-      <div className="bg-gray-50 px-3 py-2 border-b flex items-center justify-between">
-        <span className="text-xs text-gray-600">Console Output</span>
-        <span className="text-xs text-gray-400 italic">
-          Tables are parsed automatically and shown above
-        </span>
-      </div>
-
-      {/* Content */}
-      <div className="bg-white p-3">
-        <pre className="text-xs font-mono overflow-x-auto whitespace-pre text-gray-800">
-          {output}
-        </pre>
-      </div>
-    </div>
-  )
-}
-
-// Analysis Results Tables Section - Expanded by default, shows tables parsed from stdout
-const AnalysisResultsTablesSection: React.FC<{ tables: TableData[] }> = ({ tables }) => {
-  const [isExpanded, setIsExpanded] = React.useState(true) // Expanded by default
-
-  return (
-    <div className="mb-4">
-      {/* Collapsible Header */}
-      <div
-        className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors"
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
-        <div className="flex items-center space-x-2">
-          <Table className="h-4 w-4 text-blue-600" />
-          <span className="text-sm font-medium text-blue-700">
-            Analysis Results
-          </span>
-          <span className="text-xs text-blue-500 bg-blue-200 px-2 py-0.5 rounded">
-            {tables.length} table{tables.length !== 1 ? 's' : ''}
-          </span>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <span className="text-xs text-blue-600">
-            {isExpanded ? 'Click to fold' : 'Click to expand'}
-          </span>
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4 text-blue-600" />
-          ) : (
-            <ChevronRight className="h-4 w-4 text-blue-600" />
-          )}
-        </div>
-      </div>
-
-      {/* Collapsible Content */}
-      {isExpanded && (
-        <div className="mt-2 space-y-4">
-          {tables.map((table, index) => (
-            <div key={index} className="bg-white rounded-lg border border-blue-200 overflow-hidden shadow-sm">
-              <TableDisplay table={table} />
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Collapsible Data Tables Section Component - Intermediary data from variables
-const DataTablesSection: React.FC<{ tables: TableData[] }> = ({ tables }) => {
-  const [isExpanded, setIsExpanded] = React.useState(false) // Folded by default
-  
-  return (
-    <div className="mb-4">
-      {/* Collapsible Header */}
-      <div 
-        className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
-        <div className="flex items-center space-x-2">
-          <Table className="h-4 w-4 text-gray-600" />
-          <span className="text-sm font-medium text-gray-700">
-            Intermediary Data Tables
-          </span>
-          <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded">
-            {tables.length} table{tables.length !== 1 ? 's' : ''}
-          </span>
-        </div>
-        
-        <div className="flex items-center space-x-2">
-          <span className="text-xs text-gray-500">
-            {isExpanded ? 'Click to fold' : 'Click to expand'}
-          </span>
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4 text-gray-500" />
-          ) : (
-            <ChevronRight className="h-4 w-4 text-gray-500" />
-          )}
-        </div>
-      </div>
-      
-      {/* Collapsible Content */}
-      {isExpanded && (
-        <div className="mt-2 space-y-4 p-3 bg-gray-50 border border-gray-200 border-t-0 rounded-b-lg">
-          <div className="text-xs text-gray-600 mb-3 p-2 bg-blue-50 border border-blue-200 rounded">
-            <strong>Note:</strong> These are intermediate DataFrames and variables created during code execution, 
-            not the final analysis results. The main results are shown in the "Analysis Results" section below.
-          </div>
-          
-          {tables.map((table, index) => (
-            <div key={index} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-              <TableDisplay table={table} />
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
 }
 
 export default ResultPanel

@@ -41,7 +41,7 @@ Implement end-to-end observability so that every cell execution, task, and multi
 ## Dependencies
 
 ### Backlog dependencies (ordering)
-- Should follow: [`0003_fix_test_suite_regressions.md`](0003_fix_test_suite_regressions.md)
+- Should follow: [`0003_fix_test_suite_regressions.md`](../completed/0003_fix_test_suite_regressions.md)
 - Strongly coupled with:
   - [`0004_unify_llm_config_surfaces.md`](0004_unify_llm_config_surfaces.md) (auditable config application)
   - [`0005_unify_persistence_roots.md`](0005_unify_persistence_roots.md) (trace store placement/backup story)

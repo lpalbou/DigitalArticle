@@ -74,6 +74,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
   const [temperature, setTemperature] = useState(0.7)
   const [baseUrls, setBaseUrls] = useState<Record<string, string>>(DEFAULT_BASE_URLS)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const baseUrlsRef = useRef<Record<string, string>>(baseUrls)
+
+  useEffect(() => {
+    baseUrlsRef.current = baseUrls
+  }, [baseUrls])
   
   // API Keys (only for display, actual values are masked)
   const [apiKeySet, setApiKeySet] = useState<Record<string, boolean>>({
@@ -109,37 +114,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
   const [useCodeSeed, setUseCodeSeed] = useState(true)
   const [codeSeed, setCodeSeed] = useState<string>('')
 
-  // Load settings and providers on open
-  useEffect(() => {
-    if (isOpen) {
-      loadData()
-    }
-  }, [isOpen])
-
-  // Fetch models when provider changes
-  useEffect(() => {
-    if (selectedProvider && isOpen) {
-      fetchModelsForProvider(selectedProvider, baseUrls[selectedProvider])
-    }
-  }, [selectedProvider, isOpen])
-  // Note: baseUrls not in deps - use Update button to refresh with new URL
-
-  // Listen for model download completion to refresh model list
-  useEffect(() => {
-    const handleModelDownloadComplete = (e: any) => {
-      const { provider } = e.detail
-      // Refresh only if it's for the currently selected provider
-      if (provider === selectedProvider) {
-        fetchModelsForProvider(provider, baseUrls[provider])
-      }
-    }
-
-    window.addEventListener('model-download-complete', handleModelDownloadComplete)
-    return () => {
-      window.removeEventListener('model-download-complete', handleModelDownloadComplete)
-    }
-  }, [selectedProvider, baseUrls])
-
   const refreshProviders = async () => {
     try {
       // Re-fetch provider list (no cache - AbstractCore queries fresh)
@@ -157,7 +131,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
     }
   }
 
-  const fetchModelsForProvider = async (provider: string, baseUrl?: string) => {
+  const fetchModelsForProvider = useCallback(async (provider: string, baseUrl?: string) => {
     setLoadingModels(true)
     try {
       // ============ DEBUG START - REMOVE AFTER TESTING ============
@@ -255,9 +229,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
     } finally {
       setLoadingModels(false)
     }
-  }
+  }, [providers, selectedModel, toaster])
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true)
     try {
       // Load providers and settings in parallel (providers without models - fast)
@@ -295,7 +269,38 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
     } finally {
       setLoading(false)
     }
-  }
+  }, [toaster])
+
+  // Load settings and providers on open
+  useEffect(() => {
+    if (isOpen) {
+      loadData()
+    }
+  }, [isOpen, loadData])
+
+  // Fetch models when provider changes
+  useEffect(() => {
+    if (selectedProvider && isOpen) {
+      fetchModelsForProvider(selectedProvider, baseUrlsRef.current[selectedProvider])
+    }
+  }, [selectedProvider, isOpen, fetchModelsForProvider])
+  // Note: baseUrls changes do not auto-trigger model refresh; use Update button.
+
+  // Listen for model download completion to refresh model list
+  useEffect(() => {
+    const handleModelDownloadComplete = (e: any) => {
+      const { provider } = e.detail
+      // Refresh only if it's for the currently selected provider
+      if (provider === selectedProvider) {
+        fetchModelsForProvider(provider, baseUrlsRef.current[provider])
+      }
+    }
+
+    window.addEventListener('model-download-complete', handleModelDownloadComplete)
+    return () => {
+      window.removeEventListener('model-download-complete', handleModelDownloadComplete)
+    }
+  }, [selectedProvider, fetchModelsForProvider])
 
   const handleProviderChange = (providerName: string) => {
     setSelectedProvider(providerName)
@@ -436,7 +441,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
     }
   }
 
-  const currentProvider = providers.find(p => p.name === selectedProvider)
   const availableProviders = providers.filter(p => p.available)
   const hasNoAvailableProviders = !loading && availableProviders.length === 0
 
@@ -961,7 +965,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <h4 className="text-sm font-medium text-gray-700">LLM Seed</h4>
-                      <HelpCircle className="h-4 w-4 text-gray-400" title="Controls randomness in AI-generated code" />
+                      <span title="Controls randomness in AI-generated code">
+                        <HelpCircle className="h-4 w-4 text-gray-400" />
+                      </span>
                     </div>
                     <label className="flex items-center">
                       <input
@@ -1001,7 +1007,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <h4 className="text-sm font-medium text-gray-700">Code Execution Seed</h4>
-                      <HelpCircle className="h-4 w-4 text-gray-400" title="Controls randomness in executed Python code" />
+                      <span title="Controls randomness in executed Python code">
+                        <HelpCircle className="h-4 w-4 text-gray-400" />
+                      </span>
                     </div>
                     <label className="flex items-center">
                       <input

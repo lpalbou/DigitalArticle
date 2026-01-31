@@ -79,16 +79,26 @@ These were decomposed from legacy `ROADMAP.md` and require review before promoti
 
 - See [`docs/backlog/completed/`](completed/) for completed items with full reports.
 
+## Recurrent mechanisms (mandatory checks)
+
+Before moving any backlog item to `docs/backlog/completed/`, you MUST review and execute any applicable tasks in [`docs/backlog/recurrent/`](recurrent/). At minimum, run:
+
+- Lint/typecheck gates: [`0012_lint_and_typecheck_quality_gates.md`](recurrent/0012_lint_and_typecheck_quality_gates.md)
+- Documentation sync: [`0011_documentation_sync_after_backlog_completion.md`](recurrent/0011_documentation_sync_after_backlog_completion.md)
+
 ## Current backlog items
 
 ### Proposed (needs review)
 
-- [`docs/backlog/proposed/0066_cell_rerun_context_hygiene.md`](proposed/0066_cell_rerun_context_hygiene.md)
 - [`docs/backlog/proposed/0067_guided_rerun_keep_context_with_user_comment.md`](proposed/0067_guided_rerun_keep_context_with_user_comment.md)
+- [`docs/backlog/proposed/0068_delete_cells_ui_and_api.md`](proposed/0068_delete_cells_ui_and_api.md)
+- [`docs/backlog/proposed/0070_dependency_license_policy_and_minimize_deps.md`](proposed/0070_dependency_license_policy_and_minimize_deps.md)
+- [`docs/backlog/proposed/0071_secure_user_library_installation.md`](proposed/0071_secure_user_library_installation.md)
+- [`docs/backlog/proposed/0072_execution_security_policy_and_guardrails.md`](proposed/0072_execution_security_policy_and_guardrails.md)
+- [`docs/backlog/proposed/0073_dependency_audit_and_simplification.md`](proposed/0073_dependency_audit_and_simplification.md)
 
 ### Planned (active)
 
-- [`docs/backlog/planned/0003_fix_test_suite_regressions.md`](planned/0003_fix_test_suite_regressions.md)
 - [`docs/backlog/planned/0004_unify_llm_config_surfaces.md`](planned/0004_unify_llm_config_surfaces.md)
 - [`docs/backlog/planned/0005_unify_persistence_roots.md`](planned/0005_unify_persistence_roots.md)
 - [`docs/backlog/planned/0006_truncation_compaction_compliance_sweep.md`](planned/0006_truncation_compaction_compliance_sweep.md)
@@ -96,13 +106,17 @@ These were decomposed from legacy `ROADMAP.md` and require review before promoti
 - [`docs/backlog/planned/0008_publish_immutable_releases_doi_lineage.md`](planned/0008_publish_immutable_releases_doi_lineage.md)
 - [`docs/backlog/planned/0009_logic_self_correction_loop.md`](planned/0009_logic_self_correction_loop.md)
 - [`docs/backlog/planned/0010_production_hardening_execution_sandbox.md`](planned/0010_production_hardening_execution_sandbox.md)
-- [`docs/backlog/planned/0026_add_lint_report_to_cell_execution.md`](planned/0026_add_lint_report_to_cell_execution.md)
-- [`docs/backlog/planned/0027_auto_fix_safe_lint_issues.md`](planned/0027_auto_fix_safe_lint_issues.md)
 
 ### Completed
 
+- [`docs/backlog/completed/0003_fix_test_suite_regressions.md`](completed/0003_fix_test_suite_regressions.md)
 - [`docs/backlog/completed/0001_backlog_and_adr_governance.md`](completed/0001_backlog_and_adr_governance.md)
 - [`docs/backlog/completed/0002_doc_link_normalization.md`](completed/0002_doc_link_normalization.md)
+- [`docs/backlog/completed/0026_add_lint_report_to_cell_execution.md`](completed/0026_add_lint_report_to_cell_execution.md)
+- [`docs/backlog/completed/0027_auto_fix_safe_lint_issues.md`](completed/0027_auto_fix_safe_lint_issues.md)
+- [`docs/backlog/completed/0074_unify_llm_markdown_rendering.md`](completed/0074_unify_llm_markdown_rendering.md)
+- [`docs/backlog/completed/0066_cell_rerun_context_hygiene.md`](completed/0066_cell_rerun_context_hygiene.md)
+- [`docs/backlog/completed/0069_default_safe_autofix_pre_execution.md`](completed/0069_default_safe_autofix_pre_execution.md)
 - [`docs/backlog/completed/0012_fix_traces_after_docker.md`](completed/0012_fix_traces_after_docker.md) (legacy devnote migration)
 - [`docs/backlog/completed/0013_docker_external_ollama_fix.md`](completed/0013_docker_external_ollama_fix.md) (legacy devnote migration)
 - [`docs/backlog/completed/0014_abstractcore_model_download_api.md`](completed/0014_abstractcore_model_download_api.md) (legacy devnote migration)
@@ -126,6 +140,7 @@ These were decomposed from legacy `ROADMAP.md` and require review before promoti
 ### Recurrent (always active; trigger-based)
 
 - [`docs/backlog/recurrent/0011_documentation_sync_after_backlog_completion.md`](recurrent/0011_documentation_sync_after_backlog_completion.md)
+- [`docs/backlog/recurrent/0012_lint_and_typecheck_quality_gates.md`](recurrent/0012_lint_and_typecheck_quality_gates.md)
 
 ## How to work with the backlog
 

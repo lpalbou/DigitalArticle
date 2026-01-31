@@ -2,17 +2,13 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { 
   X, 
   Search, 
-  Calendar, 
   User, 
   FileText, 
   Play, 
-  Code, 
   BookOpen, 
   Trash2, 
   ExternalLink,
   Filter,
-  SortAsc,
-  SortDesc,
   Clock,
   CheckCircle,
   AlertCircle,
@@ -72,7 +68,6 @@ const ArticleBrowserModal: React.FC<ArticleBrowserModalProps> = ({
   const [sortField, setSortField] = useState<SortField>('updated_at')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const [filterStatus, setFilterStatus] = useState<'all' | 'with_content' | 'with_results' | 'empty'>('all')
-  const [selectedArticles, setSelectedArticles] = useState<Set<string>>(new Set())
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   // Load articles when modal opens
@@ -111,7 +106,7 @@ const ArticleBrowserModal: React.FC<ArticleBrowserModalProps> = ({
 
   // Filter and sort articles
   const filteredAndSortedArticles = useMemo(() => {
-    let filtered = articles.filter(article => {
+    const filtered = articles.filter(article => {
       // Search filter
       const matchesSearch = searchQuery === '' || 
         article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -159,15 +154,6 @@ const ArticleBrowserModal: React.FC<ArticleBrowserModalProps> = ({
 
     return filtered
   }, [articles, searchQuery, sortField, sortDirection, filterStatus])
-
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortField(field)
-      setSortDirection('desc')
-    }
-  }
 
   const handleSelectArticle = (articleId: string) => {
     onSelectArticle(articleId)

@@ -8,8 +8,16 @@ interface NotebookCellProps {
   cell: Cell
   onUpdateCell: (cellId: string, updates: Partial<Cell>) => void
   onDeleteCell: (cellId: string) => void
-  onExecuteCell: (cellId: string, action: 'execute' | 'regenerate') => void
-  onDirectExecuteCell?: (cellId: string, action: 'execute' | 'regenerate') => void // Direct execution without dependency check
+  onExecuteCell: (
+    cellId: string,
+    action: 'execute' | 'regenerate',
+    options?: { autofix?: boolean; clean_rerun?: boolean }
+  ) => void
+  onDirectExecuteCell?: (
+    cellId: string,
+    action: 'execute' | 'regenerate',
+    options?: { autofix?: boolean; clean_rerun?: boolean }
+  ) => void // Direct execution without dependency check
   onAddCellBelow: (cellId: string, cellType: CellType) => void
   onInvalidateCells?: (cellId: string) => void // New callback for cell invalidation
   onViewTraces?: (cellId: string) => void // View LLM execution traces
@@ -19,10 +27,8 @@ interface NotebookCellProps {
 const NotebookCell: React.FC<NotebookCellProps> = ({
   cell,
   onUpdateCell,
-  onDeleteCell: _onDeleteCell,
   onExecuteCell,
   onDirectExecuteCell,
-  onAddCellBelow: _onAddCellBelow,
   onInvalidateCells,
   onViewTraces,
   isExecuting = false
@@ -31,8 +37,12 @@ const NotebookCell: React.FC<NotebookCellProps> = ({
     onUpdateCell(cell.id, updates)
   }, [cell.id, onUpdateCell])
 
-  const handleExecuteCell = useCallback((cellId: string, action: 'execute' | 'regenerate') => {
-    onExecuteCell(cellId, action)
+  const handleExecuteCell = useCallback((
+    cellId: string,
+    action: 'execute' | 'regenerate',
+    options?: { autofix?: boolean; clean_rerun?: boolean }
+  ) => {
+    onExecuteCell(cellId, action, options)
   }, [onExecuteCell])
 
   const isRunning = isExecuting || cell.is_executing

@@ -41,8 +41,8 @@ Add a rerun mode where the notebook execution context is preserved, but the user
 
 ### Backlog dependencies (ordering)
 - Should follow:
-  - [`0003_fix_test_suite_regressions.md`](../planned/0003_fix_test_suite_regressions.md)
-  - [`0066_cell_rerun_context_hygiene.md`](0066_cell_rerun_context_hygiene.md) (defines rerun modes clean vs keep)
+  - [`0003_fix_test_suite_regressions.md`](../completed/0003_fix_test_suite_regressions.md)
+  - [`0066_cell_rerun_context_hygiene.md`](../completed/0066_cell_rerun_context_hygiene.md) (defines rerun modes clean vs keep)
 - Strongly related to:
   - [`0007_perfect_observability_llm_agentic_tracing.md`](../planned/0007_perfect_observability_llm_agentic_tracing.md)
   - [`0009_logic_self_correction_loop.md`](../planned/0009_logic_self_correction_loop.md)

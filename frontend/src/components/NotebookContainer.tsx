@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Plus, AlertCircle, Edit2, Check, X, FileText, Loader2, ClipboardCheck, User } from 'lucide-react'
+import { Plus, AlertCircle, Edit2, Check, X, FileText, Loader2, User } from 'lucide-react'
 import axios from 'axios'
 import Header from './Header'
 import FileContextPanel from './FileContextPanel'
@@ -14,8 +14,9 @@ import ArticleChatPanel from './ArticleChatPanel'
 import LLMStatusFooter from './LLMStatusFooter'
 import SettingsModal from './SettingsModal'
 import DependencyModal from './DependencyModal'
+import MarkdownRenderer from './MarkdownRenderer'
 import Toast, { ToastType } from './Toast'
-import { notebookAPI, cellAPI, llmAPI, reviewAPI, handleAPIError, downloadFile, getCurrentUser } from '../services/api'
+import { notebookAPI, cellAPI, handleAPIError, downloadFile, getCurrentUser } from '../services/api'
 import {
   Notebook,
   Cell,
@@ -81,7 +82,6 @@ const NotebookContainer: React.FC = () => {
   const [tracesCellId, setTracesCellId] = useState<string>('')
   const [cellTraces, setCellTraces] = useState<LLMTrace[]>([])
   const [cellExecutionResult, setCellExecutionResult] = useState<ExecutionResult | null>(null)
-  const [loadingTraces, setLoadingTraces] = useState(false)
 
   // Chat state
   const [isChatOpen, setIsChatOpen] = useState(false)
@@ -97,19 +97,6 @@ const NotebookContainer: React.FC = () => {
     action: 'execute' | 'regenerate'
     cellId: string
   } | null>(null)
-
-
-  // Load notebook on component mount or ID change
-  useEffect(() => {
-    if (notebookId) {
-      loadNotebook(notebookId)
-    } else {
-      // Only create a new notebook if we don't have one and aren't already loading
-      if (!notebook && !loading) {
-        createNewNotebook()
-      }
-    }
-  }, [notebookId]) // Only depend on notebookId to prevent infinite loops
 
   // Keyboard shortcut for chat (Cmd/Ctrl+K)
   useEffect(() => {
@@ -138,12 +125,14 @@ const NotebookContainer: React.FC = () => {
     const decoder = new TextDecoder()
     let buffer = ''
     let result: any = null
+    let done = false
 
-    while (true) {
-      const { done, value } = await reader.read()
+    while (!done) {
+      const readResult = await reader.read()
+      done = readResult.done
       if (done) break
 
-      buffer += decoder.decode(value, { stream: true })
+      buffer += decoder.decode(readResult.value, { stream: true })
       const lines = buffer.split('\n')
       buffer = lines.pop() || ''
 
@@ -264,6 +253,19 @@ const NotebookContainer: React.FC = () => {
     }
   }, [loading, navigate])
 
+  // Load notebook when notebookId is present/changes
+  useEffect(() => {
+    if (!notebookId) return
+    loadNotebook(notebookId)
+  }, [notebookId, loadNotebook])
+
+  // Create a notebook when visiting "/" (no notebookId)
+  useEffect(() => {
+    if (notebookId) return
+    if (notebook || loading) return
+    createNewNotebook()
+  }, [notebookId, notebook, loading, createNewNotebook])
+
   const saveNotebook = useCallback(async () => {
     if (!notebook) return
 
@@ -380,7 +382,6 @@ const NotebookContainer: React.FC = () => {
 
   const viewCellTraces = useCallback(async (cellId: string) => {
     try {
-      setLoadingTraces(true)
       setTracesCellId(cellId)
       setIsViewingTraces(true)
       setCellTraces([]) // Reset traces while loading
@@ -402,13 +403,10 @@ const NotebookContainer: React.FC = () => {
       if (cell && cell.last_result) {
         setCellExecutionResult(cell.last_result)
       }
-
-      setLoadingTraces(false)
     } catch (err) {
       console.error('Failed to load cell traces:', err)
       const apiError = handleAPIError(err)
       setError(`Failed to load execution details: ${apiError.message}`)
-      setLoadingTraces(false)
       setIsViewingTraces(false)
     }
   }, [notebook])
@@ -600,8 +598,12 @@ const NotebookContainer: React.FC = () => {
     }
   }, [notebook, notebookId, loadNotebook])
 
-  const executeCell = useCallback(async (cellId: string, action: 'execute' | 'regenerate' = 'execute') => {
-    console.log('🚀 NotebookContainer executeCell called:', { cellId, action })
+  const executeCell = useCallback(async (
+    cellId: string,
+    action: 'execute' | 'regenerate' = 'execute',
+    options?: { autofix?: boolean; clean_rerun?: boolean }
+  ) => {
+    console.log('🚀 NotebookContainer executeCell called:', { cellId, action, options })
     const forceRegenerate = action === 'regenerate'
     if (!notebook) {
       console.log('❌ No notebook available for execution')
@@ -620,7 +622,7 @@ const NotebookContainer: React.FC = () => {
           ...cell, 
           is_executing: true, 
           cell_state: CellState.EXECUTING,
-          last_result: null // Clear previous execution results and errors
+          last_result: undefined // Clear previous execution results and errors
         } : cell
       )
       
@@ -630,7 +632,9 @@ const NotebookContainer: React.FC = () => {
     try {
       const response = await cellAPI.execute({
         cell_id: cellId,
-        force_regenerate: forceRegenerate
+        force_regenerate: forceRegenerate,
+        autofix: options?.autofix ?? true,
+        clean_rerun: options?.clean_rerun ?? false
       })
 
       // Check if we should auto-switch to methodology tab
@@ -694,24 +698,28 @@ const NotebookContainer: React.FC = () => {
       setNotebook(prev => {
         if (!prev) return prev
 
+        const errorResult: ExecutionResult = {
+          status: ExecutionStatus.ERROR,
+          stdout: '',
+          stderr: '',
+          execution_time: 0,
+          timestamp: new Date().toISOString(),
+          plots: [],
+          tables: [],
+          images: [],
+          interactive_plots: [],
+          error_type: 'APIError',
+          error_message: apiError.message,
+          traceback: apiError.message,
+        }
+
         const newCells = prev.cells.map(cell => 
           cell.id === cellId 
             ? { 
                 ...cell, 
                 is_executing: false,
                 last_result: {
-                  status: ExecutionStatus.ERROR,
-                  stdout: '',
-                  stderr: '',
-                  execution_time: 0,
-                  timestamp: new Date().toISOString(),
-                  plots: [],
-                  tables: [],
-                  images: [],
-                  interactive_plots: [],
-                  error_type: 'APIError',
-                  error_message: apiError.message,
-                  traceback: apiError.message
+                  ...errorResult
                 }
               }
             : cell
@@ -727,10 +735,14 @@ const NotebookContainer: React.FC = () => {
         return newSet
       })
     }
-  }, [notebook, saveNotebook])
+  }, [notebook, notebookId, loadNotebook, saveNotebook])
 
   // Check for dependent cells and show modal if needed
-  const checkDependenciesAndExecute = useCallback(async (cellId: string, action: 'execute' | 'regenerate') => {
+  const checkDependenciesAndExecute = useCallback(async (
+    cellId: string,
+    action: 'execute' | 'regenerate',
+    options?: { autofix?: boolean; clean_rerun?: boolean }
+  ) => {
     if (!notebook) return
 
     try {
@@ -747,12 +759,12 @@ const NotebookContainer: React.FC = () => {
         setShowDependencyModal(true)
       } else {
         // No dependencies, execute directly
-        await executeCell(cellId, action)
+        await executeCell(cellId, action, options)
       }
     } catch (error) {
       console.error('Error checking dependencies:', error)
       // If dependency check fails, execute directly
-      await executeCell(cellId, action)
+      await executeCell(cellId, action, options)
     }
   }, [notebook, executeCell])
 
@@ -915,11 +927,13 @@ const NotebookContainer: React.FC = () => {
       let finalTraces: any = null
 
       // Process SSE stream
-      while (true) {
-        const { done, value } = await reader.read()
+      let done = false
+      while (!done) {
+        const readResult = await reader.read()
+        done = readResult.done
         if (done) break
 
-        buffer += decoder.decode(value, { stream: true })
+        buffer += decoder.decode(readResult.value, { stream: true })
         const lines = buffer.split('\n')
         buffer = lines.pop() || ''
 
@@ -1331,11 +1345,7 @@ const NotebookContainer: React.FC = () => {
               <FileText className="h-5 w-5 text-blue-600" />
               <h3 className="text-lg font-semibold text-blue-900">Abstract</h3>
             </div>
-            <div className="prose prose-sm max-w-none">
-              <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">
-                {abstract}
-              </p>
-            </div>
+            <MarkdownRenderer content={abstract} variant="default" />
           </div>
         )}
 

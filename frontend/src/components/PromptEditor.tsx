@@ -1,7 +1,6 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react'
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Play, Copy, Check, Activity } from 'lucide-react'
-import { Cell, CellType, CellState } from '../types'
-import CodeDisplay from './CodeDisplay'
+import { Cell, CellType } from '../types'
 import EnhancedCodeEditor from './EnhancedCodeEditor'
 import ReRunDropdown from './ReRunDropdown'
 import MarkdownRenderer from './MarkdownRenderer'
@@ -9,8 +8,16 @@ import MarkdownRenderer from './MarkdownRenderer'
 interface PromptEditorProps {
   cell: Cell
   onUpdateCell: (updates: Partial<Cell>) => void
-  onExecuteCell: (cellId: string, action: 'execute' | 'regenerate') => void
-  onDirectExecuteCell?: (cellId: string, action: 'execute' | 'regenerate') => void // Direct execution without dependency check
+  onExecuteCell: (
+    cellId: string,
+    action: 'execute' | 'regenerate',
+    options?: { autofix?: boolean; clean_rerun?: boolean }
+  ) => void
+  onDirectExecuteCell?: (
+    cellId: string,
+    action: 'execute' | 'regenerate',
+    options?: { autofix?: boolean; clean_rerun?: boolean }
+  ) => void // Direct execution without dependency check
   onInvalidateCells?: (cellId: string) => void // New callback for cell invalidation
   onViewTraces?: (cellId: string) => void // View LLM execution traces
   isExecuting?: boolean
@@ -120,8 +127,8 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     }
   })()
 
-  // Get content type name for better user feedback
-  const getContentTypeName = () => {
+  // Content type name for better user feedback (stable for hooks + tooltips)
+  const contentTypeName = useMemo(() => {
     switch (cell.cell_type) {
       case CellType.PROMPT:
         return 'prompt'
@@ -132,7 +139,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
       default:
         return 'content'
     }
-  }
+  }, [cell.cell_type])
 
   const handleCopy = useCallback(async () => {
     if (!currentContent.trim()) {
@@ -144,7 +151,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
       await navigator.clipboard.writeText(currentContent)
       setCopySuccess(true)
       setTimeout(() => setCopySuccess(false), 2000) // Reset after 2 seconds
-      console.log(`Copied ${getContentTypeName()} to clipboard (${currentContent.length} characters)`)
+      console.log(`Copied ${contentTypeName} to clipboard (${currentContent.length} characters)`)
     } catch (err) {
       console.error('Failed to copy text: ', err)
       // Fallback for older browsers
@@ -157,12 +164,12 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
         document.body.removeChild(textArea)
         setCopySuccess(true)
         setTimeout(() => setCopySuccess(false), 2000)
-        console.log(`Copied ${getContentTypeName()} to clipboard using fallback (${currentContent.length} characters)`)
+        console.log(`Copied ${contentTypeName} to clipboard using fallback (${currentContent.length} characters)`)
       } catch (fallbackErr) {
         console.error('Fallback copy failed: ', fallbackErr)
       }
     }
-  }, [currentContent, getContentTypeName])
+  }, [currentContent, contentTypeName])
 
   return (
     <div className="w-full">
@@ -246,7 +253,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
           <button
             onClick={handleCopy}
             className={`p-1 text-gray-500 hover:text-gray-700 rounded copy-button ${copySuccess ? 'copy-success' : ''}`}
-            title={copySuccess ? `Copied ${getContentTypeName()}!` : `Copy ${getContentTypeName()} to clipboard`}
+            title={copySuccess ? `Copied ${contentTypeName}!` : `Copy ${contentTypeName} to clipboard`}
           >
             {copySuccess ? (
               <Check className="h-4 w-4 text-green-600" />
@@ -284,9 +291,25 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
                       onExecuteCell(cell.id, 'execute')
                     }
                   }}
+                  onExecuteCodeWithoutAutofix={() => {
+                    if (onDirectExecuteCell) {
+                      onDirectExecuteCell(cell.id, 'execute', { autofix: false })
+                    } else {
+                      onExecuteCell(cell.id, 'execute', { autofix: false })
+                    }
+                  }}
                   onRegenerateAndExecute={() => {
                     console.log('🔄 ReRunDropdown onRegenerateAndExecute called for cell:', cell.id)
                     onExecuteCell(cell.id, 'regenerate')
+                  }}
+                  onRegenerateAndExecuteWithoutAutofix={() => {
+                    onExecuteCell(cell.id, 'regenerate', { autofix: false })
+                  }}
+                  onCleanRegenerateAndExecute={() => {
+                    onExecuteCell(cell.id, 'regenerate', { clean_rerun: true })
+                  }}
+                  onCleanRegenerateAndExecuteWithoutAutofix={() => {
+                    onExecuteCell(cell.id, 'regenerate', { clean_rerun: true, autofix: false })
                   }}
                   isExecuting={isExecuting}
                 />
@@ -298,7 +321,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
 
       {/* Content Editor - DEBUG: Always show textarea for prompt cells */}
       <div className="relative">
-        {(cell.cell_type === CellType.PROMPT || cell.cell_type === 'prompt') ? (
+        {cell.cell_type === CellType.PROMPT ? (
           <div className="space-y-2">
             <textarea
               ref={textareaRef}
@@ -320,12 +343,8 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               onChange={(e) => setLocalContent(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={
-                cell.cell_type === CellType.PROMPT 
-                  ? "Describe what you want to analyze in natural language..."
-                  : cell.cell_type === CellType.METHODOLOGY
+                cell.cell_type === CellType.METHODOLOGY
                   ? "Describe your methodology and approach..."
-                  : cell.cell_type === CellType.CODE
-                  ? "Enter Python code..."
                   : "Enter markdown content..."
               }
               className={`prompt-editor ${cell.show_code && cell.code ? 'code-editor' : ''}`}
@@ -335,9 +354,8 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
           </div>
         ) : (
           <div
-            onClick={() => cell.cell_type === CellType.PROMPT && setIsEditing(true)}
             className={`
-              ${cell.cell_type === CellType.PROMPT ? 'cursor-pointer hover:border-gray-300' : ''} border border-gray-200 rounded-md
+              border border-gray-200 rounded-md
               ${cell.cell_type === CellType.CODE ? 'p-0' : 'p-4 bg-white'}
             `}
           >
@@ -360,11 +378,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               <div className="whitespace-pre-wrap">
                 {currentContent || (
                   <span className="text-gray-400 italic">
-                    {cell.cell_type === CellType.PROMPT 
-                      ? "Click to add a prompt..."
-                      : cell.cell_type === CellType.CODE
-                      ? "Click to add code..."
-                      : "Click to add markdown..."}
+                    Click to add markdown...
                   </span>
                 )}
               </div>

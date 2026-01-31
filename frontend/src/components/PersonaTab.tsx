@@ -1,4 +1,4 @@
-import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react'
+import React, { useState, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react'
 import { AlertCircle, Loader, Info, ChevronDown, ChevronRight } from 'lucide-react'
 import axios from 'axios'
 import { Persona, PersonaSelection } from '../types/persona'
@@ -37,7 +37,6 @@ const PersonaTab = forwardRef<PersonaTabRef, PersonaTabProps>(({ notebookId }, r
 
   // State
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [personas, setPersonas] = useState<Persona[]>([])
   const [selection, setSelection] = useState<PersonaSelection>({
     base_persona: 'clinical',  // Default to clinical data scientist
@@ -49,15 +48,7 @@ const PersonaTab = forwardRef<PersonaTabRef, PersonaTabProps>(({ notebookId }, r
   const [combinedPreview, setCombinedPreview] = useState<any>(null)
   const [loadingPreview, setLoadingPreview] = useState(false)
 
-  // Load personas from API
-  useEffect(() => {
-    loadPersonas()
-    if (notebookId) {
-      loadNotebookPersonas()
-    }
-  }, [notebookId])
-
-  const loadPersonas = async () => {
+  const loadPersonas = useCallback(async () => {
     try {
       setLoading(true)
       const response = await axios.get('/api/personas')
@@ -68,9 +59,9 @@ const PersonaTab = forwardRef<PersonaTabRef, PersonaTabProps>(({ notebookId }, r
     } finally {
       setLoading(false)
     }
-  }
+  }, [toaster])
 
-  const loadNotebookPersonas = async () => {
+  const loadNotebookPersonas = useCallback(async () => {
     if (!notebookId) return
 
     try {
@@ -82,7 +73,15 @@ const PersonaTab = forwardRef<PersonaTabRef, PersonaTabProps>(({ notebookId }, r
       console.error('Error loading notebook personas:', error)
       // Not critical - notebook might not have personas set yet
     }
-  }
+  }, [notebookId])
+
+  // Load personas from API
+  useEffect(() => {
+    loadPersonas()
+    if (notebookId) {
+      loadNotebookPersonas()
+    }
+  }, [notebookId, loadPersonas, loadNotebookPersonas])
 
   const handleSave = async () => {
     if (!notebookId) {
@@ -90,13 +89,10 @@ const PersonaTab = forwardRef<PersonaTabRef, PersonaTabProps>(({ notebookId }, r
     }
 
     try {
-      setSaving(true)
       await axios.put(`/api/personas/notebooks/${notebookId}/personas`, selection)
     } catch (error) {
       console.error('Error saving persona selection:', error)
       toaster.error('Failed to save persona selection')
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -125,7 +121,6 @@ const PersonaTab = forwardRef<PersonaTabRef, PersonaTabProps>(({ notebookId }, r
   // Group personas by category
   const basePersonas = personas.filter(p => p.category === 'base')
   const domainPersonas = personas.filter(p => p.category === 'domain')
-  const rolePersonas = personas.filter(p => p.category === 'role')
   const customPersonas = personas.filter(p => p.category === 'custom')
 
   // Toggle domain persona selection

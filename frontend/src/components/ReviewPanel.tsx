@@ -1,5 +1,6 @@
 import React from 'react'
 import { ClipboardCheck, AlertTriangle, Info, AlertCircle, RefreshCw } from 'lucide-react'
+import MarkdownRenderer from './MarkdownRenderer'
 
 interface ReviewFinding {
   phase: string
@@ -86,7 +87,11 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ review, onRefresh }) => {
       {/* Overall Assessment */}
       {review.overall_assessment && (
         <div className="mb-3 p-3 bg-gray-50 border border-gray-200 rounded-md">
-          <p className="text-sm text-gray-700">{review.overall_assessment}</p>
+          <MarkdownRenderer
+            content={review.overall_assessment}
+            variant="compact"
+            className="text-sm text-gray-700"
+          />
         </div>
       )}
 
@@ -111,15 +116,19 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ review, onRefresh }) => {
                   </span>
 
                   {/* Message */}
-                  <p className={`text-sm ${styles.text} mt-1`}>
-                    {finding.message}
-                  </p>
+                  <MarkdownRenderer
+                    content={finding.message}
+                    variant="compact"
+                    className={`text-sm ${styles.text} mt-1`}
+                  />
 
                   {/* Suggestion */}
                   {finding.suggestion && (
-                    <p className={`text-xs ${styles.text} mt-2 opacity-75`}>
-                      💡 {finding.suggestion}
-                    </p>
+                    <MarkdownRenderer
+                      content={`💡 ${finding.suggestion}`}
+                      variant="compact"
+                      className={`text-xs ${styles.text} mt-2 opacity-75`}
+                    />
                   )}
                 </div>
               </div>

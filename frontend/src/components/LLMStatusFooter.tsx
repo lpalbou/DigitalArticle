@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react'
-import { Activity, AlertCircle } from 'lucide-react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { llmAPI, systemAPI } from '../services/api'
 
 interface LLMStatusFooterProps {
@@ -21,7 +20,7 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ notebookId }) => {
   const [version, setVersion] = useState<string>('...')
   const [releaseDate, setReleaseDate] = useState<string>('')
 
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async () => {
     try {
       const statusData = await llmAPI.getStatus(notebookId)
       setStatus(statusData)
@@ -40,9 +39,9 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ notebookId }) => {
       })
       setLoading(false)
     }
-  }
+  }, [notebookId])
 
-  const fetchVersion = async () => {
+  const fetchVersion = useCallback(async () => {
     try {
       const data = await systemAPI.getVersion()
       setVersion(data.version)
@@ -52,7 +51,7 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ notebookId }) => {
       setVersion('?')
       setReleaseDate('')
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchStatus()
@@ -71,7 +70,7 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ notebookId }) => {
       clearInterval(interval)
       window.removeEventListener('llm-settings-updated', handleSettingsUpdate)
     }
-  }, [notebookId])  // Re-fetch when notebook changes
+  }, [fetchStatus, fetchVersion])  // Re-fetch when notebook changes
 
   const formatTokens = (tokens: number | null): string => {
     if (tokens === null) return '?'
@@ -90,17 +89,6 @@ const LLMStatusFooter: React.FC<LLMStatusFooterProps> = ({ notebookId }) => {
       'huggingface': 'HuggingFace'
     }
     return displayNames[provider] || provider
-  }
-
-  const getStatusColor = (statusType: string): string => {
-    switch (statusType) {
-      case 'connected':
-        return 'text-green-600'
-      case 'error':
-        return 'text-red-600'
-      default:
-        return 'text-gray-600'
-    }
   }
 
   const getStatusDot = () => {

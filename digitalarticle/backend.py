@@ -131,7 +131,8 @@ def main() -> None:
     except subprocess.CalledProcessError as e:
         print(f"❌ Failed to start backend server: {e}")
         print("💡 Check that all dependencies are installed:")
-        print("   pip install -r requirements.txt")
+        print("   pip install -e .")
+        print("   # (If you only want backend deps: pip install -e backend)")
         sys.exit(1)
     except Exception as e:
         print(f"❌ Unexpected error: {e}")

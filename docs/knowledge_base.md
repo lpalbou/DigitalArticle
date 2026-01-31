@@ -31,6 +31,28 @@ This file accumulates **non-obvious truths** about the system that we do not wan
 - **Auto-retry max is 5** for execution failures (see `NotebookService.execute_cell()`).
 - **Retry must use original generated code** as the fix target, not mutated retry variants (prevents compounding errors).
 - **Execution runs in-process** (via `exec()`); production hardening requires sandboxing.
+- **Cell execution returns a structured lint report**:
+  - Backend attaches `ExecutionResult.lint_report` (built-in, deterministic, offline) to support better debugging and self-correction.
+  - Frontend surfaces this in `ExecutionDetailsModal` (“Lint” tab).
+- **Safe autofix is default-on and must be transparent**:
+  - API: `CellExecuteRequest.autofix` defaults to `true` and enables deterministic safe rewrites.
+  - Backend returns `ExecutionResult.autofix_report` (before/after + diff) and persists the executed code to the cell (only when a rewrite actually occurs).
+- **Clean rerun prevents downstream-state contamination**:
+  - API: `CellExecuteRequest.clean_rerun` rebuilds the in-memory execution context from upstream cells only (ignores downstream globals).
+  - Backend records details in `cell.metadata.execution.clean_rerun` and marks downstream cells **STALE** after a successful rerun.
+- **Stdout DataFrame parsing must preserve leading whitespace**:
+  - Pandas uses indentation for alignment (notably single-column headers). Avoid global `stdout.strip()` before parsing; it breaks detection.
+  - See: `backend/app/services/execution_service.py::_parse_pandas_stdout`.
+- **DataFrame “what changed in this execution” capture must consider object identity**:
+  - Value-based `.equals()` alone misses “reassigned to a new DataFrame with identical values”.
+  - State persistence can rehydrate prior notebook globals; identity checks prevent false “no changes” conclusions.
+  - See: `backend/app/services/execution_service.py::_capture_tables`.
+
+## Testing invariants (for reliability)
+
+- **Test imports must not depend on the current working directory**:
+  - Some environments / pytest import modes do not reliably place the repo root on `sys.path`.
+  - `tests/conftest.py` ensures the repo root is on `sys.path` so `import backend.app.*` remains deterministic.
 
 ## Persistence invariants (current mismatch)
 

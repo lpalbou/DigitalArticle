@@ -133,6 +133,15 @@ class ErrorAnalyzer:
 
         NOTE: This runs even if code succeeds, to catch logical errors.
         """
+        # This analyzer is intended for *post-success* checks (or explicit "logic check" flows),
+        # not for enhancing concrete Python exceptions raised during execution.
+        #
+        # When we have a real exception type (e.g. KeyError), we should let the dedicated
+        # technical analyzers handle it so we preserve the original error_type and avoid
+        # masking actionable exception categories in the UI/tests.
+        if error_type:
+            return None
+
         # Don't run logical checks for import errors - those are technical, not logical
         if error_type in ['ModuleNotFoundError', 'ImportError']:
             return None
@@ -942,12 +951,18 @@ The key is to match the assignment target to your actual data, not force mismatc
         missing_key = match.group(1) if match else "unknown"
 
         # CRITICAL: Distinguish between column access and index/value access
+        traceback_lower = (traceback or "").lower()
+        code_lower = (code or "").lower()
+
+        # Pandas often uses `get_loc` for BOTH columns and index lookups, so we must be precise.
+        # Column errors typically show `self.columns.get_loc(key)` in the DataFrame __getitem__ path.
+        is_column_get_loc = ("columns.get_loc" in traceback_lower) or ("self.columns.get_loc" in traceback_lower)
+        is_index_get_loc = ("index.get_loc" in traceback_lower) or ("self.index.get_loc" in traceback_lower)
+
         is_index_error = (
-            ".loc[" in traceback or
-            "get_loc" in traceback or
-            "index.get_loc" in traceback or
-            (".loc[" in code and missing_key in code)
-        )
+            (".loc[" in code_lower and missing_key.lower() in code_lower) or
+            is_index_get_loc
+        ) and not is_column_get_loc
 
         if is_index_error:
             # This is an INDEX/VALUE error (e.g., after groupby, .loc[] access)

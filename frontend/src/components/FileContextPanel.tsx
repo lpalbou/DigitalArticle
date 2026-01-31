@@ -56,11 +56,6 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
     return Math.ceil(effectiveContent.length / charsPerToken)
   }, [])
 
-  // Load available files on component mount and when notebook ID or refresh trigger changes
-  useEffect(() => {
-    loadAvailableFiles()
-  }, [notebookId, refreshTrigger])
-
   const loadAvailableFiles = useCallback(async () => {
     if (!notebookId) {
       // No notebook ID, show empty state
@@ -91,6 +86,11 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
       onFilesChange([])
     }
   }, [notebookId, onFilesChange])
+
+  // Load available files on component mount and when notebook ID or refresh trigger changes
+  useEffect(() => {
+    loadAvailableFiles()
+  }, [loadAvailableFiles, refreshTrigger])
 
   // Check if file is a full-content type that needs token estimation
   const isFullContentFile = useCallback((filename: string): boolean => {
@@ -303,23 +303,6 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
     setIsModalOpen(false)
     setSelectedFile(null)
   }, [])
-
-  const getFileType = (filename: string): FileInfo['type'] => {
-    const ext = filename.split('.').pop()?.toLowerCase()
-    switch (ext) {
-      case 'csv': return 'csv'
-      case 'tsv': return 'tsv'
-      case 'json': return 'json'
-      case 'yaml': case 'yml': return 'yaml'
-      case 'xlsx': case 'xls': return 'xlsx'
-      case 'txt': return 'txt'
-      case 'md': case 'markdown': return 'md'
-      case 'h5': return 'h5'
-      case 'hdf5': return 'hdf5'
-      case 'h5ad': return 'h5ad'
-      default: return 'other'
-    }
-  }
 
   const getFileIcon = (type: FileInfo['type']) => {
     switch (type) {

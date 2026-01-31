@@ -1,8 +1,7 @@
-import React from 'react'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import NotebookContainer from './components/NotebookContainer'
-import { ToasterProvider } from './contexts/ToasterContext'
-import { ModelDownloadProvider } from './contexts/ModelDownloadContext'
+import { ToasterProvider } from './contexts/ToasterProvider'
+import { ModelDownloadProvider } from './contexts/ModelDownloadProvider'
 
 function App() {
   return (

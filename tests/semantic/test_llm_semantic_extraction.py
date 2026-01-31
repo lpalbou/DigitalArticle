@@ -6,6 +6,7 @@ including data assets, transformations, refined assets, and outcomes.
 """
 
 import pytest
+import asyncio
 from datetime import datetime
 from uuid import uuid4
 
@@ -82,7 +83,7 @@ class TestLLMSemanticExtractor:
         extractor = LLMSemanticExtractor(provider="invalid", model="invalid")
         extractor.llm = None  # Ensure LLM is None
 
-        result = extractor.extract_rich_semantics(data_loading_cell, sample_notebook)
+        result = asyncio.run(extractor.extract_rich_semantics(data_loading_cell, sample_notebook))
 
         # Should return empty extraction
         assert result["data_assets"] == []

@@ -150,7 +150,7 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
   // Simple JSON syntax highlighter
   const highlightJson = (jsonString: string): string => {
     return jsonString
-      .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
+      .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g, (match) => {
         let cls = 'text-gray-800'
         if (/^"/.test(match)) {
           if (/:$/.test(match)) {

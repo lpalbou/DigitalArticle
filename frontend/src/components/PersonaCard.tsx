@@ -20,7 +20,6 @@ const PersonaCard: React.FC<PersonaCardProps> = ({
   persona,
   isSelected,
   onSelect,
-  selectionMode,
 }) => {
   // Get icon component dynamically
   const getIcon = (iconName: string) => {

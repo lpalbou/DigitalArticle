@@ -20,10 +20,41 @@ export enum CellState {
   EXECUTING = 'executing'
 }
 
+export type LintSeverity = 'error' | 'warning' | 'info'
+
+export interface LintIssue {
+  severity: LintSeverity
+  message: string
+  rule_id?: string
+  line?: number
+  column?: number
+  suggestion?: string
+  fixable?: boolean
+}
+
+export interface LintReport {
+  engine: string
+  issues: LintIssue[]
+}
+
+export interface AutofixChange {
+  rule_id: string
+  message: string
+  line?: number
+}
+
+export interface AutofixReport {
+  enabled: boolean
+  applied: boolean
+  original_code?: string
+  fixed_code?: string
+  diff?: string
+  changes: AutofixChange[]
+  lint_before?: LintReport
+  lint_after?: LintReport
+}
+
 export interface ExecutionResult {
-  success: boolean
-  outputs: any[]
-  error?: string
   timestamp: string
   status: ExecutionStatus
   stdout: string
@@ -43,6 +74,12 @@ export interface ExecutionResult {
 
   // Statistical and validation warnings (non-fatal issues)
   warnings?: string[]
+
+  // Static code quality feedback (lint report)
+  lint_report?: LintReport
+
+  // Deterministic safe code rewrites (autofix)
+  autofix_report?: AutofixReport
 }
 
 export interface PlotlyData {
@@ -171,7 +208,6 @@ export interface Notebook {
 
 // API Request types
 export interface CellCreateRequest {
-  prompt: string
   cell_type: CellType
   content: string
   notebook_id: string
@@ -181,6 +217,7 @@ export interface CellUpdateRequest {
   prompt?: string
   code?: string
   markdown?: string
+  cell_type?: CellType
   show_code?: boolean
   tags?: string[]
   metadata?: Record<string, any>
@@ -189,6 +226,8 @@ export interface CellUpdateRequest {
 export interface CellExecuteRequest {
   cell_id: string
   force_regenerate?: boolean
+  autofix?: boolean
+  clean_rerun?: boolean
 }
 
 export interface CellExecuteResponse {

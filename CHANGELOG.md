@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Linting governance + mandatory quality gates**
+  - Added [`ADR 0008`](docs/adr/0008-linting-and-quality-gates.md): mandatory lint/typecheck/test gates per backlog completion.
+  - Added recurrent gate [`0012_lint_and_typecheck_quality_gates.md`](docs/backlog/recurrent/0012_lint_and_typecheck_quality_gates.md) and wired it into the backlog workflow (`docs/backlog/template.md`, `docs/backlog/README.md`).
+- **Lint report surfaced during cell execution**
+  - Backend now attaches a structured `lint_report` to execution results.
+  - Frontend Execution Details modal includes a dedicated “Lint” tab.
+- **Safe auto-fix during execution is now default-on (deterministic, offline)**
+  - Runs **before validation and before the first execution attempt** to fix “silly mistakes” without spending LLM budget.
+  - Autofix remains disable-able via an explicit “Execute without safe auto-fix” debug action.
+  - When applied, the backend returns a diff (`autofix_report.diff`) and persists the executed code.
+- **Clean rerun (upstream-only context) to prevent downstream state contamination**
+  - Adds `clean_rerun` execution mode: rebuilds execution context from upstream cells only (ignores downstream globals).
+  - Downstream cells are invalidated (marked **STALE**) after a successful rerun.
+
+### Fixed
+- **Restored green Python test suite (trust baseline)**
+  - Fixed pandas `KeyError` enhancement classification (column vs index/value) and prevented logical-coherence enhancement from masking real exception types.
+  - Restored stdout DataFrame parsing (`print(df)`) into structured tables and fixed single-column stdout parsing.
+  - Made variable-table capture robust to DataFrame reassignment (object identity + value checks).
+  - Stabilized test imports via `tests/conftest.py` (ensures repo root on `sys.path`).
+- **Frontend lint + typecheck drift**
+  - Added `frontend/.eslintrc.cjs` so `npm run lint` is enforceable.
+  - Resolved accumulated unused imports/vars and hook dependency issues; `npm run lint` and `npm run build:check` are green.
+- **Consistent markdown rendering for user-facing LLM outputs**
+  - Unified Abstract + inline review feedback rendering via `frontend/src/components/MarkdownRenderer.tsx`.
+
 ### Changed
 - **Documentation overhaul to eliminate “truth drift”**
   - Updated `README.md` and `docs/getting-started.md` to reflect the current packaging/config reality (pyproject-based installs, config surfaces, current Docker options).

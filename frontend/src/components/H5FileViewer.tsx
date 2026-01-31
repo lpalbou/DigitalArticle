@@ -299,7 +299,7 @@ const H5FileViewer: React.FC<H5FileViewerProps> = ({ fileInfo }) => {
                   <tbody>
                     {Array.isArray(data.preview.sample_data) ? (
                       // Handle 2D array data
-                      data.preview.sample_data.slice(0, 10).map((row: any[], rowIdx: number) => (
+                      data.preview.sample_data.slice(0, 10).map((row: any, rowIdx: number) => (
                         <tr key={rowIdx} className={`${rowIdx % 2 === 0 ? 'bg-gray-50' : 'bg-white'} hover:bg-blue-50`}>
                           <td className="px-3 py-2 text-gray-500 font-medium border-r">
                             {rowIdx}

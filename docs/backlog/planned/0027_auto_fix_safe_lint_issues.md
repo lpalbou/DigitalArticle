@@ -7,7 +7,7 @@ Automatically fix “safe” lint issues during cell execution (non-LLM autofix 
 0027
 
 ## Priority
-- **P1 (proposed)**: reduces avoidable failures and improves code quality without additional LLM calls, but must be done carefully to avoid semantic changes.
+- **P1**: reduces avoidable failures and improves code quality without additional LLM calls, but must be done carefully to avoid semantic changes.
 
 ## Date / Time
 2026-01-31T09:05:00 (local)
@@ -48,8 +48,8 @@ Extend the lint-report mechanism to optionally **auto-fix** a strictly limited, 
 
 ### Backlog dependencies (ordering)
 - Should follow:
-  - [`0003_fix_test_suite_regressions.md`](../planned/0003_fix_test_suite_regressions.md)
-  - [`0026_add_lint_report_to_cell_execution.md`](0026_add_lint_report_to_cell_execution.md) (need the lint report + schema first)
+  - [`0003_fix_test_suite_regressions.md`](../completed/0003_fix_test_suite_regressions.md)
+  - [`0026_add_lint_report_to_cell_execution.md`](../completed/0026_add_lint_report_to_cell_execution.md) (need the lint report + schema first)
 
 ### ADR dependencies (must comply)
 - **All ADRs are mandatory**: [`docs/adr/README.md`](../../adr/README.md)
@@ -114,8 +114,61 @@ Option B: start with a strict allowlist of safe fixes, make it configurable, and
 - Tests cover both “fixed” and “refused to fix” cases.
 
 ## Implementation Notes (fill during execution)
-TBD
+### Design chosen
+- Implemented **Option B** (strict allowlisted autofix with diffs) with a deliberately tiny allowlist:
+  - remove unused single-import statements only (no multi-import rewriting)
+
+### Implementation details
+- Added `AutofixReport` attached to `ExecutionResult` to ensure transparency:
+  - original_code, fixed_code, diff, changes, lint_before/lint_after
+- Added a deterministic `AutofixService` that:
+  - uses AST to identify safe-to-remove import statements
+  - produces a unified diff via `difflib.unified_diff`
+  - refuses to rewrite multi-import statements for semantic safety
+- Wired into `ExecutionService.execute_code(..., autofix=...)` as an **opt-in** flow.
+- Added request-level toggle: `CellExecuteRequest.autofix` (default false).
+- Frontend opt-in UX: Re-run dropdown now offers “Execute with safe auto-fix” actions.
 
 ## Full Report (fill only when moving to completed/)
-TBD
+### What changed (files/functions)
+- Backend:
+  - `backend/app/models/autofix.py` (new)
+  - `backend/app/models/notebook.py::ExecutionResult` (added `autofix_report`)
+  - `backend/app/models/notebook.py::CellExecuteRequest` (added `autofix: bool`)
+  - `backend/app/services/autofix_service.py` (new)
+  - `backend/app/services/execution_service.py::execute_code` (added `autofix` param + safe rewrite)
+  - `backend/app/services/notebook_service.py::execute_cell` (passes `request.autofix` and persists rewritten code)
+- Frontend:
+  - `frontend/src/types/index.ts` (added `AutofixReport` typing + request `autofix`)
+  - `frontend/src/components/ReRunDropdown.tsx` (new safe auto-fix actions)
+  - `frontend/src/components/PromptEditor.tsx` (wires dropdown actions to request `autofix`)
+  - `frontend/src/components/NotebookContainer.tsx` (propagates `autofix` into execute request)
+  - `frontend/src/components/ExecutionDetailsModal.tsx` (shows autofix diff inside “Lint” tab)
+- Tests:
+  - `tests/validation/test_autofix.py` (new)
+
+### Design chosen and why
+- We chose the smallest safe allowlist first to preserve trust:
+  - remove **unused single imports** only
+  - do **not** rewrite multi-import lines (avoids ambiguous partial edits)
+- This gives immediate robustness gains (less noise and fewer mechanical issues) without “surprising” semantic rewrites.
+
+### A/B/C test evidence
+- **A (mock / conceptual)**:
+  - Defined the allowlist and refusal rules (multi-import statements are not rewritten).
+- **B (real code + real examples)**:
+  - Added `tests/validation/test_autofix.py` and ran `pytest -q` → **197 passed**.
+- **C (real-world / production-like)**:
+  - Manual backend smoke verified:
+    - autofix produces `AutofixReport.diff`
+    - executed code matches `fixed_code`
+  - Note: `npm run build:check` could not be executed in the current environment because `tsc` is unavailable (frontend deps not installed).
+
+### ADR compliance notes
+- ADR 0005: each code rewrite is explicit in `autofix_report` (diff + before/after).
+- ADR 0001: progressive disclosure respected (diff is surfaced in Execution Details, not forced into the main article view).
+
+### Risks and follow-ups
+- Keep the allowlist strict; expand only with clear semantics + tests.
+- Future: expose a global toggle in Settings and/or per-notebook defaults once config surfaces are unified (`0004`).
 

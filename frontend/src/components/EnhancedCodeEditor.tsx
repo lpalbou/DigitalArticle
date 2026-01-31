@@ -5,8 +5,6 @@ import {
   RotateCcw, 
   Check, 
   X, 
-  Save,
-  AlertCircle,
   Loader2,
   GitCompare
 } from 'lucide-react'
@@ -58,6 +56,7 @@ const EnhancedCodeEditor: React.FC<EnhancedCodeEditorProps> = ({
   ])
   
   const editorRef = useRef<any>(null)
+  const monacoRef = useRef<any>(null)
   const aiPromptRef = useRef<HTMLTextAreaElement>(null)
   const [decorations, setDecorations] = useState<string[]>([])
 
@@ -137,6 +136,9 @@ const EnhancedCodeEditor: React.FC<EnhancedCodeEditorProps> = ({
       return
     }
 
+    const monaco = monacoRef.current
+    if (!monaco) return
+
     const originalLines = originalCode.split('\n')
     const currentLines = currentCode.split('\n')
     const newDecorations: any[] = []
@@ -153,7 +155,7 @@ const EnhancedCodeEditor: React.FC<EnhancedCodeEditorProps> = ({
         if (!originalLine && currentLine) {
           // Added line - green background
           newDecorations.push({
-            range: new window.monaco.Range(lineNumber, 1, lineNumber, currentLine.length + 1),
+            range: new monaco.Range(lineNumber, 1, lineNumber, currentLine.length + 1),
             options: {
               isWholeLine: true,
               className: 'diff-line-added',
@@ -169,7 +171,7 @@ const EnhancedCodeEditor: React.FC<EnhancedCodeEditorProps> = ({
           // Since we can't show removed lines in the current code, we'll mark the previous line
           if (i > 0) {
             newDecorations.push({
-              range: new window.monaco.Range(lineNumber - 1, 1, lineNumber - 1, 1),
+              range: new monaco.Range(lineNumber - 1, 1, lineNumber - 1, 1),
               options: {
                 glyphMarginClassName: 'diff-glyph-removed',
                 minimap: {
@@ -182,7 +184,7 @@ const EnhancedCodeEditor: React.FC<EnhancedCodeEditorProps> = ({
         } else {
           // Modified line - blue background
           newDecorations.push({
-            range: new window.monaco.Range(lineNumber, 1, lineNumber, currentLine.length + 1),
+            range: new monaco.Range(lineNumber, 1, lineNumber, currentLine.length + 1),
             options: {
               isWholeLine: true,
               className: 'diff-line-modified',
@@ -553,15 +555,16 @@ const EnhancedCodeEditor: React.FC<EnhancedCodeEditorProps> = ({
             },
             wordWrap: 'on',
             automaticLayout: true,
-            padding: { left: 8, right: 8 },
+            padding: { top: 8, bottom: 8 },
             contextmenu: editMode !== 'view',
             selectOnLineNumbers: editMode !== 'view'
           }}
-          onMount={(editor) => {
+          onMount={(editor, monaco) => {
             editorRef.current = editor
+            monacoRef.current = monaco
             
             // Listen for selection changes
-            editor.onDidChangeCursorSelection((e) => {
+            editor.onDidChangeCursorSelection(() => {
               captureSelection()
             })
           }}

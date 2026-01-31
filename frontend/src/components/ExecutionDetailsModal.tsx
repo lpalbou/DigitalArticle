@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { X, ChevronDown, ChevronRight, Activity, Download, Copy, Check, Terminal, AlertTriangle, Table as TableIcon, Zap, Database } from 'lucide-react'
-import { LLMTrace, ExecutionResult, TableData } from '../types'
+import { X, ChevronDown, ChevronRight, Activity, Download, Copy, Check, Terminal, AlertTriangle, Table as TableIcon, Zap, Database, Bug } from 'lucide-react'
+import { LLMTrace, ExecutionResult, LintIssue } from '../types'
 
 interface ExecutionDetailsModalProps {
   isVisible: boolean
@@ -21,7 +21,7 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
 }) => {
   const [expandedTraces, setExpandedTraces] = useState<Set<string>>(new Set())
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [activeMainTab, setActiveMainTab] = useState<'llm' | 'console' | 'warnings' | 'variables'>('llm')
+  const [activeMainTab, setActiveMainTab] = useState<'llm' | 'console' | 'warnings' | 'lint' | 'variables'>('llm')
   const [activeTraceTab, setActiveTraceTab] = useState<Record<string, 'prompt' | 'system' | 'response' | 'parameters' | 'json'>>({})
   const [variables, setVariables] = useState<Record<string, string>>({})
   const [loadingVariables, setLoadingVariables] = useState(false)
@@ -437,6 +437,22 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
                   <span>Warnings</span>
                 </button>
               )}
+              {executionResult?.lint_report && (
+                <button
+                  onClick={() => setActiveMainTab('lint')}
+                  className={`px-6 py-3 text-sm font-medium transition-colors flex items-center space-x-2 ${
+                    activeMainTab === 'lint'
+                      ? 'border-b-2 border-purple-500 text-purple-600 bg-white'
+                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Bug className="h-4 w-4" />
+                  <span>Lint</span>
+                  <span className="ml-1 px-2 py-0.5 text-xs bg-gray-100 rounded-full">
+                    {executionResult.lint_report.issues?.length || 0}
+                  </span>
+                </button>
+              )}
               <button
                 onClick={() => setActiveMainTab('variables')}
                 className={`px-6 py-3 text-sm font-medium transition-colors flex items-center space-x-2 ${
@@ -841,6 +857,141 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
                   <div className="text-center py-12 text-gray-500">
                     <AlertTriangle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
                     <p>No warnings or errors for this cell</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Lint Tab */}
+            {activeMainTab === 'lint' && (
+              <div>
+                {executionResult?.lint_report ? (
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-700">Lint Report</h4>
+                        <p className="text-xs text-gray-500">
+                          Engine: <span className="font-mono">{executionResult.lint_report.engine}</span>
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => copyToClipboard(JSON.stringify(executionResult.lint_report, null, 2), 'lint-report')}
+                        className="text-gray-400 hover:text-gray-600 flex items-center space-x-1"
+                      >
+                        {copiedId === 'lint-report' ? (
+                          <>
+                            <Check className="h-4 w-4 text-green-500" />
+                            <span className="text-xs text-green-500">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-4 w-4" />
+                            <span className="text-xs">Copy</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Autofix section (only when explicitly enabled for this execution) */}
+                    {executionResult.autofix_report?.enabled && (
+                      <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-purple-900">Safe auto-fix</div>
+                            <div className="text-xs text-purple-700 mt-1">
+                              {executionResult.autofix_report.applied
+                                ? 'Applied deterministic safe fixes before execution.'
+                                : 'Enabled, but no safe fixes were applied.'}
+                            </div>
+                          </div>
+                          {executionResult.autofix_report.diff ? (
+                            <button
+                              onClick={() => copyToClipboard(executionResult.autofix_report?.diff || '', 'autofix-diff')}
+                              className="text-purple-700 hover:text-purple-900 flex items-center space-x-1"
+                            >
+                              {copiedId === 'autofix-diff' ? (
+                                <>
+                                  <Check className="h-4 w-4 text-green-500" />
+                                  <span className="text-xs text-green-500">Copied!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="h-4 w-4" />
+                                  <span className="text-xs">Copy diff</span>
+                                </>
+                              )}
+                            </button>
+                          ) : null}
+                        </div>
+
+                        {executionResult.autofix_report.changes && executionResult.autofix_report.changes.length > 0 && (
+                          <ul className="mt-3 list-disc list-inside text-xs text-purple-800 space-y-1">
+                            {executionResult.autofix_report.changes.map((c: any, i: number) => (
+                              <li key={i}>
+                                <span className="font-mono">{c.rule_id}</span>: {c.message}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+
+                        {executionResult.autofix_report.diff && (
+                          <pre className="mt-3 text-xs bg-white/60 p-3 rounded border border-purple-200 overflow-x-auto max-h-64 whitespace-pre font-mono">
+                            {executionResult.autofix_report.diff}
+                          </pre>
+                        )}
+                      </div>
+                    )}
+
+                    {executionResult.lint_report.issues && executionResult.lint_report.issues.length > 0 ? (
+                      <div className="space-y-2">
+                        {executionResult.lint_report.issues.map((issue: LintIssue, idx: number) => {
+                        const severityColor =
+                          issue.severity === 'error'
+                            ? 'border-red-200 bg-red-50 text-red-800'
+                            : issue.severity === 'warning'
+                              ? 'border-yellow-200 bg-yellow-50 text-yellow-800'
+                              : 'border-blue-200 bg-blue-50 text-blue-800'
+
+                        return (
+                          <div key={idx} className={`p-3 rounded border ${severityColor}`}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-xs font-semibold uppercase tracking-wide">
+                                  {issue.severity}
+                                  {issue.rule_id ? <span className="ml-2 font-mono normal-case">{issue.rule_id}</span> : null}
+                                  {issue.line ? (
+                                    <span className="ml-2 font-mono normal-case">
+                                      (line {issue.line}{issue.column !== undefined ? `:${issue.column}` : ''})
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="mt-1 text-sm break-words">{issue.message}</div>
+                                {issue.suggestion && (
+                                  <div className="mt-2 text-xs text-gray-700">
+                                    <span className="font-semibold">Suggestion:</span> {issue.suggestion}
+                                  </div>
+                                )}
+                              </div>
+                              {issue.fixable ? (
+                                <div className="text-xs font-medium px-2 py-1 rounded bg-white/60 border border-white/40">
+                                  Fixable
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-600">
+                        No lint issues detected for this cell.
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-gray-500">
+                    <Bug className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                    <p>No lint issues for this cell</p>
                   </div>
                 )}
               </div>

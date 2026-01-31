@@ -1,5 +1,5 @@
-import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react'
-import { AlertCircle, Loader, Info, CheckCircle } from 'lucide-react'
+import { useState, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react'
+import { AlertCircle, Loader, Info } from 'lucide-react'
 import axios from 'axios'
 import { useToaster } from '../contexts/ToasterContext'
 
@@ -45,7 +45,6 @@ const ReviewSettingsTab = forwardRef<ReviewSettingsTabRef, ReviewSettingsTabProp
 
   // State
   const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
   const [settings, setSettings] = useState<ReviewSettings>({
     auto_review_enabled: false,
     phases: {
@@ -61,14 +60,7 @@ const ReviewSettingsTab = forwardRef<ReviewSettingsTabRef, ReviewSettingsTabProp
     review_style: 'constructive',
   })
 
-  // Load settings from backend when component mounts or notebookId changes
-  useEffect(() => {
-    if (notebookId) {
-      loadSettings()
-    }
-  }, [notebookId])
-
-  const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
     if (!notebookId) return
 
     try {
@@ -83,7 +75,12 @@ const ReviewSettingsTab = forwardRef<ReviewSettingsTabRef, ReviewSettingsTabProp
     } finally {
       setLoading(false)
     }
-  }
+  }, [notebookId])
+
+  // Load settings from backend when component mounts or notebookId changes
+  useEffect(() => {
+    loadSettings()
+  }, [loadSettings])
 
   const handleSave = async () => {
     if (!notebookId) {
@@ -92,14 +89,11 @@ const ReviewSettingsTab = forwardRef<ReviewSettingsTabRef, ReviewSettingsTabProp
     }
 
     try {
-      setSaving(true)
       await axios.put(`/api/review/notebooks/${notebookId}/settings`, settings)
       toaster.success('Review settings saved!')
     } catch (error) {
       console.error('Error saving review settings:', error)
       toaster.error('Failed to save review settings')
-    } finally {
-      setSaving(false)
     }
   }
 

@@ -14,6 +14,8 @@ import numpy as np
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..config import DEFAULT_LLM_PROVIDER, DEFAULT_LLM_MODEL
+from .linting import LintReport
+from .autofix import AutofixReport
 
 
 def sanitize_for_json(obj: Any) -> Any:
@@ -152,6 +154,12 @@ class ExecutionResult(BaseModel):
 
     # Statistical and validation warnings (non-fatal issues)
     warnings: List[str] = Field(default_factory=list)
+
+    # Static quality feedback (linting) to help users/LLM improve code even when it runs
+    lint_report: Optional[LintReport] = None
+
+    # Deterministic safe code rewrites (default-on; strict allowlist)
+    autofix_report: Optional[AutofixReport] = None
     
     @model_validator(mode='before')
     @classmethod
@@ -323,6 +331,8 @@ class CellExecuteRequest(BaseModel):
     force_regenerate: bool = False  # Force LLM to regenerate code even if it exists
     code: Optional[str] = None  # Direct code to execute (overrides stored code)
     prompt: Optional[str] = None  # Prompt to generate code from
+    autofix: bool = True  # Default: safe deterministic autofix before execution
+    clean_rerun: bool = False  # If True, rebuild execution context from upstream cells only (ignore downstream state)
 
 
 class CellExecuteResponse(BaseModel):

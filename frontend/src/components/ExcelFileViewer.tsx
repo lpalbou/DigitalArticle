@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { Table, FileSpreadsheet, ChevronLeft, ChevronRight, Search, Download, Info } from 'lucide-react'
+import { Table, FileSpreadsheet, ChevronLeft, ChevronRight, Search, Info } from 'lucide-react'
 
 interface ExcelSheet {
   name: string

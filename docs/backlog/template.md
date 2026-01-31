@@ -41,7 +41,7 @@
 ### Backlog dependencies (ordering)
 <!-- List other backlog items that must be completed first. Use links. -->
 - **None**
-  - <!-- Example: - [0003_fix_test_suite_regressions.md](planned/0003_fix_test_suite_regressions.md) -->
+  - <!-- Example: - [0003_fix_test_suite_regressions.md](completed/0003_fix_test_suite_regressions.md) -->
 
 ### ADR dependencies (must comply)
 <!-- List ADRs that directly constrain this work. Use links. -->
@@ -125,7 +125,10 @@
 
 Before you declare the backlog item done, you MUST check [`docs/backlog/recurrent/`](recurrent/) and execute any tasks whose triggers apply.
 
-- **Minimum requirement**: run the documentation sync recurrent task:
+- **Minimum requirement**: run these recurrent tasks:
+  - lint/typecheck gates:
+    - [`docs/backlog/recurrent/0012_lint_and_typecheck_quality_gates.md`](recurrent/0012_lint_and_typecheck_quality_gates.md)
+  - documentation sync:
   - [`docs/backlog/recurrent/0011_documentation_sync_after_backlog_completion.md`](recurrent/0011_documentation_sync_after_backlog_completion.md)
   - (includes running: [`tools/validate_markdown_links.py`](../../tools/validate_markdown_links.py))
 

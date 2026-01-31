@@ -26,4 +26,6 @@ ADRs reduce “tribal knowledge” and prevent repeated debate by capturing:
 - [`0004-recursive-self-correction-loop.md`](0004-recursive-self-correction-loop.md) — execution self-correction + logic/persona self-correction loop
 - [`0005-perfect-observability.md`](0005-perfect-observability.md) — end-to-end tracing for LLM + agentic calls (ethics + compliance)
 - [`0006-publish-immutable-releases-doi-lineage.md`](0006-publish-immutable-releases-doi-lineage.md) — publish immutable releases with DOI + lineage/derivation
+- [`0007-permissive-licenses-and-minimal-dependencies.md`](0007-permissive-licenses-and-minimal-dependencies.md) — permissive OSS dependency policy + minimize dependency surface
+- [`0008-linting-and-quality-gates.md`](0008-linting-and-quality-gates.md) — mandatory lint/typecheck/test gates per backlog completion
 

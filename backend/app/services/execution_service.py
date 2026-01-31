@@ -13,6 +13,7 @@ import time
 import logging
 import warnings
 import ast
+import difflib
 import re
 import types
 import json
@@ -25,6 +26,9 @@ import pandas as pd
 import numpy as np
 
 from ..models.notebook import ExecutionResult, ExecutionStatus, sanitize_for_json
+from ..models.linting import LintIssue, LintReport, LintSeverity
+from .linting_service import LintingService
+from .autofix_service import AutofixService
 
 # Configure matplotlib for non-interactive backend
 matplotlib.use('Agg')
@@ -445,7 +449,15 @@ class ExecutionService:
         # All validation passed
         return True, None, None
     
-    def execute_code(self, code: str, cell_id: str, notebook_id: Optional[str] = None) -> ExecutionResult:
+    def execute_code(
+        self,
+        code: str,
+        cell_id: str,
+        notebook_id: Optional[str] = None,
+        autofix: bool = True,
+        capture_outputs: bool = True,
+        persist_state: bool = True,
+    ) -> ExecutionResult:
         """
         Execute Python code and capture all outputs.
 
@@ -458,6 +470,38 @@ class ExecutionService:
         """
         result = ExecutionResult()
         start_time = time.time()
+        original_code = code
+
+        # Determine notebook context early (needed for safe pre-validation autofix).
+        # Use notebook-specific data manager if provided
+        if notebook_id:
+            from .data_manager_clean import get_data_manager
+            notebook_data_manager = get_data_manager(notebook_id)
+            working_dir = notebook_data_manager.get_working_directory()
+
+            # Set notebook-specific execution environment seed for consistency
+            if notebook_id not in self.notebook_execution_seeds:
+                self.set_notebook_execution_seed(notebook_id)
+        else:
+            # Fallback for backward compatibility (shouldn't happen in normal use)
+            working_dir = self.data_manager.get_working_directory()
+            notebook_id = "default"
+            logger.warning("⚠️ No notebook_id provided - using default namespace")
+
+        # Get or create notebook-specific globals (may restore saved state)
+        globals_dict = self._get_notebook_globals(notebook_id)
+
+        # PHASE 0: Default-on safe autofix BEFORE validation/first execution (no LLM involved)
+        autofix_changes: List[Any] = []
+        if autofix:
+            try:
+                autofix_service = AutofixService()
+                fixed_code, pre_changes = autofix_service.apply_pre_validation_fixes(code, globals_dict=globals_dict)
+                if pre_changes and fixed_code != code:
+                    autofix_changes.extend(pre_changes)
+                    code = fixed_code
+            except Exception as autofix_err:
+                logger.warning(f"Pre-validation autofix failed (non-fatal): {autofix_err}")
 
         # PHASE 1: Validate code syntax and anti-patterns BEFORE execution
         is_valid, error_msg, suggestions = self.validate_code_syntax(code)
@@ -475,6 +519,28 @@ class ExecutionService:
             result.error_type = "ValidationError"
             result.error_message = error_msg
 
+            # Attach structured lint report (so UI can surface the failure cleanly)
+            lint_issues = [
+                LintIssue(
+                    severity=LintSeverity.ERROR,
+                    rule_id="DA0002",
+                    message=error_msg or "Code validation failed",
+                    suggestion="Fix validation errors before execution.",
+                    fixable=False,
+                )
+            ]
+            if suggestions:
+                for s in suggestions:
+                    lint_issues.append(
+                        LintIssue(
+                            severity=LintSeverity.INFO,
+                            rule_id="DA0002_SUGGESTION",
+                            message=s,
+                            fixable=False,
+                        )
+                    )
+            result.lint_report = LintReport(engine="builtin", issues=lint_issues)
+
             # Format helpful error message with suggestions
             if suggestions:
                 suggestion_text = "\n".join(f"  • {s}" for s in suggestions)
@@ -490,24 +556,75 @@ class ExecutionService:
 
         logger.info(f"✅ Code validation passed for cell {cell_id}")
 
-        # PHASE 2: Proceed with execution setup
-        # Use notebook-specific data manager if provided
-        if notebook_id:
-            from .data_manager_clean import get_data_manager
-            notebook_data_manager = get_data_manager(notebook_id)
-            working_dir = notebook_data_manager.get_working_directory()
+        # PHASE 2: Lint report (non-blocking warnings) using available notebook globals
+        # This is intentionally deterministic and offline (no network calls).
+        linter = LintingService()
+        lint_before_for_report: Optional[LintReport] = None
+        try:
+            lint_before_for_report = linter.lint(original_code, available_globals=globals_dict)
+        except Exception as lint_error:
+            logger.warning(f"Linting failed (non-fatal): {lint_error}")
 
-            # Set notebook-specific execution environment seed for consistency
-            if notebook_id not in self.notebook_execution_seeds:
-                self.set_notebook_execution_seed(notebook_id)
+        try:
+            lint_before_exec = linter.lint(code, available_globals=globals_dict)
+        except Exception as lint_error:
+            logger.warning(f"Linting failed (non-fatal): {lint_error}")
+            lint_before_exec = None
+
+        # PHASE 3: Default-on safe autofix (deterministic, allowlisted)
+        if autofix and lint_before_exec is not None:
+            try:
+                autofix_service = AutofixService()
+                lint_fix_report = autofix_service.apply_safe_autofix(
+                    code,
+                    lint_before=lint_before_exec,
+                    globals_dict=globals_dict,
+                )
+
+                if lint_fix_report.applied and lint_fix_report.fixed_code:
+                    # Safety: validate fixed code before executing it
+                    fixed_is_valid, fixed_error, _fixed_suggestions = self.validate_code_syntax(lint_fix_report.fixed_code)
+                    if fixed_is_valid:
+                        code = lint_fix_report.fixed_code
+                        autofix_changes.extend(lint_fix_report.changes)
+                        # Recompute lint report for the code we will actually execute
+                        result.lint_report = linter.lint(code, available_globals=globals_dict)
+                    else:
+                        logger.warning(f"Autofix produced invalid code; skipping. Error: {fixed_error}")
+                        result.lint_report = lint_before_exec
+                else:
+                    result.lint_report = lint_before_exec
+            except Exception as autofix_error:
+                logger.warning(f"Autofix failed (non-fatal): {autofix_error}")
+                result.lint_report = lint_before_exec
         else:
-            # Fallback for backward compatibility (shouldn't happen in normal use)
-            working_dir = self.data_manager.get_working_directory()
-            notebook_id = "default"
-            logger.warning("⚠️ No notebook_id provided - using default namespace")
+            result.lint_report = lint_before_exec
 
-        # Get or create notebook-specific globals
-        globals_dict = self._get_notebook_globals(notebook_id)
+        # Attach autofix report only when something actually changed (keeps UI noise low).
+        if autofix and autofix_changes and code != original_code:
+            try:
+                from ..models.autofix import AutofixReport
+
+                result.autofix_report = AutofixReport(
+                    enabled=True,
+                    applied=True,
+                    original_code=original_code,
+                    fixed_code=code,
+                    diff="\n".join(
+                        difflib.unified_diff(
+                            original_code.splitlines(),
+                            code.splitlines(),
+                            fromfile="before.py",
+                            tofile="after.py",
+                            lineterm="",
+                        )
+                    ),
+                    changes=autofix_changes,
+                    lint_before=lint_before_for_report,
+                    lint_after=result.lint_report,
+                )
+            except Exception as report_error:
+                logger.warning(f"Failed to build autofix report (non-fatal): {report_error}")
 
         # Ensure we're in the correct working directory for this notebook
         import os
@@ -566,58 +683,66 @@ class ExecutionService:
             result.stderr = stderr_buffer.getvalue()
             result.status = ExecutionStatus.SUCCESS
 
-            # Capture visualizations and rich outputs
-            # 1. First capture explicitly displayed results (highest priority)
-            # Pass notebook_id for sequential numbering across entire article
-            displayed_tables, displayed_plots, other_displays = self._capture_displayed_results(globals_dict, notebook_id)
-            
-            # CRITICAL: Sanitize all data to convert numpy types (including new numpy.dtypes.*)
-            # to JSON-serializable Python types BEFORE storing in Pydantic models
-            displayed_tables = sanitize_for_json(displayed_tables)
-            displayed_plots = sanitize_for_json(displayed_plots)
-            other_displays = sanitize_for_json(other_displays)
-            
-            result.tables = displayed_tables + other_displays  # Include HTML, JSON, text, model displays
-            result.plots = displayed_plots  # Start with explicitly displayed plots
-            logger.info(f"✅ Captured {len(displayed_tables)} table(s), {len(displayed_plots)} plot(s), {len(other_displays)} other display(s)")
+            if capture_outputs:
+                # Capture visualizations and rich outputs
+                # 1. First capture explicitly displayed results (highest priority)
+                # Pass notebook_id for sequential numbering across entire article
+                displayed_tables, displayed_plots, other_displays = self._capture_displayed_results(globals_dict, notebook_id)
 
-            # 2. Then capture other outputs (auto-captured plots without labels)
-            auto_plots = self._capture_plots()
-            auto_plots = sanitize_for_json(auto_plots)  # Sanitize numpy types
-            result.plots.extend(auto_plots)  # Add auto-captured plots after displayed ones
-            logger.info(f"📊 Captured {len(auto_plots)} additional auto-captured plot(s)")
+                # CRITICAL: Sanitize all data to convert numpy types (including new numpy.dtypes.*)
+                # to JSON-serializable Python types BEFORE storing in Pydantic models
+                displayed_tables = sanitize_for_json(displayed_tables)
+                displayed_plots = sanitize_for_json(displayed_plots)
+                other_displays = sanitize_for_json(other_displays)
 
-            interactive_plots = self._capture_interactive_plots(globals_dict, pre_execution_plotly_figures)
-            result.interactive_plots = sanitize_for_json(interactive_plots)  # Sanitize numpy types
+                result.tables = displayed_tables + other_displays  # Include HTML, JSON, text, model displays
+                result.plots = displayed_plots  # Start with explicitly displayed plots
+                logger.info(
+                    f"✅ Captured {len(displayed_tables)} table(s), {len(displayed_plots)} plot(s), {len(other_displays)} other display(s)"
+                )
 
-            # 3. Capture intermediary DataFrame variables (for debugging in Execution Details)
-            variable_tables = self._capture_tables(globals_dict, pre_execution_vars, pre_execution_dataframes)
-            variable_tables = sanitize_for_json(variable_tables)  # Sanitize numpy types
-            result.tables.extend(variable_tables)
+                # 2. Then capture other outputs (auto-captured plots without labels)
+                auto_plots = self._capture_plots()
+                auto_plots = sanitize_for_json(auto_plots)  # Sanitize numpy types
+                result.plots.extend(auto_plots)  # Add auto-captured plots after displayed ones
+                logger.info(f"📊 Captured {len(auto_plots)} additional auto-captured plot(s)")
 
-            # NOTE: Stdout table parsing is now DISABLED in favor of explicit display()
-            # Users should use display() to mark results for the article
-            # Uncomment below if backward compatibility with old notebooks is needed:
-            # stdout_tables = self._parse_pandas_stdout(result.stdout)
-            # if stdout_tables:
-            #     logger.info(f"📊 Parsed {len(stdout_tables)} table(s) from stdout")
-            #     for table in stdout_tables:
-            #         table['source'] = 'stdout'
-            #     result.tables.extend(stdout_tables)
-            
-            self.execution_count += 1
-            logger.info(f"Successfully executed cell {cell_id}")
+                interactive_plots = self._capture_interactive_plots(globals_dict, pre_execution_plotly_figures)
+                result.interactive_plots = sanitize_for_json(interactive_plots)  # Sanitize numpy types
 
-            # Check for statistical warnings in the output (stdout and tables)
-            statistical_warnings = self._check_statistical_warnings(result.stdout, result.tables)
-            if statistical_warnings:
-                result.warnings.extend(statistical_warnings)
-                logger.warning(f"⚠️ Statistical validation found {len(statistical_warnings)} warning(s):")
-                for warning in statistical_warnings:
-                    logger.warning(f"   {warning}")
+                # 3. Capture intermediary DataFrame variables (for debugging in Execution Details)
+                variable_tables = self._capture_tables(globals_dict, pre_execution_vars, pre_execution_dataframes)
+                variable_tables = sanitize_for_json(variable_tables)  # Sanitize numpy types
+                result.tables.extend(variable_tables)
+
+                # Stdout table parsing (compatibility + quality of life):
+                # - `display(df)` remains the recommended way to explicitly include tables in the article view
+                # - but we still parse `print(df)` output so users (and tests) get structured tables
+                stdout_tables = self._parse_pandas_stdout(result.stdout)
+                if stdout_tables:
+                    logger.info(f"📊 Parsed {len(stdout_tables)} table(s) from stdout")
+                    stdout_tables = sanitize_for_json(stdout_tables)  # Sanitize numpy types
+                    for table in stdout_tables:
+                        table['source'] = 'stdout'
+                    result.tables.extend(stdout_tables)
+
+                self.execution_count += 1
+                logger.info(f"Successfully executed cell {cell_id}")
+
+                # Check for statistical warnings in the output (stdout and tables)
+                statistical_warnings = self._check_statistical_warnings(result.stdout, result.tables)
+                if statistical_warnings:
+                    result.warnings.extend(statistical_warnings)
+                    logger.warning(f"⚠️ Statistical validation found {len(statistical_warnings)} warning(s):")
+                    for warning in statistical_warnings:
+                        logger.warning(f"   {warning}")
+            else:
+                # Context-rebuild mode: we only care about side effects in globals, not user-visible outputs.
+                # Critically, we do NOT want to renumber/capture tables/figures during upstream replay.
+                logger.debug("Context-only execution: skipping rich output capture")
 
             # Auto-save notebook state after successful execution
-            if notebook_id:
+            if persist_state and notebook_id:
                 try:
                     self.state_persistence.save_notebook_state(
                         notebook_id,
@@ -1620,7 +1745,16 @@ class ExecutionService:
                     is_modified_dataframe = (
                         pre_execution_dataframes is not None and
                         name in pre_execution_dataframes and
-                        not obj.equals(pre_execution_dataframes[name])
+                        (
+                            # If the variable was reassigned to a new DataFrame object,
+                            # capture it even if the values are identical.
+                            #
+                            # Rationale:
+                            # - We want to capture what this execution produced.
+                            # - Value-based equality alone misses reassignments with identical content.
+                            id(obj) != id(pre_execution_dataframes[name]) or
+                            not obj.equals(pre_execution_dataframes[name])
+                        )
                     )
 
                     if is_new_variable or is_modified_dataframe:
@@ -1754,7 +1888,12 @@ class ExecutionService:
             return tables
 
         try:
-            lines = stdout.strip().split('\n')
+            # IMPORTANT: do NOT `strip()` the whole stdout before splitting.
+            # Pandas DataFrame rendering uses leading spaces to align single-column headers;
+            # global `.strip()` would remove that indentation and break detection/parsing.
+            lines = stdout.splitlines()
+            while lines and not lines[-1].strip():
+                lines.pop()
             i = 0
             table_count = 0
 
@@ -2031,7 +2170,7 @@ class ExecutionService:
         
         return interactive_plots
     
-    def clear_namespace(self, notebook_id: str, keep_imports: bool = True):
+    def clear_namespace(self, notebook_id: str, keep_imports: bool = True, clear_saved_state: bool = True):
         """
         Clear the execution namespace for a specific notebook.
 
@@ -2059,12 +2198,13 @@ class ExecutionService:
             self.notebook_globals[notebook_id] = self._initialize_globals()
             logger.info(f"🧹 Completely reset namespace for notebook {notebook_id}")
 
-        # Clear saved state as well
-        try:
-            if self.state_persistence.clear_notebook_state(notebook_id):
-                logger.info(f"🗑️  Cleared saved state for notebook {notebook_id}")
-        except Exception as e:
-            logger.error(f"Failed to clear saved state: {e}")
+        # Clear saved state as well (optional)
+        if clear_saved_state:
+            try:
+                if self.state_persistence.clear_notebook_state(notebook_id):
+                    logger.info(f"🗑️  Cleared saved state for notebook {notebook_id}")
+            except Exception as e:
+                logger.error(f"Failed to clear saved state: {e}")
 
         self.execution_count = 0
         plt.close('all')

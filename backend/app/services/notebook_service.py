@@ -717,6 +717,10 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             logger.error(f"Invalid UUID format for cell_id {cell_id}: {e}")
             return None
         
+        # Track whether execution-relevant inputs changed (affects rerun semantics)
+        prompt_changed = request.prompt is not None and request.prompt != cell.prompt
+        code_changed = request.code is not None and request.code != cell.code
+
         # Update fields
         if request.prompt is not None:
             cell.prompt = request.prompt
@@ -730,6 +734,14 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             cell.tags = request.tags
         if request.metadata is not None:
             cell.metadata = request.metadata
+
+        # If prompt/code changed, mark that the next execution should use a clean context
+        # (prevents stale/downstream state contamination).
+        if prompt_changed or code_changed:
+            cell.metadata.setdefault("execution", {})
+            cell.metadata["execution"]["needs_clean_rerun"] = True
+            # Mark cell as stale so UI can surface that results are outdated.
+            cell.cell_state = CellState.STALE
             
         # Handle cell type changes
         if hasattr(request, 'cell_type') and request.cell_type is not None:
@@ -766,6 +778,80 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         
         return False
     
+    def _rebuild_execution_namespace_for_clean_rerun(
+        self,
+        notebook: Notebook,
+        current_cell: Cell,
+        *,
+        autofix: bool,
+    ) -> Optional[ExecutionResult]:
+        """
+        Rebuild the execution namespace so that it only contains state produced by upstream cells.
+
+        This is the core of "clean rerun": we intentionally ignore any downstream state that may
+        have polluted the notebook globals, and we intentionally do NOT take the current cell's
+        previous failed run into account.
+
+        Implementation strategy:
+        - Reset the in-memory namespace (do NOT clear saved state on disk)
+        - Replay upstream cells *without* capturing outputs and *without* persisting state
+          (so we don't renumber tables/figures and we don't corrupt persisted checkpoints if replay fails)
+
+        Returns:
+            None on success, or an ExecutionResult(ERROR) describing why rebuild failed.
+        """
+        notebook_id = str(notebook.id)
+
+        # Reset in-memory state but keep the previous on-disk snapshot as a fallback in case replay fails.
+        self.execution_service.clear_namespace(notebook_id, keep_imports=False, clear_saved_state=False)
+
+        replayed_cell_ids: List[str] = []
+
+        for c in notebook.cells:
+            if c.id == current_cell.id:
+                break
+            if c.cell_type not in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
+                continue
+            if not c.code or not c.code.strip():
+                continue
+
+            replayed_cell_ids.append(str(c.id))
+            replay_result = self.execution_service.execute_code(
+                c.code,
+                str(c.id),
+                notebook_id,
+                autofix=autofix,
+                capture_outputs=False,
+                persist_state=False,
+            )
+            if replay_result.status != ExecutionStatus.SUCCESS:
+                error = ExecutionResult(status=ExecutionStatus.ERROR)
+                error.error_type = "CleanRerunUpstreamReplayError"
+                error.error_message = (
+                    f"Clean rerun cannot proceed: upstream cell {c.id} failed while rebuilding context. "
+                    f"Error: {replay_result.error_message or replay_result.error_type}"
+                )
+                error.traceback = replay_result.traceback
+                error.stderr = replay_result.stderr
+                error.lint_report = replay_result.lint_report
+
+                # Record what we attempted for observability.
+                current_cell.metadata.setdefault("execution", {})
+                current_cell.metadata["execution"]["clean_rerun"] = {
+                    "mode": "clean",
+                    "replayed_cell_ids": replayed_cell_ids,
+                    "failed_upstream_cell_id": str(c.id),
+                }
+                return error
+
+        current_cell.metadata.setdefault("execution", {})
+        current_cell.metadata["execution"]["clean_rerun"] = {
+            "mode": "clean",
+            "replayed_cell_ids": replayed_cell_ids,
+            "failed_upstream_cell_id": None,
+        }
+        return None
+
     async def execute_cell(self, request: CellExecuteRequest) -> Optional[tuple[Cell, ExecutionResult]]:
         """
         Execute a cell (generate code from prompt if needed and run it).
@@ -819,20 +905,44 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             elif request.prompt:
                 cell.prompt = request.prompt
                 cell.updated_at = datetime.now()
-            
-            # Always build context for LLM (needed for both code generation and methodology)
-            try:
-                context = self._build_execution_context(notebook, cell)
-                logger.info(f"Built context with {len(context)} items")
-            except Exception as context_error:
-                logger.warning(f"Context building failed: {context_error}, using empty context")
-                context = {}
 
-            # Initialize result for cases where code generation fails (planning errors, LLM errors)
-            result = None
+            # Initialize result for cases where we intentionally short-circuit (e.g., clean rerun rebuild fails)
+            result: Optional[ExecutionResult] = None
+
+            # Compute rerun semantics:
+            # - request.clean_rerun is an explicit user action (clean context, typically paired with regenerate)
+            # - cell.metadata["execution"]["needs_clean_rerun"] is an implicit default after edits
+            metadata_needs_clean_rerun = bool(cell.metadata.get("execution", {}).get("needs_clean_rerun", False))
+            should_clean_context = bool(request.clean_rerun or metadata_needs_clean_rerun)
+
+            if should_clean_context:
+                logger.info(
+                    f"🧼 Clean rerun requested for cell {cell.id} "
+                    f"(explicit={bool(request.clean_rerun)}, due_to_edit={metadata_needs_clean_rerun})"
+                )
+                rebuild_error = self._rebuild_execution_namespace_for_clean_rerun(notebook, cell, autofix=request.autofix)
+                if rebuild_error is not None:
+                    # Abort early: we cannot safely execute this cell without a valid upstream context.
+                    result = rebuild_error
+
+            # Always build context for LLM (needed for both code generation and methodology),
+            # but only if we are still proceeding with execution.
+            if result is None:
+                try:
+                    context = self._build_execution_context(notebook, cell)
+                    logger.info(f"Built context with {len(context)} items")
+                except Exception as context_error:
+                    logger.warning(f"Context building failed: {context_error}, using empty context")
+                    context = {}
 
             # Generate code if needed
-            if not cell.code or request.force_regenerate:
+            # Clean rerun typically implies "restart from prompt" (regenerate),
+            # but never override an explicit code execution request.
+            force_regenerate = bool(
+                request.force_regenerate
+                or (request.clean_rerun and request.code is None and bool(cell.prompt))
+            )
+            if result is None and (not cell.code or force_regenerate):
                 logger.info(f"Generating code for prompt: {cell.prompt[:100]}...")
 
                 try:
@@ -894,9 +1004,23 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                     raise  # Re-raise the exception so it's properly handled
             
             # Execute code if available OR handle planning errors
-            if cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
+            if result is None and cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
                 # Set up notebook-specific context for execution
-                result = self.execution_service.execute_code(cell.code, str(cell.id), str(notebook.id))
+                result = self.execution_service.execute_code(
+                    cell.code,
+                    str(cell.id),
+                    str(notebook.id),
+                    autofix=request.autofix,
+                )
+                # If deterministic autofix rewrote the code, persist the rewritten version so
+                # users see the exact code that was executed (transparency boundary).
+                if (
+                    result.autofix_report
+                    and result.autofix_report.applied
+                    and result.autofix_report.fixed_code
+                ):
+                    cell.code = result.autofix_report.fixed_code
+                    cell.updated_at = datetime.now()
                 cell.execution_count += 1
             elif result is None:
                 # No code and no planning error - empty cell or markdown
@@ -988,11 +1112,23 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                             # Try executing the fixed code (but don't update cell.code yet!)
                             logger.info("🔄 Executing fixed code...")
                             print(f"🔄 EXECUTING: Testing corrected code...")
-                            retry_result = self.execution_service.execute_code(fixed_code, str(cell.id), str(notebook.id))
+                            retry_result = self.execution_service.execute_code(
+                                fixed_code,
+                                str(cell.id),
+                                str(notebook.id),
+                                autofix=request.autofix,
+                            )
 
                             if retry_result.status == ExecutionStatus.SUCCESS:
                                 # ONLY update cell.code on SUCCESS
-                                cell.code = fixed_code
+                                effective_code = (
+                                    retry_result.autofix_report.fixed_code
+                                    if retry_result.autofix_report
+                                    and retry_result.autofix_report.applied
+                                    and retry_result.autofix_report.fixed_code
+                                    else fixed_code
+                                )
+                                cell.code = effective_code
                                 cell.updated_at = datetime.now()
                                 logger.info(f"🔄 ✅ Auto-retry #{cell.retry_count} successful! Fixed code executed successfully")
                                 print(f"🔄 SUCCESS: Auto-retry #{cell.retry_count} fixed the error for cell {cell.id}")
@@ -1209,6 +1345,13 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             if result.status == ExecutionStatus.SUCCESS:
                 # Mark this cell as fresh
                 cell.cell_state = CellState.FRESH
+
+                # Clean rerun bookkeeping:
+                # - If this cell was edited, we consider the "needs clean rerun" requirement satisfied
+                #   once we successfully execute in the rebuilt context.
+                cell.metadata.setdefault("execution", {})
+                cell.metadata["execution"]["needs_clean_rerun"] = False
+                cell.metadata["execution"]["last_rerun_mode"] = "clean" if should_clean_context else "normal"
 
                 # Mark downstream cells as stale
                 try:

@@ -7,7 +7,6 @@ import axios, { AxiosResponse } from 'axios'
 import {
   Notebook,
   Cell,
-  ExecutionResult,
   NotebookCreateRequest,
   NotebookUpdateRequest,
   CellCreateRequest,
