@@ -177,15 +177,28 @@ const Header: React.FC<HeaderProps> = ({
               )}
 
               {/* Save Dropdown (consolidates Save + Export) */}
-              <div className="relative">
+              <div className="relative inline-flex">
+                {/* Main button: Save immediately */}
                 <button
-                  onClick={() => setShowExportDropdown(!showExportDropdown)}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => {
+                    setShowExportDropdown(false)
+                    onSaveNotebook?.()
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-l-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   title="Save Digital Article"
                   disabled={isGeneratingPDF}
                 >
                   <Save className="h-4 w-4" />
                   <span>{isGeneratingPDF ? 'Generating...' : 'Save'}</span>
+                </button>
+
+                {/* Dropdown button: show options */}
+                <button
+                  onClick={() => setShowExportDropdown(!showExportDropdown)}
+                  className="px-2 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-r-lg border-l border-blue-500/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Save/Export options"
+                  disabled={isGeneratingPDF}
+                >
                   <ChevronDown className="h-4 w-4" />
                 </button>
 

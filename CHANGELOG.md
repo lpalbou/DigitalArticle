@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Resolved accumulated unused imports/vars and hook dependency issues; `npm run lint` and `npm run build:check` are green.
 - **Consistent markdown rendering for user-facing LLM outputs**
   - Unified Abstract + inline review feedback rendering via `frontend/src/components/MarkdownRenderer.tsx`.
+- **Save button UX**
+  - Top-right Save is now a split button: left click saves; right chevron opens export options.
 
 ### Changed
 - **Documentation overhaul to eliminate “truth drift”**

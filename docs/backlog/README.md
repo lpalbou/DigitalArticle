@@ -114,6 +114,7 @@ Before moving any backlog item to `docs/backlog/completed/`, you MUST review and
 - [`docs/backlog/completed/0002_doc_link_normalization.md`](completed/0002_doc_link_normalization.md)
 - [`docs/backlog/completed/0026_add_lint_report_to_cell_execution.md`](completed/0026_add_lint_report_to_cell_execution.md)
 - [`docs/backlog/completed/0027_auto_fix_safe_lint_issues.md`](completed/0027_auto_fix_safe_lint_issues.md)
+- [`docs/backlog/completed/0075_split_save_button_primary_action.md`](completed/0075_split_save_button_primary_action.md)
 - [`docs/backlog/completed/0074_unify_llm_markdown_rendering.md`](completed/0074_unify_llm_markdown_rendering.md)
 - [`docs/backlog/completed/0066_cell_rerun_context_hygiene.md`](completed/0066_cell_rerun_context_hygiene.md)
 - [`docs/backlog/completed/0069_default_safe_autofix_pre_execution.md`](completed/0069_default_safe_autofix_pre_execution.md)
