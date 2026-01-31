@@ -1,5 +1,87 @@
 # Getting Started with Digital Article
 
+> **Status (2026-01-31):** This page starts with a **current quick-start** grounded in the code. Everything under **“Legacy guide (historical)”** is kept for historical context and may drift from the current implementation.
+
+## Quick start (current)
+
+### What you will run
+- **Backend**: FastAPI on `http://localhost:8000` (API prefix: `/api`)  
+  - Entry point: [`backend/app/main.py`](../backend/app/main.py)
+  - Primary orchestration: [`backend/app/services/notebook_service.py::NotebookService`](../backend/app/services/notebook_service.py)
+- **Frontend**: Vite dev server on `http://localhost:3000`  
+  - Dev proxy: [`frontend/vite.config.ts`](../frontend/vite.config.ts) proxies `/api/*` → `http://localhost:8000/api/*`
+- **LLM provider**: local server (LMStudio/Ollama/vLLM/OpenAI-compatible) or a cloud API (OpenAI/Anthropic)
+
+### 1) Install (local dev)
+
+```bash
+git clone https://github.com/lpalbou/digitalarticle.git
+cd digitalarticle
+
+python -m venv .venv
+source .venv/bin/activate  # macOS/Linux
+
+# Install Python deps + CLI tools (da-backend, da-frontend) from pyproject.toml
+pip install -e ".[dev]"
+
+# Install frontend deps
+cd frontend
+npm install
+cd ..
+```
+
+### 2) Run locally
+
+```bash
+# Terminal 1
+da-backend
+
+# Terminal 2
+da-frontend
+```
+
+Open `http://localhost:3000`.
+
+### 3) Configure your LLM (how it works in the code)
+
+- **UI Settings**: [`frontend/src/components/SettingsModal.tsx`](../frontend/src/components/SettingsModal.tsx) persists settings via:
+  - `GET/PUT /api/settings` ([`backend/app/api/settings.py`](../backend/app/api/settings.py)) → per-user settings file under `{WORKSPACE_DIR}/user_settings/{username}.json` ([`backend/app/services/user_settings_service.py`](../backend/app/services/user_settings_service.py))
+  - `POST /api/llm/providers/select` ([`backend/app/api/llm.py`](../backend/app/api/llm.py)) → updates [`config.json`](../config.json) ([`backend/app/config.py`](../backend/app/config.py)) and reinitializes the in-process `LLMService`
+- **Config precedence (project-level)**: ENV > [`config.json`](../config.json) > defaults ([`backend/app/config.py`](../backend/app/config.py))
+- **Docker note**: at startup we apply Docker base-URL env overrides to user settings *before* creating `NotebookService` ([`backend/app/services/shared.py`](../backend/app/services/shared.py))
+
+Common local base URLs:
+- **LMStudio**: `http://localhost:1234/v1` (provider: `lmstudio` or `openai-compatible`)
+- **Ollama**: `http://localhost:11434` (provider: `ollama`)
+- **OpenAI-compatible** (llama.cpp/vLLM/LocalAI): usually `http://localhost:PORT/v1` (provider: `openai-compatible`)
+
+### 4) First analysis (recommended workflow)
+
+1. Create a notebook
+2. Upload a dataset in the **Files** panel  
+   - Backend endpoints: [`backend/app/api/files.py`](../backend/app/api/files.py) (`/api/files/{notebook_id}/upload`, `/api/files/{notebook_id}`, ...)
+3. Write a prompt and execute the cell  
+   - Backend endpoint: `POST /api/cells/execute` ([`backend/app/api/cells.py`](../backend/app/api/cells.py))
+   - Orchestration: [`backend/app/services/notebook_service.py::NotebookService.execute_cell()`](../backend/app/services/notebook_service.py)
+
+### 5) Where your data is stored (paths)
+
+- **Notebooks**: `config.json.paths.notebooks_dir` (default in repo: `data/notebooks`) → [`backend/app/config.py::Config.get_notebooks_dir()`](../backend/app/config.py)
+- **Workspace files (uploads, previews, user settings)**: `config.json.paths.workspace_dir` (default in repo: [`data/workspace`](../data/workspace)) → [`backend/app/config.py::Config.get_workspace_root()`](../backend/app/config.py)
+- **Execution state snapshots (pickle)**: currently stored under `backend/notebook_workspace/{notebook_id}/state/` by [`backend/app/services/state_persistence_service.py::StatePersistenceService`](../backend/app/services/state_persistence_service.py) (independent of `paths.workspace_dir`)
+
+### 6) Next docs
+
+- [`README.md`](../README.md) (main entry point)
+- [`docs/overview.md`](overview.md) (documentation index)
+- [`docs/architecture.md`](architecture.md) (canonical system map + diagrams + links to dive-ins)
+- [`docs/limitations.md`](limitations.md) (known limitations + production readiness expectations)
+- [`docs/data_flow.md`](data_flow.md) (sequence diagrams for key flows)
+- [`docs/knowledge_base.md`](knowledge_base.md) (accumulated “do not forget” insights)
+- [`docs/troubleshooting.md`](troubleshooting.md) (common failures: LLM connectivity, Docker networking, model downloads, exports)
+
+## Legacy guide (historical)
+
 ## Overview
 
 Digital Article is a computational notebook application where you write what you want to analyze in natural language, and the system generates and executes Python code for you. This guide will walk you through installation, setup, and your first analysis.
@@ -83,7 +165,7 @@ cd ..
 - Lightning-fast hot module replacement (HMR)
 - Instant server startup
 - Optimized production builds
-- Configured to run on port 3000 (see `frontend/vite.config.ts`)
+- Configured to run on port 3000 (see [`frontend/vite.config.ts`](../frontend/vite.config.ts))
 
 ### Step 4: Set Up LLM Provider
 
@@ -175,19 +257,19 @@ da-frontend
 **What the CLI commands do** (provided by `digitalarticle` package):
 
 **`da-backend`**:
-- Auto-discovers project root (searches for `backend/` directory)
+- Auto-discovers project root (searches for [`backend/`](../backend) directory)
 - Kills any existing process on port 8000
 - Checks for uvicorn, installs if missing
 - Starts FastAPI server with auto-reload: `uvicorn app.main:app --reload --port 8000`
 
 **`da-frontend`**:
-- Auto-discovers project root (searches for `frontend/` directory)
+- Auto-discovers project root (searches for [`frontend/`](../frontend) directory)
 - Kills any existing process on port 3000
 - Checks for Node.js and npm
 - Installs npm dependencies if `node_modules/` doesn't exist
 - Starts Vite dev server: `npm run dev` (configured for port 3000)
 
-These commands are installed when you run `pip install -e .` and registered in `pyproject.toml`.
+These commands are installed when you run `pip install -e .` and registered in [`pyproject.toml`](../pyproject.toml).
 
 ### Manual Start (Alternative)
 
@@ -214,7 +296,7 @@ Once both servers are running:
 You should see the Digital Article interface with a new empty notebook.
 
 **Port Configuration**:
-- Frontend uses port 3000 (configured in `frontend/vite.config.ts`)
+- Frontend uses port 3000 (configured in [`frontend/vite.config.ts`](../frontend/vite.config.ts))
 - Backend uses port 8000 (standard for FastAPI)
 - Vite proxies API requests from `/api/*` to `http://localhost:8000/api/*`
 
@@ -230,7 +312,7 @@ Before creating your first analysis, you should configure your LLM provider. Dig
 4. Click **Save Settings**
 
 **What happens when you save:**
-- Configuration is saved to `config.json` in the project root
+- Configuration is saved to [`config.json`](../config.json) in the project root
 - The global LLMService is reinitialized with your selection
 - All new notebooks will use this provider/model by default
 - The status footer immediately updates to show the new configuration
@@ -528,7 +610,7 @@ Show me the structure of the HDF5 file and preview the main datasets
 
 ### Data File Paths
 
-**Important**: Always reference files with the `data/` prefix:
+**Important**: Always reference files with the [`data/`](../data) prefix:
 
 ```python
 # ✓ CORRECT
@@ -653,7 +735,7 @@ You can always switch to the "Code" tab and edit the Python code directly:
 **Solutions**:
 1. Check browser console for errors
 2. Verify backend is running (`http://localhost:8000/health`)
-3. Check file permissions in `notebooks/` directory
+3. Check file permissions in [`notebooks/`](../notebooks) directory
 4. Manually click "Save" button
 5. Check backend logs for write errors
 
@@ -662,7 +744,7 @@ You can always switch to the "Code" tab and edit the Python code directly:
 **Solutions**:
 1. Check browser console (F12) for JavaScript errors
 2. Ensure backend is running and accessible
-3. Check CORS configuration in `backend/app/main.py`
+3. Check CORS configuration in [`backend/app/main.py`](../backend/app/main.py)
 4. Try clearing browser cache
 5. Verify Vite dev server is running on port 3000
 6. Check that the Vite proxy is working (`/api` requests go to port 8000)
@@ -673,7 +755,7 @@ You can always switch to the "Code" tab and edit the Python code directly:
 
 - Read [Architecture Documentation](./architecture.md) to understand how the system works
 - Read [Philosophy](./philosophy.md) to understand the design principles
-- Check [ROADMAP](../ROADMAP.md) to see planned features
+- Check [Backlog](backlog/README.md) to see planned features
 
 ### Advanced Usage
 
@@ -687,7 +769,7 @@ Once comfortable with basics, explore:
 
 ### Example Notebooks
 
-Check the `notebooks/` directory for example analyses:
+Check the [`notebooks/`](../notebooks) directory for example analyses:
 - Gene expression analysis
 - Patient cohort analysis
 - Time series analysis

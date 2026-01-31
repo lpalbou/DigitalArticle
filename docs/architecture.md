@@ -1,5 +1,95 @@
 # Architecture Documentation
 
+> **Status (2026-01-31):** This page starts with the **current canonical architecture map** grounded in the codebase. Everything under **“Legacy (historical)”** is older material kept for context and may drift.
+
+## Current architecture (canonical)
+
+### Primary entry points
+
+- **Backend API**: FastAPI app in [`backend/app/main.py`](../backend/app/main.py) (health: `/health`, root: `/`)
+- **Frontend dev**: Vite dev server in [`frontend/`](../frontend) (proxy `/api/*` → backend)
+- **Local CLI**:
+  - `da-backend` → [`digitalarticle/backend.py`](../digitalarticle/backend.py)
+  - `da-frontend` → [`digitalarticle/frontend.py`](../digitalarticle/frontend.py)
+- **Docker deployments**: [`docker/README.md`](../docker/README.md) (2-tiers default, monolithic, 3-tiers)
+
+### API surface (routers)
+
+The backend is organized as routers mounted in [`backend/app/main.py`](../backend/app/main.py):
+
+- `/api/cells/*` → [`backend/app/api/cells.py`](../backend/app/api/cells.py) (+ [`backend/app/api/ai_code_fix.py`](../backend/app/api/ai_code_fix.py) mounted under the same prefix)
+- `/api/notebooks/*` → [`backend/app/api/notebooks.py`](../backend/app/api/notebooks.py)
+- `/api/llm/*` → [`backend/app/api/llm.py`](../backend/app/api/llm.py)
+- `/api/files/*` → [`backend/app/api/files.py`](../backend/app/api/files.py)
+- `/api/system/*` → [`backend/app/api/system.py`](../backend/app/api/system.py)
+- `/api/settings*` → [`backend/app/api/settings.py`](../backend/app/api/settings.py)
+- `/api/models*` → [`backend/app/api/models.py`](../backend/app/api/models.py)
+- `/api/personas/*` → [`backend/app/api/personas.py`](../backend/app/api/personas.py)
+- `/api/review/*` → [`backend/app/api/review.py`](../backend/app/api/review.py)
+- `/api/chat/*` → [`backend/app/api/chat.py`](../backend/app/api/chat.py)
+
+### Deployment map
+
+```mermaid
+flowchart LR
+  subgraph LocalDev["Local dev (two terminals)"]
+    FE["Frontend (Vite)\nhttp://localhost:3000"]
+    BE["Backend (FastAPI)\nhttp://localhost:8000"]
+    FE -- "/api/* (proxy)" --> BE
+  end
+
+  subgraph Providers["LLM Providers (examples)"]
+    LM["LMStudio\n:1234/v1"]
+    OL["Ollama\n:11434"]
+    OAI["OpenAI / Anthropic\n(cloud)"]
+    OAIC["Any OpenAI-compatible\n(llama.cpp, vLLM, LocalAI)"]
+  end
+
+  BE -->|"AbstractCore via LLMService"| Providers
+```
+
+### Runtime call graph (high-level)
+
+```mermaid
+flowchart TB
+  FE["Frontend UI\n(React components)"] -->|"REST + SSE"| API
+  API["FastAPI Routers\nbackend/app/api/*"] --> NS["NotebookService\nbackend/app/services/notebook_service.py"]
+
+  NS --> LLM["LLMService\nbackend/app/services/llm_service.py"]
+  NS --> EXEC["ExecutionService\nbackend/app/services/execution_service.py"]
+  NS --> DM["DataManagerClean\nbackend/app/services/data_manager_clean.py"]
+  EXEC --> SPS["StatePersistenceService\nbackend/app/services/state_persistence_service.py"]
+
+  NS --> REV["ReviewService\nbackend/app/services/review_service.py"]
+  NS --> EXP["Export services\n(PDF/Semantic)\nbackend/app/api/notebooks.py"]
+  API --> MODELS["Model download\nbackend/app/api/models.py"]
+```
+
+### Persistence map (what gets stored where)
+
+- **Notebooks (JSON)**:
+  - Path resolution: [`backend/app/config.py::Config.get_notebooks_dir()`](../backend/app/config.py) (ENV `NOTEBOOKS_DIR` > [`config.json`](../config.json) > default)
+  - Storage format: [`backend/app/models/notebook.py::Notebook`](../backend/app/models/notebook.py)
+  - Persistence implementation: [`backend/app/services/notebook_service.py`](../backend/app/services/notebook_service.py) (atomic write pattern in `_save_notebook()`)
+- **Workspace files (uploads, previews, user settings)**:
+  - Root: [`backend/app/config.py::Config.get_workspace_root()`](../backend/app/config.py) (ENV `WORKSPACE_DIR` > [`config.json`](../config.json) > default)
+  - Per-notebook files: [`backend/app/services/data_manager_clean.py`](../backend/app/services/data_manager_clean.py)
+  - Per-user settings: [`backend/app/services/user_settings_service.py`](../backend/app/services/user_settings_service.py) (`{workspace_root}/user_settings/{username}.json`)
+- **Execution state snapshots (pickle)**:
+  - Current default root: [`backend/notebook_workspace/`](../backend/notebook_workspace) (see [`backend/app/services/state_persistence_service.py::StatePersistenceService`](../backend/app/services/state_persistence_service.py))
+  - Triggered by: [`backend/app/services/execution_service.py`](../backend/app/services/execution_service.py)
+
+### Critical “dive-in” docs (start here after the map)
+
+- [`docs/dive_ins/notebook_service.md`](dive_ins/notebook_service.md) — orchestration + execution loop + auto-retry
+- [`docs/dive_ins/llm_service.md`](dive_ins/llm_service.md) — AbstractCore integration, tracing, token tracking, config surfaces
+- [`docs/dive_ins/execution_service.md`](dive_ins/execution_service.md) — execution sandbox, rich output capture, state saving
+- [`docs/dive_ins/data_manager.md`](dive_ins/data_manager.md) — file workspace, previews, LLM file context
+- [`docs/dive_ins/review_service.md`](dive_ins/review_service.md) — reviewer persona templates + streaming article review
+- [`docs/dive_ins/persona_system.md`](dive_ins/persona_system.md) — persona models + combination + notebook metadata
+
+## Legacy (historical)
+
 ## Overview
 
 Digital Article is a full-stack web application that transforms conventional computational notebooks into "article-first" documents. Unlike traditional notebooks (e.g., Jupyter) where cells primarily contain code with accompanying outputs, Digital Article inverts this paradigm: users interact via natural language prompts that are transformed into executable code, with the option to view generated code or scientific methodology explanations.
@@ -69,7 +159,7 @@ Digital Article is a full-stack web application that transforms conventional com
   - Extremely fast hot module replacement (HMR)
   - Native ES modules support (no bundling in dev)
   - Optimized production builds with Rollup
-  - Configured for port 3000 (see `frontend/vite.config.ts`)
+  - Configured for port 3000 (see [`frontend/vite.config.ts`](../frontend/vite.config.ts))
   - API proxy: `/api/*` → `http://localhost:8000/api/*`
 - **Tailwind CSS** - Styling
 - **React Router** - Navigation
@@ -80,7 +170,7 @@ Digital Article is a full-stack web application that transforms conventional com
 
 #### Key Components
 
-##### NotebookContainer (`frontend/src/components/NotebookContainer.tsx`)
+##### NotebookContainer ([`frontend/src/components/NotebookContainer.tsx`](../frontend/src/components/NotebookContainer.tsx))
 **Responsibility**: Root orchestration component managing notebook lifecycle
 
 **Core State**:
@@ -98,7 +188,7 @@ Digital Article is a full-stack web application that transforms conventional com
 
 **Design Pattern**: Centralized state management with useCallback memoization for performance
 
-##### NotebookCell (`frontend/src/components/NotebookCell.tsx`)
+##### NotebookCell ([`frontend/src/components/NotebookCell.tsx`](../frontend/src/components/NotebookCell.tsx))
 **Responsibility**: Individual cell rendering and interaction
 
 **Features**:
@@ -115,7 +205,7 @@ Digital Article is a full-stack web application that transforms conventional com
 - Pandas DataFrames (HTML tables)
 - Python errors with full tracebacks
 
-##### FileContextPanel (`frontend/src/components/FileContextPanel.tsx`)
+##### FileContextPanel ([`frontend/src/components/FileContextPanel.tsx`](../frontend/src/components/FileContextPanel.tsx))
 **Responsibility**: Display available data files for the notebook
 
 **Features**:
@@ -125,7 +215,7 @@ Digital Article is a full-stack web application that transforms conventional com
 - File upload/delete functionality
 - Refresh trigger on execution
 
-##### Header (`frontend/src/components/Header.tsx`)
+##### Header ([`frontend/src/components/Header.tsx`](../frontend/src/components/Header.tsx))
 **Responsibility**: Global actions and navigation
 
 **Actions**:
@@ -143,7 +233,7 @@ Digital Article is a full-stack web application that transforms conventional com
 3. Creating PDF document
 4. Complete
 
-##### LLMStatusFooter (`frontend/src/components/LLMStatusFooter.tsx`)
+##### LLMStatusFooter ([`frontend/src/components/LLMStatusFooter.tsx`](../frontend/src/components/LLMStatusFooter.tsx))
 **Responsibility**: Real-time visual feedback of current LLM configuration
 
 **Features**:
@@ -167,7 +257,7 @@ Digital Article is a full-stack web application that transforms conventional com
 - Bottom padding added to main content to prevent overlap
 - Settings button callback opens LLMSettingsModal
 
-##### ModelDownloadContext (`frontend/src/contexts/ModelDownloadContext.tsx`)
+##### ModelDownloadContext ([`frontend/src/contexts/ModelDownloadContext.tsx`](../frontend/src/contexts/ModelDownloadContext.tsx))
 **Responsibility**: Global state management for async model downloads
 
 **Features**:
@@ -197,7 +287,7 @@ Digital Article is a full-stack web application that transforms conventional com
 
 **Why App-level context**: Ensures download state persists when settings modal closes, enabling true background downloads
 
-#### API Client (`frontend/src/services/api.ts`)
+#### API Client ([`frontend/src/services/api.ts`](../frontend/src/services/api.ts))
 
 **Design**: Modular API client with separated concerns
 
@@ -229,7 +319,7 @@ Digital Article is a full-stack web application that transforms conventional com
 
 #### Application Structure
 
-##### Main Application (`backend/app/main.py`)
+##### Main Application ([`backend/app/main.py`](../backend/app/main.py))
 **Responsibility**: FastAPI application configuration and routing
 
 **Features**:
@@ -247,7 +337,7 @@ Digital Article is a full-stack web application that transforms conventional com
 - `/api/files/*` - File management
 - `/api/system/*` - System information
 
-##### Data Models (`backend/app/models/notebook.py`)
+##### Data Models ([`backend/app/models/notebook.py`](../backend/app/models/notebook.py))
 **Responsibility**: Type-safe data structures
 
 **Core Models**:
@@ -293,7 +383,7 @@ class Notebook:
 
 ##### Service Layer
 
-###### NotebookService (`backend/app/services/notebook_service.py`)
+###### NotebookService ([`backend/app/services/notebook_service.py`](../backend/app/services/notebook_service.py))
 **Responsibility**: Orchestrate notebook operations and coordinate between services
 
 **Key Methods**:
@@ -327,12 +417,12 @@ if execution_failed and has_prompt and retry_count < 3:
 
 > **📖 Detailed Error Handling**: For comprehensive documentation on the error handling system, specialized analyzers, and development guidelines, see [Error Handling System](error-handling.md).
 
-**Persistence**: JSON files in `notebooks/` directory
+**Persistence**: JSON files in [`notebooks/`](../notebooks) directory
 - One file per notebook: `{notebook_id}.json`
 - In-memory cache for performance
 - Auto-save on updates
 
-###### LLMService (`backend/app/services/llm_service.py`)
+###### LLMService ([`backend/app/services/llm_service.py`](../backend/app/services/llm_service.py))
 **Responsibility**: Interface with LLM providers via AbstractCore
 
 **Configuration**:
@@ -344,7 +434,7 @@ if execution_failed and has_prompt and retry_count < 3:
 
 1. `generate_code_from_prompt(prompt, context)`
    - **System Prompt**: Instructs LLM on code generation rules
-     - Use `data/` directory for all file paths
+     - Use [`data/`](../data) directory for all file paths
      - Import required libraries
      - Generate executable code only (no markdown)
      - Handle errors with try/except
@@ -370,7 +460,7 @@ if execution_failed and has_prompt and retry_count < 3:
 
 **Error Handling**: All AbstractCore exceptions wrapped in `LLMError` for consistent error propagation
 
-###### ExecutionService (`backend/app/services/execution_service.py`)
+###### ExecutionService ([`backend/app/services/execution_service.py`](../backend/app/services/execution_service.py))
 **Responsibility**: Safe Python code execution with rich output capture
 
 **Execution Environment**:
@@ -422,7 +512,7 @@ def execute_code(code, cell_id, notebook_id):
 - Return structured error with type, message, traceback
 - Don't re-raise (return error result)
 
-###### Data Manager (`backend/app/services/data_manager_clean.py`)
+###### Data Manager ([`backend/app/services/data_manager_clean.py`](../backend/app/services/data_manager_clean.py))
 **Responsibility**: Manage notebook-specific data workspaces
 
 **Architecture**: Singleton pattern per notebook
@@ -456,7 +546,7 @@ def get_data_manager(notebook_id=None):
 - Track uploaded files
 - Provide file previews (CSV shape, columns)
 
-###### PDF Service (`backend/app/services/pdf_service_scientific.py`)
+###### PDF Service ([`backend/app/services/pdf_service_scientific.py`](../backend/app/services/pdf_service_scientific.py))
 **Responsibility**: Generate scientific article-style PDF exports
 
 **Features**:
@@ -470,7 +560,7 @@ def get_data_manager(notebook_id=None):
 
 #### API Routing
 
-##### Notebook API (`backend/app/api/notebooks.py`)
+##### Notebook API ([`backend/app/api/notebooks.py`](../backend/app/api/notebooks.py))
 ```python
 POST   /api/notebooks/          # Create notebook
 GET    /api/notebooks/          # List all notebooks
@@ -480,7 +570,7 @@ DELETE /api/notebooks/{id}      # Delete notebook
 GET    /api/notebooks/{id}/export?format={json|html|md|pdf}
 ```
 
-##### Cell API (`backend/app/api/cells.py`)
+##### Cell API ([`backend/app/api/cells.py`](../backend/app/api/cells.py))
 ```python
 POST   /api/cells/              # Create cell
 PUT    /api/cells/{nb_id}/{cell_id}  # Update cell
@@ -490,7 +580,7 @@ GET    /api/cells/{cell_id}/status   # Get execution/methodology status
 POST   /api/cells/{nb_id}/clear      # Clear execution context
 ```
 
-##### Files API (`backend/app/api/files.py`)
+##### Files API ([`backend/app/api/files.py`](../backend/app/api/files.py))
 ```python
 GET    /api/files/{nb_id}       # List files
 GET    /api/files/{nb_id}/content?file_path={path}  # Get file content
@@ -498,7 +588,7 @@ POST   /api/files/{nb_id}/upload  # Upload file (multipart/form-data)
 DELETE /api/files/{nb_id}/{filename}  # Delete file
 ```
 
-##### LLM API (`backend/app/api/llm.py`)
+##### LLM API ([`backend/app/api/llm.py`](../backend/app/api/llm.py))
 ```python
 POST   /api/llm/generate-code    # Generate code from prompt
 POST   /api/llm/explain-code     # Explain code functionality
@@ -513,7 +603,7 @@ POST   /api/llm/providers/select # Select and save provider/model configuration
 
 **New Configuration Endpoints** (added for improved persistence):
 
-- **GET /api/llm/config**: Returns the current global configuration from `config.json`
+- **GET /api/llm/config**: Returns the current global configuration from [`config.json`](../config.json)
   - Response: `{ provider: string, model: string, config_file: string }`
   - Used by frontend when creating new notebooks to inherit global settings
 
@@ -524,7 +614,7 @@ POST   /api/llm/providers/select # Select and save provider/model configuration
 
 **Configuration Flow**:
 1. User selects provider/model in LLMSettingsModal
-2. POST to `/providers/select` saves to `config.json` and reinitializes global LLMService
+2. POST to `/providers/select` saves to [`config.json`](../config.json) and reinitializes global LLMService
 3. NotebookContainer fetches config via `/config` when creating new notebooks
 4. New notebooks inherit global provider/model automatically
 5. LLMStatusFooter polls `/status` for real-time display updates
@@ -916,8 +1006,8 @@ if context and 'available_variables' in context:
 ## Extension Points
 
 ### Adding New Cell Types
-1. Update `CellType` enum in `backend/app/models/notebook.py`
-2. Add rendering logic in `frontend/src/components/NotebookCell.tsx`
+1. Update `CellType` enum in [`backend/app/models/notebook.py`](../backend/app/models/notebook.py)
+2. Add rendering logic in [`frontend/src/components/NotebookCell.tsx`](../frontend/src/components/NotebookCell.tsx)
 3. Handle execution in `NotebookService.execute_cell()`
 
 ### Adding New LLM Providers
@@ -972,7 +1062,7 @@ File Storage (S3/MinIO for uploaded files)
 
 ## Developer Tools
 
-### CLI Package (`digitalarticle/`)
+### CLI Package ([`digitalarticle/`](../digitalarticle))
 
 The project includes a CLI package that provides convenient startup commands for both backend and frontend servers.
 
@@ -985,7 +1075,7 @@ digitalarticle/
   py.typed             # Type checking marker
 ```
 
-**Console Scripts** (registered in `pyproject.toml`):
+**Console Scripts** (registered in [`pyproject.toml`](../pyproject.toml)):
 ```toml
 [project.scripts]
 da-backend = "digitalarticle.backend:main"
@@ -997,7 +1087,7 @@ da-frontend = "digitalarticle.frontend:main"
 **Purpose**: Start the FastAPI backend server with auto-configuration
 
 **Features**:
-- **Auto-discovery**: Searches for project root by looking for `backend/` directory
+- **Auto-discovery**: Searches for project root by looking for [`backend/`](../backend) directory
   - Checks current directory
   - Checks script installation directory
   - Walks up directory tree
@@ -1030,7 +1120,7 @@ def main():
 **Purpose**: Start the Vite development server with auto-configuration
 
 **Features**:
-- **Auto-discovery**: Searches for project root by looking for `frontend/` directory
+- **Auto-discovery**: Searches for project root by looking for [`frontend/`](../frontend) directory
 - **Port cleanup**: Kills any existing process on port 3000
 - **Environment checks**: Verifies Node.js and npm are installed
 - **Auto-install**: Runs `npm install` if `node_modules/` doesn't exist

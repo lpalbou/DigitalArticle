@@ -2,10 +2,62 @@
 
 > **📋 Looking for deployment instructions?** See:
 > - [`docker/README.md`](../docker/README.md) - Overview and which option to choose
+> - [`docker/2-tiers/README.md`](../docker/2-tiers/README.md) - Default: single container (frontend+backend), external LLM
 > - [`docker/monolithic/README.md`](../docker/monolithic/README.md) - Single container deployment
 > - [`docker/3-tiers/README.md`](../docker/3-tiers/README.md) - Multi-container deployment
 
 This document explains the **architecture and design decisions** behind Digital Article's containerization. It's intended for developers who want to understand the system internals, not for end-user deployment.
+
+> **Status (2026-01-31):** The canonical containerization source of truth is [`docker/README.md`](../docker/README.md) + the Dockerfiles in [`docker/*`](../docker) + [`docker-compose.yml`](../docker-compose.yml). The section below summarizes the current deployment topologies; everything under **“Legacy (historical)”** is older rationale that may not match current files.
+
+## Current deployment topologies (canonical)
+
+### 1) 2-tiers (default)
+
+- **One container** runs:
+  - Nginx (serves frontend + proxies `/api/*`)
+  - FastAPI backend
+- **LLM is external** (LMStudio/Ollama/vLLM/OpenAI-compatible on your host or another server)
+- Files:
+  - [`docker/2-tiers/Dockerfile`](../docker/2-tiers/Dockerfile)
+  - [`docker/2-tiers/nginx.conf`](../docker/2-tiers/nginx.conf), [`docker/2-tiers/supervisord.conf`](../docker/2-tiers/supervisord.conf), [`docker/2-tiers/entrypoint.sh`](../docker/2-tiers/entrypoint.sh)
+
+```mermaid
+flowchart LR
+  U["User (browser)"] -->|"http://host:80"| N["2-tiers container\nNginx + Backend"]
+  N -->|"AbstractCore"| LLM["External LLM\n(host / remote)"]
+```
+
+### 2) 3-tiers (docker-compose)
+
+- **Three containers** (recommended when you want a fully containerized LLM):
+  - Frontend (Nginx)
+  - Backend (FastAPI)
+  - Ollama (LLM)
+- Files:
+  - [`docker-compose.yml`](../docker-compose.yml)
+  - [`docker/3-tiers/*`](../docker/3-tiers)
+
+```mermaid
+flowchart LR
+  U["User (browser)"] -->|"http://host:80"| FE["Frontend container\n(Nginx)"]
+  FE -->|"REST + SSE\n/api/*"| BE["Backend container\n(FastAPI)"]
+  BE -->|"Ollama API"| OL["Ollama container"]
+```
+
+### 3) Monolithic (single image, optional bundled Ollama)
+
+- **One container** runs Nginx + backend + (optionally) bundled Ollama.
+- Files:
+  - [`docker/monolithic/Dockerfile`](../docker/monolithic/Dockerfile) (CPU)
+  - [`docker/monolithic/Dockerfile.nvidia`](../docker/monolithic/Dockerfile.nvidia) (NVIDIA GPU)
+
+```mermaid
+flowchart LR
+  U["User (browser)"] -->|"http://host:80"| M["Monolithic container\nNginx + Backend + (optional) Ollama"]
+```
+
+## Legacy (historical)
 
 ## 📐 Architecture Overview
 
@@ -333,7 +385,7 @@ digitalarticle-ollama     Up (healthy)    0.0.0.0:11434->11434/tcp
 
 **Step 5: Monitor Model Download**
 
-The Ollama container automatically pulls the model configured in `config.json` via the ollama-entrypoint.sh script. Model downloads in the background (10-30 minutes for qwen3-coder:30b).
+The Ollama container automatically pulls the model configured in [`config.json`](../config.json) via the ollama-entrypoint.sh script. Model downloads in the background (10-30 minutes for qwen3-coder:30b).
 
 ```bash
 # Watch Ollama download progress
@@ -482,7 +534,7 @@ cd path/to/DigitalArticle
 1. Open Docker Desktop application
 2. Go to **Images** tab
 3. Click **Build** button
-4. Select `docker-compose.yml` from your project
+4. Select [`docker-compose.yml`](../docker-compose.yml) from your project
 5. Click **Run**
 
 **Option B: Use Integrated Terminal** (Recommended):
@@ -524,7 +576,7 @@ docker-compose up -d
 
 **Step 5: Monitor Ollama Model Download**
 
-The Ollama container automatically downloads the model from `config.json` via ollama-entrypoint.sh. Monitor progress:
+The Ollama container automatically downloads the model from [`config.json`](../config.json) via ollama-entrypoint.sh. Monitor progress:
 
 ```bash
 # Watch model download progress
@@ -585,7 +637,7 @@ docker exec digitalarticle-ollama ollama list
 
 ### Environment Variables
 
-Edit `docker-compose.yml` to customize:
+Edit [`docker-compose.yml`](../docker-compose.yml) to customize:
 
 ```yaml
 backend:
@@ -620,7 +672,7 @@ Or keep `CORS_ORIGINS=*` for development (allows any origin)
 
 ### LLM Configuration
 
-Edit `config.json` to change model:
+Edit [`config.json`](../config.json) to change model:
 
 ```json
 {
@@ -649,7 +701,7 @@ docker-compose restart backend
 
 ### Port Configuration
 
-To use different ports, edit `docker-compose.yml`:
+To use different ports, edit [`docker-compose.yml`](../docker-compose.yml):
 
 ```yaml
 frontend:
@@ -720,7 +772,7 @@ docker-compose ps
 PermissionError: [Errno 13] Permission denied: '/app/notebooks/abc123.json'
 ```
 
-**Cause**: `notebooks/` directory owned by root
+**Cause**: [`notebooks/`](../notebooks) directory owned by root
 
 **Fix**:
 ```bash
@@ -821,7 +873,7 @@ Benefits:
 - First code generation is fast (no 60s delay)
 - Subsequent generations are instant
 
-**Note**: The ollama-entrypoint.sh script automatically pulls the model from `config.json` on container startup.
+**Note**: The ollama-entrypoint.sh script automatically pulls the model from [`config.json`](../config.json) on container startup.
 
 ---
 

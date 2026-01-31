@@ -15,7 +15,7 @@
 - ✅ Condensed analytical framework (500 → 50 tokens)
 - ✅ 4-item final checklist for verification
 
-**File Modified**: `backend/app/services/llm_service.py` (lines 333-523)
+**File Modified**: [`backend/app/services/llm_service.py`](../backend/app/services/llm_service.py) (lines 333-523)
 
 **Research Applied**:
 - Position Bias (FAccT 2025): https://dl.acm.org/doi/10.1145/3715275.3732038
@@ -103,14 +103,14 @@ critique = self._build_critique_from_assessments(None, judge_assessment, ...)
 
 **Made lmfit guidance explicit and prominent** in both persona constraints and workflow prompts.
 
-#### File 1: `data/personas/system/modeling-simulation.json`
+#### File 1: [`data/personas/system/modeling-simulation.json`](../data/personas/system/modeling-simulation.json)
 
 **Added CRITICAL constraint**:
 ```json
 "CRITICAL: For compartmental PK model fitting, ALWAYS use lmfit.Model or lmfit.minimize, NEVER use scipy.optimize.curve_fit - lmfit provides proper confidence intervals and parameter bounds"
 ```
 
-#### File 2: `docs/persona-ms-scenarios.md`
+#### File 2: [`examples/article/persona-ms-scenarios.md`](../examples/article/persona-ms-scenarios.md)
 
 **Updated Prompt 4** to be more explicit:
 ```
@@ -179,10 +179,10 @@ The M&S Workflow 1 demonstrated that Digital Article successfully handles comple
 | File | Changes | Priority |
 |------|---------|----------|
 | `backend/app/services/analysis_critic.py` | Removed broken `generate_assessment()` call | 🔴 HIGH |
-| `data/personas/system/modeling-simulation.json` | Added CRITICAL lmfit constraint | 🟡 MEDIUM |
-| `docs/persona-ms-scenarios.md` | Enhanced Prompt 4 with explicit lmfit instructions | 🟡 MEDIUM |
+| [`data/personas/system/modeling-simulation.json`](../data/personas/system/modeling-simulation.json) | Added CRITICAL lmfit constraint | 🟡 MEDIUM |
+| [`examples/article/persona-ms-scenarios.md`](../examples/article/persona-ms-scenarios.md) | Enhanced Prompt 4 with explicit lmfit instructions | 🟡 MEDIUM |
 | `/Users/albou/projects/abstractcore/feature-request-custom-assessment-criteria.md` | Created feature request | 🟢 LOW |
-| `docs/additional-fixes.md` | This documentation | 🟢 LOW |
+| [`docs/additional-fixes.md`](additional-fixes.md) | This documentation | 🟢 LOW |
 
 ---
 

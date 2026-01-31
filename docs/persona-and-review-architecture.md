@@ -1,5 +1,9 @@
 # Persona and Review System - Architecture Documentation
 
+> **Status (2026-01-31):** Verified against current code. For the most up-to-date component deep dives, see:
+> - [`docs/dive_ins/persona_system.md`](dive_ins/persona_system.md)
+> - [`docs/dive_ins/review_service.md`](dive_ins/review_service.md)
+
 ## Executive Summary
 
 The Persona and Review system provides a clean separation of concerns for Digital Article:
@@ -15,8 +19,8 @@ This architecture emerged from user feedback that correctly identified "reviewer
 
 **Personas** (WHO writes):
 - Purpose: Define domain expertise for article generation
-- Selection: ONE persona per notebook (radio select)
-- Examples: Generic, Clinical, Genomics, RWD, Medical Imaging
+- Selection: `PersonaSelection` supports a **base persona** plus optional additional personas (domain + role modifier)
+- Examples (system personas): Generic, Clinical (and others under [`data/personas/system/`](../data/personas/system))
 - Impact: Influences code generation, methodology writing, terminology
 
 **Review** (HOW to improve):
@@ -55,7 +59,7 @@ This architecture emerged from user feedback that correctly identified "reviewer
 
 ### Data Models
 
-**Backend** (`backend/app/models/persona.py`):
+**Backend** ([`backend/app/models/persona.py`](../backend/app/models/persona.py)):
 ```python
 class PersonaCategory(str, Enum):
     BASE = "base"      # Generic, Clinical, Genomics, RWD, Medical Imaging
@@ -102,13 +106,13 @@ class PersonaSelection(BaseModel):
     custom_overrides: Dict[str, Any] = {}  # UNUSED (for future)
 ```
 
-**Frontend** (`frontend/src/types/persona.ts`):
+**Frontend** ([`frontend/src/types/persona.ts`](../frontend/src/types/persona.ts)):
 - TypeScript types mirror backend models
 - Ensures type safety across API boundary
 
 ### System Personas
 
-**Location**: `data/personas/system/*.json`
+**Location**: [`data/personas/system/*.json`](../data/personas/system)
 
 **Currently Active**:
 1. **Generic Data Analyst** (`generic.json`)
@@ -123,11 +127,10 @@ class PersonaSelection(BaseModel):
    - Clinical trials, CDISC standards, regulatory compliance
    - Libraries: pandas, lifelines, statsmodels, tableone
 
-**Inactive** (architectural change):
+**Internal / not user-selectable by default**:
 3. **Scientific Reviewer** (`reviewer.json`)
-   - Set `is_active: false`
-   - Reason: Reviewer is a process, not a domain expert
-   - Review functionality moved to Review system
+   - Marked `is_active: false` (hidden from normal persona listing unless `include_inactive=true`)
+   - Still used by the **Review system** as a source of prompt templates ([`backend/app/services/review_service.py`](../backend/app/services/review_service.py))
 
 **Planned (Phase 2)**:
 4. Real-World Data (RWD)
@@ -136,7 +139,7 @@ class PersonaSelection(BaseModel):
 
 ### Services
 
-**PersonaService** (`backend/app/services/persona_service.py`):
+**PersonaService** ([`backend/app/services/persona_service.py`](../backend/app/services/persona_service.py)):
 ```python
 class PersonaService:
     def __init__(self, workspace_dir: Optional[str] = None):
@@ -174,7 +177,7 @@ class PersonaService:
 
 ### API Endpoints
 
-**REST API** (`backend/app/api/personas.py`):
+**REST API** ([`backend/app/api/personas.py`](../backend/app/api/personas.py)):
 ```
 GET    /api/personas                     - List all personas
 GET    /api/personas/{slug}              - Get specific persona
@@ -188,7 +191,7 @@ PUT    /api/personas/notebooks/{id}/personas  - Update notebook selection
 
 ### System Prompt Integration
 
-**LLM Service** (`backend/app/services/llm_service.py`):
+**LLM Service** ([`backend/app/services/llm_service.py`](../backend/app/services/llm_service.py)):
 ```python
 def _build_system_prompt(self, context: Optional[Dict[str, Any]] = None) -> str:
     """Build system prompt with persona guidance."""
@@ -214,7 +217,7 @@ def _build_system_prompt(self, context: Optional[Dict[str, Any]] = None) -> str:
     return base_prompt
 ```
 
-**Notebook Service** (`backend/app/services/notebook_service.py`):
+**Notebook Service** ([`backend/app/services/notebook_service.py`](../backend/app/services/notebook_service.py)):
 ```python
 def _build_execution_context(self, notebook: Notebook, current_cell: Cell) -> Dict[str, Any]:
     """Load persona from notebook metadata and inject into context."""
@@ -239,13 +242,13 @@ def _build_execution_context(self, notebook: Notebook, current_cell: Cell) -> Di
 
 ### UI Components
 
-**PersonaTab** (`frontend/src/components/PersonaTab.tsx`):
+**PersonaTab** ([`frontend/src/components/PersonaTab.tsx`](../frontend/src/components/PersonaTab.tsx)):
 - Simplified UI - single radio select
 - Removed: domain personas, role modifiers (overcomplicated)
 - Shows: Base personas + custom personas
 - Selection stored in `notebook.metadata['personas']['base_persona']`
 
-**PersonaCard** (`frontend/src/components/PersonaCard.tsx`):
+**PersonaCard** ([`frontend/src/components/PersonaCard.tsx`](../frontend/src/components/PersonaCard.tsx)):
 - Visual card with icon, name, description
 - Color-coded by persona
 - Radio select for single selection
@@ -266,7 +269,7 @@ def _build_execution_context(self, notebook: Notebook, current_cell: Cell) -> Di
 
 ### Data Models
 
-**Backend** (`backend/app/models/review.py`):
+**Backend** ([`backend/app/models/review.py`](../backend/app/models/review.py)):
 ```python
 class ReviewSeverity(str, Enum):
     INFO = "info"
@@ -316,7 +319,7 @@ class ReviewSettings(BaseModel):
 
 ### Services
 
-**ReviewService** (`backend/app/services/review_service.py`):
+**ReviewService** ([`backend/app/services/review_service.py`](../backend/app/services/review_service.py)):
 ```python
 class ReviewService:
     def __init__(self, llm_service: Optional[LLMService] = None):
@@ -343,7 +346,7 @@ class ReviewService:
 
 ### UI Components
 
-**ReviewSettingsTab** (`frontend/src/components/ReviewSettingsTab.tsx`):
+**ReviewSettingsTab** ([`frontend/src/components/ReviewSettingsTab.tsx`](../frontend/src/components/ReviewSettingsTab.tsx)):
 - **Auto-review toggle**: Enable/disable automatic review after execution
 - **Phase selection**: Intent, Implementation, Results (checkboxes)
 - **Severity filter**: All / Warnings+Critical / Critical only (radio)
@@ -523,7 +526,7 @@ class ReviewService:
 ## Deployment Checklist
 
 - [ ] Backend restarted with new PersonaService code
-- [ ] Persona JSON files in `data/personas/system/`
+- [ ] Persona JSON files in [`data/personas/system/`](../data/personas/system)
 - [ ] Reviewer persona set to `is_active: false`
 - [ ] Frontend rebuilt with updated components
 - [ ] API endpoint `/api/personas` returns personas
@@ -553,6 +556,6 @@ curl -X PUT http://localhost:8000/api/personas/notebooks/{notebook_id}/personas 
 
 - Original Implementation Plan: `.claude/plans/refactored-coalescing-quilt.md`
 - Path Fix Documentation: `PERSONA_UI_FIX.md`
-- Backend Service: `backend/app/services/persona_service.py`
-- Frontend Components: `frontend/src/components/PersonaTab.tsx`, `ReviewSettingsTab.tsx`
-- Data Models: `backend/app/models/persona.py`, `backend/app/models/review.py`
+- Backend Service: [`backend/app/services/persona_service.py`](../backend/app/services/persona_service.py)
+- Frontend Components: [`frontend/src/components/PersonaTab.tsx`](../frontend/src/components/PersonaTab.tsx), `ReviewSettingsTab.tsx`
+- Data Models: [`backend/app/models/persona.py`](../backend/app/models/persona.py), [`backend/app/models/review.py`](../backend/app/models/review.py)

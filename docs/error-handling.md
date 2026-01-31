@@ -6,7 +6,9 @@ This document describes Digital Article's intelligent error handling and auto-re
 
 **Related Documentation:**
 - [Architecture Overview](architecture.md) - Overall system design
-- [Error Enhancement System](devnotes/error-enhancement-system.md) - Implementation details
+- [Dive-in: NotebookService](dive_ins/notebook_service.md) - Where auto-retry is orchestrated
+- [Dive-in: LLMService](dive_ins/llm_service.md) - Where ErrorAnalyzer-enhanced prompts are built
+- [Error Enhancement System](backlog/completed/0018_error_enhancement_system.md) - Implementation details
 - [Getting Started](getting-started.md) - User-facing error recovery features
 
 This document defines the **single source of truth** for error handling architecture to prevent parallel implementations and ensure consistency.
@@ -38,7 +40,7 @@ ExecutionService captures:
   - error_type, error_message, traceback, code
     ↓
 NotebookService auto-retry calls:
-  LLMService.suggest_improvements()
+  LLMService.asuggest_improvements()
     ↓
 LLMService._enhance_error_context()
     ↓
@@ -55,7 +57,7 @@ LLM generates fixed code with enhanced context
 ### Components
 
 #### 1. ErrorAnalyzer (PRIMARY - AUTHORITATIVE)
-**Location**: `backend/app/services/error_analyzer.py`
+**Location**: [`backend/app/services/error_analyzer.py`](../backend/app/services/error_analyzer.py)
 **Role**: Single source of truth for all error analysis
 **Features**:
 - Specialized analyzers for different error types
@@ -64,7 +66,7 @@ LLM generates fixed code with enhanced context
 - Extensible plugin architecture
 
 #### 2. LLMService.suggest_improvements() (INTEGRATION POINT)
-**Location**: `backend/app/services/llm_service.py`
+**Location**: [`backend/app/services/llm_service.py`](../backend/app/services/llm_service.py)
 **Role**: Routes ALL error fixing through ErrorAnalyzer
 **Responsibility**: 
 - MUST call `_enhance_error_context()` for ALL errors
@@ -72,7 +74,7 @@ LLM generates fixed code with enhanced context
 - Handles LLM communication
 
 #### 3. Basic Error Fixes (FALLBACK ONLY)
-**Location**: `backend/app/services/notebook_service.py._apply_basic_error_fixes()`
+**Location**: [`backend/app/services/notebook_service.py._apply_basic_error_fixes()`](../backend/app/services/notebook_service.py)
 **Role**: Emergency fallback when LLM service fails
 **Usage**: ONLY when `suggest_improvements()` throws exception
 **Scope**: Simple programmatic fixes only
@@ -102,10 +104,10 @@ LLM generates fixed code with enhanced context
    ]
    ```
 
-3. **All LLM error fixing MUST use suggest_improvements()**
+3. **All LLM error fixing MUST use `asuggest_improvements()`**
    ```python
    # CORRECT - goes through ErrorAnalyzer
-   fixed_code = llm_service.suggest_improvements(...)
+   fixed_code, trace_id, full_trace = await llm_service.asuggest_improvements(...)
    
    # WRONG - bypasses error analysis
    fixed_code = llm_service.llm.generate(raw_prompt)
@@ -137,26 +139,28 @@ LLM generates fixed code with enhanced context
 
 ### ✅ COMPLIANT
 - `NotebookService.execute_cell()` auto-retry loop
-- `LLMService.suggest_improvements()` 
+- `LLMService.asuggest_improvements()` 
 - `ErrorAnalyzer` system with specialized analyzers
 
-### ⚠️ NEEDS CONSOLIDATION
-- `ai_code_fix.py` - Should route through `suggest_improvements()`
-- `_apply_basic_error_fixes()` - Should be minimal fallback only
+### ✅ MOSTLY COMPLIANT (with nuance)
+- [`backend/app/api/ai_code_fix.py`](../backend/app/api/ai_code_fix.py) routes **error-like** requests through `LLMService.asuggest_improvements()` and uses a direct LLM call for non-error improvements.
+
+### ⚠️ KEEP MINIMAL
+- `_apply_basic_error_fixes()` is intended as a last-resort fallback when the LLM is unavailable.
 
 ### 🔧 REQUIRED CHANGES
 
-#### 1. Fix ai_code_fix.py
-**Current**: Direct LLM call without error analysis
-**Required**: Route through `suggest_improvements()`
+#### 1. Keep `ai_code_fix.py` aligned with ErrorAnalyzer
+**Current**: Uses `asuggest_improvements()` for error-like requests and direct LLM calls for non-error refactors.
+**Watch-out**: Any future “fix” pathways must not bypass ErrorAnalyzer for actual runtime errors.
 
 ```python
 # BEFORE (in ai_code_fix.py)
 response = llm_service.llm.generate(fix_prompt, max_tokens=2000)
 
-# AFTER
+# AFTER (error-like request)
 if error_context_available:
-    fixed_code = llm_service.suggest_improvements(
+    fixed_code, trace_id, full_trace = await llm_service.asuggest_improvements(
         prompt=user_request,
         code=current_code,
         error_message=inferred_error,

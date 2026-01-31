@@ -1,5 +1,8 @@
 # Aggregate Profile Portfolio - Design Document
 
+> **Status (proposal):** Not implemented in the current codebase.  
+> This document is a forward-looking design for multi-notebook “portfolio” aggregation. For current implemented semantics/profile export, see [`docs/export.md`](export.md) and [`backend/app/services/notebook_service.py`](../backend/app/services/notebook_service.py) (formats `analysis` / `profile`).
+
 ## Overview
 
 This document outlines the design for an **aggregate profile portfolio** feature that tracks and displays a person's skills, interests, and expertise across multiple notebooks over time.

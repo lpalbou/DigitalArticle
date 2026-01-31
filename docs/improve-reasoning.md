@@ -1,5 +1,13 @@
 # Digital Article: Critical Reasoning Enhancement
 
+> **Status (2026-01-31):** This document describes a proposed/previous “planning + critique” reasoning framework.  
+> The current codebase does **not** include `analysis_planner.py`, `analysis_critic.py`, or the `analysis_plan/*` models described below (see [`backend/app/services/`](../backend/app/services) and [`backend/app/models/`](../backend/app/models)).  
+>
+> **Current implemented quality mechanisms** are:
+> - **Auto-retry + ErrorAnalyzer** for runtime errors ([`docs/error-handling.md`](error-handling.md), [`backend/app/services/error_analyzer.py`](../backend/app/services/error_analyzer.py), [`backend/app/services/notebook_service.py`](../backend/app/services/notebook_service.py))
+> - **Review system** (cell + article review) ([`docs/dive_ins/review_service.md`](dive_ins/review_service.md), [`backend/app/services/review_service.py`](../backend/app/services/review_service.py))
+> - **Prompt/system-prompt improvements** in [`backend/app/services/llm_service.py`](../backend/app/services/llm_service.py)
+
 ## Executive Summary
 
 **Problem**: Digital Article's LLM code generation occasionally produces logically flawed analyses:
@@ -663,20 +671,20 @@ A two-sample t-test was performed to compare...
 - `tests/reasoning/test_cross_domain.py` (230 lines) - NEW
 
 ### Modified (3 files, ~360 lines changed):
-- `backend/app/services/llm_service.py` (lines 326-392: +66 lines)
-- `backend/app/services/error_analyzer.py` (lines 117-373: +265 lines)
-- `backend/app/services/notebook_service.py` (NEW: +82 lines for integration at lines 28-31, 787-856, 1061-1121, 1217-1228)
+- [`backend/app/services/llm_service.py`](../backend/app/services/llm_service.py) (lines 326-392: +66 lines)
+- [`backend/app/services/error_analyzer.py`](../backend/app/services/error_analyzer.py) (lines 117-373: +265 lines)
+- [`backend/app/services/notebook_service.py`](../backend/app/services/notebook_service.py) (NEW: +82 lines for integration at lines 28-31, 787-856, 1061-1121, 1217-1228)
 
 ### Documentation:
-- `docs/improve-reasoning.md` (this file)
+- [`docs/improve-reasoning.md`](improve-reasoning.md) (this file)
 
 ---
 
 ## References
 
 **Related Documentation**:
-- `docs/error-handling.md` - Error enhancement system
-- `.claude/CLAUDE.md` - Project status and investigations
+- [`docs/error-handling.md`](error-handling.md) - Error enhancement system
+- `.claude/CLAUDE.md` - Project status and investigations (not tracked in this repository)
 
 **Key Concepts**:
 - Circular reasoning: Predicting assignment variables from characteristics

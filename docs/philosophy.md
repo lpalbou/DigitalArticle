@@ -132,7 +132,7 @@ with coefficient of variation indicating moderate heterogeneity (CV = 28%)."
 
 **Implementation**: Auto-retry mechanism with LLM self-correction
 ```
-Execution fails → Extract error traceback → Ask LLM to fix → Re-execute → (Repeat up to 3x)
+Execution fails → Extract error traceback → Ask LLM to fix → Re-execute → (Repeat up to 5x)
 ```
 
 **Rationale**:

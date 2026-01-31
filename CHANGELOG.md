@@ -5,6 +5,20 @@ All notable changes to the Digital Article project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Documentation overhaul to eliminate “truth drift”**
+  - Updated `README.md` and `docs/getting-started.md` to reflect the current packaging/config reality (pyproject-based installs, config surfaces, current Docker options).
+  - Rebuilt `docs/architecture.md` with a canonical, code-grounded section + mermaid diagrams + links to component dive-ins.
+  - Added a navigable documentation graph:
+    - `docs/overview.md` (doc index)
+    - `docs/data_flow.md` (key call graphs)
+    - `docs/knowledge_base.md` (critical non-obvious insights; deprecated items tracked, never deleted)
+    - `docs/troubleshooting.md` (common failures)
+    - `docs/dive_ins/*` (critical component docs)
+  - Marked historical planning/devnote docs explicitly as such to avoid misleading readers.
+
 
 ## [0.3.13] - 2025-12-17
 
@@ -793,7 +807,7 @@ Unified Image (0.2.1):
   - `docs/architecture.md` - Complete system architecture documentation with diagrams
   - `docs/philosophy.md` - Design principles and philosophical foundations
   - `docs/getting-started.md` - Step-by-step installation and tutorial guide
-  - `ROADMAP.md` - Detailed development roadmap through 2027
+  - `docs/backlog/README.md` - Canonical planning backlog (supersedes legacy roadmap)
   - Updated `README.md` - Comprehensive project overview with feature comparison
 
 ### Summary
@@ -814,7 +828,7 @@ This release represents the first stable beta version of Digital Article with co
 - Code executes in same process as server (not production-safe)
 - JSON file storage (not scalable)
 - No real-time collaboration
-- See ROADMAP.md for planned improvements
+- See docs/backlog/README.md for planned improvements
 
 ## [0.1.0] - 2025-10-16
 
@@ -1012,7 +1026,7 @@ This initial release (v0.0.0) provided a complete, working implementation of the
 
 ## Future Plans
 
-See [ROADMAP.md](ROADMAP.md) for detailed development plans through 2027.
+See [`docs/backlog/README.md`](docs/backlog/README.md) for canonical planning.
 
 **Near-term priorities**:
 - Enhanced error diagnostics

@@ -5,6 +5,12 @@
 **Root Cause**: No persistence mechanism for execution state
 **Solution**: Automatic state persistence system with pickle-based serialization
 
+> **Status (2026-01-31):** Verified against current code. One important nuance in today’s implementation:
+> - **Workspace files** (uploads, per-user settings) live under `Config.get_workspace_root()` (default from repo [`config.json`](../config.json): [`data/workspace`](../data/workspace)) via [`backend/app/services/data_manager_clean.py`](../backend/app/services/data_manager_clean.py)
+> - **Execution state snapshots** (pickle) are stored under [`backend/notebook_workspace/`](../backend/notebook_workspace) by default via [`backend/app/services/state_persistence_service.py::StatePersistenceService`](../backend/app/services/state_persistence_service.py)
+>
+> This means “files in context” and “state snapshots” are currently persisted in **different roots**.
+
 ---
 
 ## Table of Contents
@@ -110,28 +116,30 @@ Digital Article's core value proposition is enabling **computational notebooks t
 ┌─────────────────────────────────────────────────────────────┐
 │ Storage on Disk                                             │
 │                                                              │
-│ backend/notebook_workspace/{notebook_id}/                   │
-│ ├── data/                 # User data files                 │
-│ └── state/               # NEW: Persisted state             │
-│     ├── checkpoint.pkl   # Complete globals dictionary      │
-│     └── metadata.json   # Save time, count, size, checksum │
+│ Workspace files (uploads, settings):                         │
+│   {WORKSPACE_DIR}/{notebook_id}/data/                        │
+│                                                              │
+│ Execution state snapshots (pickle):                          │
+│   backend/notebook_workspace/{notebook_id}/state/            │
+│     ├── checkpoint.pkl   # Complete globals dictionary       │
+│     └── metadata.json    # Save time, count, size, checksum  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### Storage Structure
 
 ```
+{WORKSPACE_DIR}/
+└── {notebook_id}/
+    └── data/                         # user-uploaded files (DataManagerClean)
+        ├── patient_data.csv
+        └── results.xlsx
+
 backend/notebook_workspace/
 └── {notebook_id}/
-    ├── data/                         # Existing: user-uploaded files
-    │   ├── patient_data.csv
-    │   └── results.xlsx
-    └── state/                       # NEW: execution state
-        ├── checkpoint.pkl           # All variables (pickled)
-        ├── metadata.json           # State metadata
-        └── backup/                 # Optional: rotating backups
-            ├── checkpoint_1.pkl
-            └── checkpoint_2.pkl
+    └── state/                        # execution state snapshots (StatePersistenceService)
+        ├── checkpoint.pkl
+        └── metadata.json
 ```
 
 **metadata.json structure**:
@@ -152,7 +160,7 @@ backend/notebook_workspace/
 
 ### Component 1: StatePersistenceService
 
-**File**: `backend/app/services/state_persistence_service.py`
+**File**: [`backend/app/services/state_persistence_service.py`](../backend/app/services/state_persistence_service.py)
 
 **Core Methods**:
 
@@ -219,7 +227,7 @@ Removes saved state (for troubleshooting or forcing fresh start).
 
 ### Component 2: ExecutionService Integration
 
-**File**: `backend/app/services/execution_service.py`
+**File**: [`backend/app/services/execution_service.py`](../backend/app/services/execution_service.py)
 
 #### Initialization (Lines 83-85)
 
@@ -287,7 +295,7 @@ except Exception as e:
 
 ### Component 3: API Endpoints
 
-**File**: `backend/app/api/notebooks.py` (Lines 286-388)
+**File**: [`backend/app/api/notebooks.py`](../backend/app/api/notebooks.py) (Lines 286-388)
 
 #### `GET /api/notebooks/{notebook_id}/state`
 

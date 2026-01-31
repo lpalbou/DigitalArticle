@@ -2,6 +2,11 @@
 
 Digital Article provides multiple export formats to support different use cases, from data archival to scientific publication. This document details the export system architecture and formats.
 
+> **Status (2026-01-31):** Export behavior is grounded in:
+> - [`backend/app/api/notebooks.py::export_notebook()`](../backend/app/api/notebooks.py) (format routing + media types)
+> - [`backend/app/services/notebook_service.py::NotebookService.export_notebook()`](../backend/app/services/notebook_service.py) (format implementations)
+> - [`frontend/src/services/api.ts::notebookAPI.export()`](../frontend/src/services/api.ts) and `notebookAPI.exportPDF()`
+
 ## Overview
 
 The export system is designed with the following principles:
@@ -11,6 +16,16 @@ The export system is designed with the following principles:
 - **Format Flexibility**: Support multiple output formats for different audiences
 
 ## Export Formats
+
+### Endpoint summary (source of truth)
+
+- **Non-streaming export**: `GET /api/notebooks/{notebook_id}/export?format=...`
+  - Implemented in [`backend/app/api/notebooks.py`](../backend/app/api/notebooks.py)
+  - Formats: `json`, `jsonld`, `semantic`, `analysis`, `profile`, `html`, `markdown`, `pdf`
+- **Streaming exports (SSE)**:
+  - `POST /api/notebooks/{notebook_id}/export/semantic/stream`
+  - `POST /api/notebooks/{notebook_id}/export/pdf/stream`
+  - Implemented in [`backend/app/api/notebooks.py`](../backend/app/api/notebooks.py) and delegated to `NotebookService`
 
 ### JSON Export
 
@@ -29,6 +44,8 @@ The JSON export is the primary format for data interchange, backup, and version 
   "cells": [ ... ]
 }
 ```
+
+**Note on `digital_article.version`**: this is the **export schema/version**, not necessarily the package version. See `NotebookService._create_clean_export_structure()` for the current value.
 
 #### Detailed Schema
 
@@ -64,7 +81,9 @@ The JSON export is the primary format for data interchange, backup, and version 
     "created_at": "...",          // ISO 8601 creation timestamp
     "updated_at": "...",          // ISO 8601 last update timestamp
     "version": "1.0.0",           // Article version (user-defined)
-    "tags": ["tag1", "tag2"]      // User-defined tags
+    "tags": ["tag1", "tag2"],     // User-defined tags
+    "abstract": "...",            // Optional: generated abstract
+    "abstract_generated_at": "..."// Optional: timestamp
   }
 }
 ```
@@ -170,21 +189,32 @@ PDF export generates publication-ready scientific articles with two variants:
 
 The PDF export uses professional typography and scientific article formatting suitable for academic publication.
 
+**Parameters**
+
+- `format=pdf`
+- `include_code=true|false` (append code when true)
+
+See: [`backend/app/api/notebooks.py::export_notebook()`](../backend/app/api/notebooks.py) and `NotebookService.export_notebook_pdf()`.
+
 ### HTML Export
 
-HTML export creates standalone web pages with:
-- Interactive Plotly charts (if present)
-- Formatted code blocks with syntax highlighting
-- Responsive design for web viewing
-- Self-contained (no external dependencies)
+HTML export is currently a **minimal placeholder** implementation:
+
+- Implemented by: [`backend/app/services/notebook_service.py::NotebookService._export_to_html()`](../backend/app/services/notebook_service.py)
+- Current behavior:
+  - Includes notebook title/description/author
+  - Includes **prompt + code** for `prompt` cells
+  - Does **not** embed execution outputs, methodology text, plots, or tables yet
 
 ### Markdown Export
 
-Markdown export provides:
-- Version control friendly format
-- Human-readable structure
-- Compatible with documentation systems
-- Suitable for GitHub, GitLab, etc.
+Markdown export is designed for version-control-friendly exports:
+
+- Implemented by: [`backend/app/services/notebook_service.py::NotebookService._export_to_markdown()`](../backend/app/services/notebook_service.py)
+- Current behavior:
+  - Includes prompts and code blocks
+  - Includes `stdout` for successful executions (when present)
+  - Does **not** include methodology text or rich outputs (plots/tables) yet
 
 ## Usage Examples
 
@@ -259,9 +289,9 @@ While Digital Article currently focuses on export, the clean JSON structure is d
 ## Technical Implementation
 
 The export system is implemented in:
-- **Backend**: `backend/app/services/notebook_service.py` - `_create_clean_export_structure()`
-- **Frontend**: `frontend/src/services/api.ts` - `notebookAPI.export()`
-- **API**: `backend/app/api/notebooks.py` - `/export` endpoint
+- **Backend**: [`backend/app/services/notebook_service.py`](../backend/app/services/notebook_service.py) - `_create_clean_export_structure()`
+- **Frontend**: [`frontend/src/services/api.ts`](../frontend/src/services/api.ts) - `notebookAPI.export()`
+- **API**: [`backend/app/api/notebooks.py`](../backend/app/api/notebooks.py) - `/export` endpoint
 
 ### Key Design Decisions
 

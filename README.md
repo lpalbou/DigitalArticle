@@ -1,6 +1,6 @@
 # Digital Article
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![React 18](https://img.shields.io/badge/react-18.2-blue.svg)](https://reactjs.org/)
 [![FastAPI](https://img.shields.io/badge/fastapi-0.104+-green.svg)](https://fastapi.tiangolo.com/)
 
@@ -30,13 +30,14 @@ Digital Article inverts the traditional computational notebook paradigm. Instead
 
 - **Natural Language Analysis**: Write prompts like "create a heatmap of gene correlations" instead of Python code
 - **Intelligent Code Generation**: LLM-powered code generation using AbstractCore (supports LMStudio, Ollama, OpenAI, and more)
-- **Auto-Retry Error Fixing**: System automatically debugs and fixes generated code (up to 3 attempts)
+- **Auto-Retry Error Fixing**: System automatically debugs and fixes generated code (up to 5 attempts)
 - **Scientific Methodology Generation**: Automatically creates article-style explanations of your analysis
 - **Rich Output Capture**: Matplotlib plots, Plotly interactive charts, Pandas tables, and text output
 - **Publication-Ready PDF Export**: Generate scientific article PDFs with methodology, results, and optional code
 - **Transparent Code Access**: View, edit, and understand all generated code
-- **Persistent Execution Context**: Variables and DataFrames persist across cells (like Jupyter)
+- **Persistent Execution Context**: Variables persist across cells, and can be restored after backend restarts
 - **Workspace Isolation**: Each notebook has its own data workspace
+- **AI Review (Optional)**: Generate a peer-review style critique of your article with trace capture and SSE streaming
 
 ## Who Is This For?
 
@@ -102,18 +103,14 @@ When running locally, the `config.json` at the root should use relative paths:
 
 ### Docker Deployment
 
-We provide **Monolithic** (single container) and **3-Tier** (microservices) deployment options.
+We provide **2-Tiers** (default: frontend+backend, external LLM), **Monolithic** (single container, optional bundled Ollama), and **3-Tier** (docker-compose: frontend+backend+ollama) deployment options.
 
-#### Option A: Monolithic (Simplest)
-Best for quick deployment or platforms that accept a single Dockerfile (Render, Railway).
+#### Option A: 2-Tiers (Default / Recommended)
+Best for most deployments: one container for frontend+backend that connects to an **external** LLM server (LMStudio/Ollama/vLLM/OpenAI-compatible) via environment variables.
 
 1. **Copy the appropriate Dockerfile to root:**
    ```bash
-   # For Standard CPU (Linux/Intel)
-   cp docker/monolithic/Dockerfile Dockerfile
-   
-   # For NVIDIA GPU
-   cp docker/monolithic/Dockerfile.nvidia Dockerfile
+   cp docker/2-tiers/Dockerfile Dockerfile
    ```
 
 2. **Build and Run:**
@@ -121,6 +118,15 @@ Best for quick deployment or platforms that accept a single Dockerfile (Render, 
    docker build -t digital-article .
    docker run -p 80:80 -v ./data:/app/data digital-article
    ```
+
+#### Option B: Monolithic (Bundled Ollama)
+Best for self-contained deployments (or NVIDIA GPU servers via `Dockerfile.nvidia`).
+
+```bash
+cp docker/monolithic/Dockerfile Dockerfile
+docker build -t digital-article .
+docker run -p 80:80 -v ./data:/app/data digital-article
+```
 
 #### ⚡ Performance on Apple Silicon (M1/M2/M3)
 
@@ -161,17 +167,17 @@ When running in Docker, the container uses environment variables to override pat
 
 ## LLM Configuration
 
-Digital Article requires an LLM provider to generate code from prompts. The system provides flexible configuration options:
+Digital Article requires an LLM provider to generate code from prompts. Configuration is intentionally flexible (local servers, cloud APIs, Docker).
 
-### Global Configuration
-- Click the **Settings** button in the header to select your provider and model
-- Changes persist across sessions and apply to all new notebooks
-- Configuration is saved to `config.json` in the project root
+### What actually stores the configuration (code-as-truth)
+- **Project config (global)**: `config.json` (updated by `POST /api/llm/providers/select` in `backend/app/api/llm.py`)
+- **Per-user settings (local persistence)**: stored under `{WORKSPACE_DIR}/user_settings/{username}.json` (served by `GET/PUT /api/settings` in `backend/app/api/settings.py`)
+- **Per-notebook fields (metadata)**: `Notebook.llm_provider` / `Notebook.llm_model` in `backend/app/models/notebook.py` (used by `NotebookService.execute_cell()` to re-create the `LLMService` when needed)
 
 ### Per-Notebook Configuration
-- Each notebook can use a different provider/model if needed
-- New notebooks automatically inherit the global configuration
-- Notebook-specific settings override global defaults during execution
+- Each notebook stores its own provider/model fields.
+- During code generation, `backend/app/services/notebook_service.py::NotebookService.execute_cell()` will re-initialize `LLMService` if the notebook config differs from the currently loaded one.
+- Note: Today this still runs in a **single backend process** with shared services (single-user / small-team assumptions).
 
 ### Visual Feedback
 - The **status footer** at the bottom shows the current provider, model, and context size
@@ -187,27 +193,12 @@ All configuration works seamlessly when accessing Digital Article from remote ma
 
 **Prompt:**
 ```
-Load gene_expression.csv and show the distribution of expression values
+Load the uploaded CSV file and show the distribution of values in the main measurement column
 ```
 
 **Generated Code:**
 ```python
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-df = pd.read_csv('data/gene_expression.csv')
-
-plt.figure(figsize=(10, 6))
-sns.histplot(df.values.flatten(), bins=50, kde=True)
-plt.title('Distribution of Gene Expression Values')
-plt.xlabel('Expression Level')
-plt.ylabel('Frequency')
-plt.show()
-
-print(f"Dataset shape: {df.shape}")
-print(f"Mean expression: {df.values.mean():.2f}")
-print(f"Std expression: {df.values.std():.2f}")
+# Example only — actual generated code depends on your uploaded file
 ```
 
 **Generated Methodology:**
@@ -281,20 +272,32 @@ Digital Article is built on the belief that **analytical tools should adapt to h
 
 ## Documentation
 
-- [Getting Started Guide](docs/getting-started.md) - Installation and first analysis
-- [Architecture Documentation](docs/architecture.md) - System design and component breakdown
-- [Error Handling System](docs/error-handling.md) - Intelligent error recovery and auto-retry system
-- [Philosophy](docs/philosophy.md) - Design principles and motivation
-- [Roadmap](ROADMAP.md) - Planned features and development timeline
+- **Start here**: [Getting Started](docs/getting-started.md)
+- **Canonical map**: [Architecture](docs/architecture.md)
+- **Common fixes**: [Troubleshooting](docs/troubleshooting.md)
+- **Docs index**: [Documentation overview](docs/overview.md)
+- **Limitations / production readiness**: [Limitations](docs/limitations.md)
+- **Core systems**:
+  - [Error handling](docs/error-handling.md)
+  - [Export](docs/export.md)
+  - [Docker containerization](docs/docker-containerization.md)
+  - [Variable/state persistence](docs/variable-state-persistence.md)
+  - [Personas + Review](docs/persona-and-review-architecture.md)
+- **Dive-ins (critical components)**: see [`docs/dive_ins/`](docs/dive_ins/)
+- **Diagrams**: [Data flow](docs/data_flow.md)
+- **Accumulated insights**: [Knowledge base](docs/knowledge_base.md)
+- **Project**:
+  - [Philosophy](docs/philosophy.md)
+- [Backlog (canonical planning)](docs/backlog/README.md) - Planned features and development timeline
 
 ## Current Status
 
-**Version**: 0.3.12 (Beta)
+**Version**: 0.3.13 (Beta)
 
 **Working Features**:
 - ✅ Natural language to code generation
 - ✅ Code execution with rich output capture
-- ✅ Auto-retry error correction (up to 3 attempts)
+- ✅ Auto-retry error correction (up to 5 attempts)
 - ✅ Scientific methodology generation
 - ✅ Matplotlib and Plotly visualization support
 - ✅ Pandas DataFrame capture and display
@@ -302,20 +305,9 @@ Digital Article is built on the belief that **analytical tools should adapt to h
 - ✅ Scientific PDF export
 - ✅ File upload and workspace management
 - ✅ Persistent execution context across cells
+ - ✅ Article review (SSE streaming + trace capture)
 
-**Known Limitations**:
-- ⚠️ Single-user deployment only (no multi-user authentication)
-- ⚠️ Code execution in same process as server (not production-safe)
-- ⚠️ JSON file storage (not scalable to many notebooks)
-- ⚠️ No real-time collaboration
-- ⚠️ LLM latency makes it unsuitable for real-time applications
-
-**Production Readiness**: This is a research prototype suitable for single-user or small team deployment. Production use requires:
-- Containerized code execution
-- Database storage (PostgreSQL)
-- Authentication and authorization
-- Job queue for LLM requests
-- See [Architecture - Deployment Considerations](docs/architecture.md#deployment-considerations)
+**Limitations / Production Readiness**: See [docs/limitations.md](docs/limitations.md).
 
 ## Example Use Cases
 
@@ -347,33 +339,16 @@ Digital Article is built on the belief that **analytical tools should adapt to h
 | Natural language prompts | ✅ Primary | ❌ | ✅ | ❌ |
 | Code transparency | ✅ Always visible | ✅ | ⚠️ Limited | ⚠️ Limited |
 | Local LLM support | ✅ | ❌ | ❌ | ❌ |
-| Auto-error correction | ✅ 3 retries | ❌ | ⚠️ Manual | ❌ |
+| Auto-error correction | ✅ 5 retries | ❌ | ⚠️ Manual | ❌ |
 | Scientific methodology | ✅ Auto-generated | ❌ | ❌ | ❌ |
 | Publication PDF export | ✅ | ⚠️ Via nbconvert | ❌ | ❌ |
 | Persistent context | ✅ | ✅ | ⚠️ Session-based | ✅ |
 | Self-hosted | ✅ | ✅ | ❌ | ❌ |
 
-## Roadmap Highlights
+## Project planning (canonical)
 
-**Near Term (Q2 2025)**:
-- Enhanced LLM prompt templates for specific domains
-- Version control integration (git-style cell history)
-- Improved error diagnostics and suggestions
-- Additional export formats (LaTeX, Quarto)
-
-**Medium Term (Q3-Q4 2025)**:
-- Collaborative editing (real-time multi-user)
-- Database backend (PostgreSQL)
-- Containerized code execution (Docker)
-- Template library (common analysis workflows)
-
-**Long Term (2026+)**:
-- LLM-suggested analysis strategies
-- Active learning from user corrections
-- Integration with laboratory information systems
-- Plugin architecture for domain-specific extensions
-
-**Full roadmap**: See [ROADMAP.md](ROADMAP.md)
+- **Backlog (canonical planning)**: [`docs/backlog/README.md`](docs/backlog/README.md)
+- **Legacy roadmap archive**: [`docs/backlog/completed/0032_legacy_roadmap.md`](docs/backlog/completed/0032_legacy_roadmap.md)
 
 ## Contributing
 
@@ -389,7 +364,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT License - see [`LICENSE`](LICENSE) file for details.
 
 ## Citation
 
@@ -415,7 +390,7 @@ If you use Digital Article in your research, please cite:
 
 - **Issues**: [GitHub Issues](https://github.com/lpalbou/digitalarticle/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/lpalbou/digitalarticle/discussions)
-- **Email**: contact@abstractcore.ai
+- **Email**: lpalbou@gmail.com
 
 ---
 
