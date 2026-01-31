@@ -83,8 +83,8 @@ These were decomposed from legacy `ROADMAP.md` and require review before promoti
 
 ### Proposed (needs review)
 
-- [`docs/backlog/proposed/0026_add_lint_report_to_cell_execution.md`](proposed/0026_add_lint_report_to_cell_execution.md)
-- [`docs/backlog/proposed/0027_auto_fix_safe_lint_issues.md`](proposed/0027_auto_fix_safe_lint_issues.md)
+- [`docs/backlog/proposed/0066_cell_rerun_context_hygiene.md`](proposed/0066_cell_rerun_context_hygiene.md)
+- [`docs/backlog/proposed/0067_guided_rerun_keep_context_with_user_comment.md`](proposed/0067_guided_rerun_keep_context_with_user_comment.md)
 
 ### Planned (active)
 
@@ -96,6 +96,8 @@ These were decomposed from legacy `ROADMAP.md` and require review before promoti
 - [`docs/backlog/planned/0008_publish_immutable_releases_doi_lineage.md`](planned/0008_publish_immutable_releases_doi_lineage.md)
 - [`docs/backlog/planned/0009_logic_self_correction_loop.md`](planned/0009_logic_self_correction_loop.md)
 - [`docs/backlog/planned/0010_production_hardening_execution_sandbox.md`](planned/0010_production_hardening_execution_sandbox.md)
+- [`docs/backlog/planned/0026_add_lint_report_to_cell_execution.md`](planned/0026_add_lint_report_to_cell_execution.md)
+- [`docs/backlog/planned/0027_auto_fix_safe_lint_issues.md`](planned/0027_auto_fix_safe_lint_issues.md)
 
 ### Completed
 
