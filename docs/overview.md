@@ -38,6 +38,10 @@ All dive-ins start with a summary, how the component fits in the bigger picture,
 
 - [`docs/knowledge_base.md`](knowledge_base.md) — accumulated “do not forget” truths and pitfalls; deprecated insights are moved to a DEPRECATED section (never deleted)
 
+## Semantic modeling references (optional)
+
+- [`docs/semantic_models.md`](semantic_models.md) — ontology selection + JSON-LD context patterns (reference)
+
 ## Persona content (examples and workflows)
 
 - [`examples/persona/persona-ms-examples.md`](../examples/persona/persona-ms-examples.md)

@@ -118,6 +118,7 @@ These were decomposed from legacy `ROADMAP.md` and require review before promoti
 - [`docs/backlog/completed/0028_async_llm_calls_smart_autosave.md`](completed/0028_async_llm_calls_smart_autosave.md) (legacy planning migration)
 - [`docs/backlog/completed/0029_cell_output_display_improvement_proposal.md`](completed/0029_cell_output_display_improvement_proposal.md) (legacy planning migration)
 - [`docs/backlog/completed/0030_critique_driven_retry_loop_proposal.md`](completed/0030_critique_driven_retry_loop_proposal.md) (legacy planning migration)
+- [`docs/backlog/completed/0065_repo_root_folder_rationalization_data_assets_examples.md`](completed/0065_repo_root_folder_rationalization_data_assets_examples.md)
 - [`docs/backlog/completed/0031_digital_article_implementation_plan.md`](completed/0031_digital_article_implementation_plan.md) (legacy planning migration)
 
 ### Recurrent (always active; trigger-based)

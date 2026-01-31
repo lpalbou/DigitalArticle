@@ -1,3 +1,8 @@
+# Semantic models (reference)
+
+> **Status (2026-01-31):** Reference document (not a canonical “how to run the app” guide).  
+> This file was moved from [`assets/`](../assets/) into [`docs/`](.) so `assets/` remains media-only.
+
 # Ontology Selection and Implementation Guide for Semantic Experts - Part 1
 
 ## 1. Selected Ontologies
