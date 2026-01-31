@@ -313,8 +313,8 @@ async def generate_abstract(notebook_id: str):
 @router.post("/{notebook_id}/export/semantic/stream")
 async def stream_semantic_export(
     notebook_id: str,
-    type: str = Query(..., regex="^(analysis|profile)$"),
-    action: str = Query("download", regex="^(download|view)$"),
+    type: str = Query(..., pattern="^(analysis|profile)$"),
+    action: str = Query("download", pattern="^(download|view)$"),
 ):
     """Stream semantic graph extraction progress via SSE.
 
