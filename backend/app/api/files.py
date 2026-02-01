@@ -7,13 +7,16 @@ in notebook workspaces.
 
 import os
 import mimetypes
+from pathlib import Path
 from typing import List, Dict, Any
 from fastapi import APIRouter, HTTPException, status, UploadFile, File
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 from pydantic import BaseModel
 
 from ..services.data_manager_clean import get_data_manager
+from ..services.file_types import DICOM_EXTENSIONS, NIFTI_EXTENSIONS, get_effective_extension
 from ..services.h5_service import h5_processor, H5JSONEncoder
+from ..services.upload_service import UploadError
 
 router = APIRouter()
 
@@ -47,26 +50,35 @@ async def get_file_content(notebook_id: str, file_path: str):
         data_manager = get_data_manager(notebook_id)
         
         # Get the full path to the file
-        workspace_path = data_manager.get_workspace_path()
-        full_file_path = os.path.join(workspace_path, file_path)
-        
+        workspace_path = Path(data_manager.get_workspace_path()).resolve()
+        full_file_path = (workspace_path / file_path).resolve()
+
         # Security check: ensure the file is within the workspace
-        if not os.path.abspath(full_file_path).startswith(os.path.abspath(workspace_path)):
+        if not full_file_path.is_relative_to(workspace_path):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access denied: file is outside workspace"
             )
         
         # Check if file exists
-        if not os.path.exists(full_file_path):
+        if not full_file_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"File not found: {file_path}"
             )
         
         # Get file info
-        file_size = os.path.getsize(full_file_path)
-        content_type, _ = mimetypes.guess_type(full_file_path)
+        file_size = full_file_path.stat().st_size
+        content_type, _ = mimetypes.guess_type(str(full_file_path))
+
+        # DICOM / NIfTI are binary medical imaging formats. We don't preview them as text/base64 here
+        # to avoid huge payloads and UI freezes. Use the download endpoint instead.
+        ext = get_effective_extension(full_file_path.name)
+        if ext in DICOM_EXTENSIONS or ext in NIFTI_EXTENSIONS:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail="Preview not supported for DICOM/NIfTI. Use the download endpoint instead."
+            )
         
         # For very large files, limit the content we read
         max_size = 100 * 1024 * 1024  # 100MB limit
@@ -77,10 +89,10 @@ async def get_file_content(notebook_id: str, file_path: str):
             )
         
         # Special handling for H5 files - return metadata instead of raw content
-        if h5_processor.is_h5_file(full_file_path):
+        if h5_processor.is_h5_file(str(full_file_path)):
             try:
                 # Get the processed H5 metadata (this is what we want to show)
-                h5_metadata = h5_processor.process_file(full_file_path)
+                h5_metadata = h5_processor.process_file(str(full_file_path))
                 # Return the metadata as JSON content using custom encoder
                 import json
                 content = json.dumps(h5_metadata, indent=2, cls=H5JSONEncoder)
@@ -96,7 +108,7 @@ async def get_file_content(notebook_id: str, file_path: str):
                 content = json.dumps(error_info, indent=2, cls=H5JSONEncoder)
                 content_type = 'application/json'
         # Special handling for Excel files - return structured data as JSON
-        elif full_file_path.endswith(('.xlsx', '.xls')):
+        elif str(full_file_path).endswith(('.xlsx', '.xls')):
             try:
                 import json
                 import pandas as pd
@@ -104,7 +116,7 @@ async def get_file_content(notebook_id: str, file_path: str):
                 import openpyxl
                 
                 # Get sheet names and basic structure
-                wb = openpyxl.load_workbook(full_file_path, read_only=True)
+                wb = openpyxl.load_workbook(str(full_file_path), read_only=True)
                 sheet_names = wb.sheetnames
                 wb.close()
                 
@@ -118,7 +130,7 @@ async def get_file_content(notebook_id: str, file_path: str):
                 # Load each sheet with pandas for preview
                 for sheet_name in sheet_names:
                     try:
-                        df = pd.read_excel(full_file_path, sheet_name=sheet_name)
+                        df = pd.read_excel(str(full_file_path), sheet_name=sheet_name)
                         
                         # Replace NaN/Infinity with None for JSON compatibility
                         df_clean = df.head(10).replace({np.nan: None, np.inf: None, -np.inf: None})
@@ -209,12 +221,15 @@ async def upload_file(notebook_id: str, file: UploadFile = File(...)):
     try:
         # Get the data manager for this notebook
         data_manager = get_data_manager(notebook_id)
-        
-        # Read file content
-        content = await file.read()
-        
-        # Upload file using data manager
-        files = data_manager.upload_file(file.filename, content)
+
+        # Stream upload to avoid loading large files fully into memory
+        try:
+            files = data_manager.upload_file_stream(file.filename, file.file)
+        except UploadError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
         
         return files
         
@@ -224,6 +239,43 @@ async def upload_file(notebook_id: str, file: UploadFile = File(...)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to upload file: {str(e)}"
+        )
+
+
+@router.get("/{notebook_id}/download")
+async def download_file(notebook_id: str, file_path: str):
+    """Download a file from the notebook's workspace."""
+    try:
+        data_manager = get_data_manager(notebook_id)
+
+        workspace_path = Path(data_manager.get_workspace_path()).resolve()
+        full_file_path = (workspace_path / file_path).resolve()
+
+        if not full_file_path.is_relative_to(workspace_path):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: file is outside workspace"
+            )
+
+        if not full_file_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"File not found: {file_path}"
+            )
+
+        content_type, _ = mimetypes.guess_type(str(full_file_path))
+        return FileResponse(
+            path=str(full_file_path),
+            filename=full_file_path.name,
+            media_type=content_type or "application/octet-stream",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download file: {str(e)}"
         )
 
 

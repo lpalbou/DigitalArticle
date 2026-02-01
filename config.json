@@ -1,7 +1,7 @@
 {
   "llm": {
-    "provider": "openai-compatible",
-    "model": "qwen/qwen3-next-80b"
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-5-20250929"
   },
   "paths": {
     "notebooks_dir": "data/notebooks",

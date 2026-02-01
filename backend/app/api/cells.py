@@ -20,7 +20,7 @@ router = APIRouter()
 
 
 @router.get("/{cell_id}/status")
-async def get_cell_status(cell_id: str):
+async def get_cell_status(cell_id: str, include_scientific_explanation: bool = False):
     """
     Get the current status of a cell (including methodology writing status).
 
@@ -38,13 +38,29 @@ async def get_cell_status(cell_id: str):
                 detail=f"Cell {cell_id} not found"
             )
 
-        return {
+        execution_meta = cell.metadata.get("execution", {}) if cell.metadata else {}
+
+        response = {
             "cell_id": cell_id,
             "is_executing": cell.is_executing,
+            "is_retrying": cell.is_retrying,
+            "retry_count": cell.retry_count,
+            "max_retries": execution_meta.get("max_retries", 5),
             "is_writing_methodology": cell.is_writing_methodology,
+            "methodology_attempt": execution_meta.get("methodology_attempt", 0),
+            "max_methodology_retries": execution_meta.get("max_methodology_retries", 3),
+            "execution_phase": execution_meta.get("phase"),
+            "execution_message": execution_meta.get("message"),
+            "execution_updated_at": execution_meta.get("updated_at"),
             "has_scientific_explanation": bool(cell.scientific_explanation),
-            "scientific_explanation": cell.scientific_explanation
+            "scientific_explanation_length": len(cell.scientific_explanation or ""),
         }
+
+        # Keep the endpoint light by default (polling-friendly). Allow opting-in to the full text.
+        if include_scientific_explanation:
+            response["scientific_explanation"] = cell.scientific_explanation
+
+        return response
 
     except Exception as e:
         logger.error(f"Error getting cell status: {e}")

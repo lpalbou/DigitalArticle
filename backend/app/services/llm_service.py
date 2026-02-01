@@ -604,6 +604,24 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
 
         user_prompt = ""
 
+        # Guided rerun: user provided a "delta" instruction to modify prior results/code.
+        # Keep this highly visible so the model focuses on the requested change (not extra initiative).
+        if context and context.get("rerun_comment"):
+            user_prompt += "\n" + "=" * 80 + "\n"
+            user_prompt += "🧭 GUIDED RERUN (PARTIAL REWRITE)\n"
+            user_prompt += "=" * 80 + "\n\n"
+            user_prompt += "The user wants a targeted change to the current cell (do NOT discard the whole approach).\n"
+            user_prompt += "Prefer minimal edits to the existing code unless a larger change is strictly required.\n\n"
+            user_prompt += f"User rerun comment (delta request): {context['rerun_comment']}\n\n"
+
+            current_cell_ctx = context.get("current_cell_context") or {}
+            prev_code = current_cell_ctx.get("previous_code") or ""
+            if prev_code.strip():
+                user_prompt += "Current cell previous code (modify this):\n"
+                user_prompt += "-" * 60 + "\n"
+                user_prompt += prev_code + "\n"
+                user_prompt += "-" * 60 + "\n\n"
+
         # FIRST: Show available variables prominently for maximum visibility
         if context and 'available_variables' in context:
             variables = context['available_variables']
@@ -964,6 +982,21 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
                 user_prompt += "IMPORTANT: Use 'data/filename.ext' format to access these files!\n"
                 user_prompt += "=" * 60 + "\n\n"
 
+        # Scope guard: bias toward "do exactly what was asked" and reduce over-eager extra work.
+        # This is intentionally short and placed immediately before the current request (high salience).
+        user_prompt += "\n" + "=" * 80 + "\n"
+        user_prompt += "🎯 SCOPE GUARD (DO ONLY WHAT IS ASKED)\n"
+        user_prompt += "=" * 80 + "\n"
+        user_prompt += (
+            "Rules:\n"
+            "- Do ONLY what the CURRENT REQUEST asks.\n"
+            "- Do NOT add extra analyses, extra plots, extra models, or extra transformations unless explicitly requested.\n"
+            "- Prefer the minimal sufficient code to satisfy the request.\n"
+            "- Do NOT introduce new libraries unless they are strictly necessary to complete the request.\n"
+            "- If additional work would be helpful, include it ONLY as a commented-out 'Optional next steps' section.\n"
+        )
+        user_prompt += "=" * 80 + "\n\n"
+
         user_prompt += f"CURRENT REQUEST:\n{prompt}\n\n"
         user_prompt += "Generate the Python code (no explanations, just code):"
 
@@ -1210,7 +1243,20 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
 {code}
 ```"""
 
+        # Guided rerun: include delta instructions if present
+        if context and context.get("rerun_comment"):
+            improvement_prompt += "\n\nUSER RERUN COMMENT (delta request):\n"
+            improvement_prompt += f"{context['rerun_comment']}\n"
+
         if error_message:
+            # Scope guard (error path): keep regeneration focused on resolving the execution error without adding extra work.
+            improvement_prompt += (
+                "\n\nSCOPE GUARD:\n"
+                "- Resolve the execution error with the minimal necessary changes while still satisfying the original request.\n"
+                "- Do not add extra analyses/plots/models unless explicitly requested.\n"
+                "- Prefer minimal diffs to the previous code.\n"
+            )
+
             # Use error analyzer to provide enhanced context
             enhanced_error = self._enhance_error_context(
                 error_message,
@@ -1220,10 +1266,21 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
                 context
             )
 
-            improvement_prompt += f"\n\nBut it failed with this error:\n\n{enhanced_error}\n\nRegenerate the COMPLETE working Python code that fixes this error. Output the FULL code, not just the fixed line."
+            improvement_prompt += (
+                f"\n\nBut it raised this error:\n\n{enhanced_error}\n\n"
+                "Regenerate the COMPLETE working Python code that resolves this error. "
+                "Output the FULL code, not just the changed line."
+            )
 
             logger.info("ASYNC: Enhanced error context provided to LLM for auto-retry")
         else:
+            # Scope guard (non-error path): keep improvements focused and avoid "initiative".
+            improvement_prompt += (
+                "\n\nSCOPE GUARD:\n"
+                "- Make only the minimal necessary improvements while still satisfying the original request.\n"
+                "- Do not add extra analyses/plots/models unless explicitly requested.\n"
+                "- Prefer minimal diffs to the previous code.\n"
+            )
             improvement_prompt += "\n\nImprove this code to be more robust, efficient, and user-friendly."
 
         improvement_prompt += "\n\nGenerate the improved Python code:"

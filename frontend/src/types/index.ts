@@ -143,7 +143,23 @@ export interface FileInfo {
   name: string
   path: string
   size: number
-  type: 'csv' | 'tsv' | 'json' | 'yaml' | 'xlsx' | 'txt' | 'md' | 'h5' | 'hdf5' | 'h5ad' | 'other'
+  type:
+    | 'csv'
+    | 'tsv'
+    | 'json'
+    | 'yaml'
+    | 'yml'
+    | 'xlsx'
+    | 'xls'
+    | 'txt'
+    | 'md'
+    | 'h5'
+    | 'hdf5'
+    | 'h5ad'
+    | 'image'
+    | 'dicom'
+    | 'nifti'
+    | 'other'
   lastModified: string
   is_h5_file?: boolean
   preview?: {
@@ -228,11 +244,30 @@ export interface CellExecuteRequest {
   force_regenerate?: boolean
   autofix?: boolean
   clean_rerun?: boolean
+  rerun_comment?: string
 }
 
 export interface CellExecuteResponse {
   cell: Cell
   result: ExecutionResult
+}
+
+// Cell status polling (for realtime-ish UX while /cells/execute is in-flight)
+export interface CellStatusResponse {
+  cell_id: string
+  is_executing: boolean
+  is_retrying: boolean
+  retry_count: number
+  max_retries: number
+  is_writing_methodology: boolean
+  methodology_attempt: number
+  max_methodology_retries: number
+  execution_phase?: string | null
+  execution_message?: string | null
+  execution_updated_at?: string | null
+  has_scientific_explanation: boolean
+  scientific_explanation_length: number
+  scientific_explanation?: string
 }
 
 export interface NotebookCreateRequest {

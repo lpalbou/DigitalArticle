@@ -18,6 +18,7 @@ This page is the **index** of documentation for Digital Article. The guiding rul
 - [`docs/variable-state-persistence.md`](variable-state-persistence.md) — execution state snapshot design + current storage nuance
 - [`docs/persona-and-review-architecture.md`](persona-and-review-architecture.md) — personas + review system architecture
 - [`docs/philosophy.md`](philosophy.md) — product principles and non-goals
+- [`docs/presentation/README.md`](presentation/README.md) — supplementary “how it works” presentation (reviewer-friendly, includes screenshots + diagrams)
 
 ## Dive-ins (critical components)
 

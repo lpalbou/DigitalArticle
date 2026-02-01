@@ -545,11 +545,33 @@ const NotebookContainer: React.FC = () => {
       setNotebook(prev => {
         if (!prev) return prev
 
-        const newCells = prev.cells.filter(cell => cell.id !== cellId)
+        const deletedIndex = prev.cells.findIndex(c => c.id === cellId)
+
+        // Remove the cell and immediately reflect backend invalidation semantics in the UI:
+        // all downstream cells become STALE and should require a clean rerun next time.
+        const remaining = prev.cells.filter(c => c.id !== cellId)
+        const newCells = remaining.map((c, idx) => {
+          if (deletedIndex !== -1 && idx >= deletedIndex) {
+            return {
+              ...c,
+              cell_state: CellState.STALE,
+              metadata: {
+                ...(c.metadata || {}),
+                execution: {
+                  ...((c.metadata || {}).execution || {}),
+                  needs_clean_rerun: true
+                }
+              }
+            }
+          }
+          return c
+        })
+
         return { ...prev, cells: newCells }
       })
 
       setHasUnsavedChanges(true)
+      setToast({ message: 'Cell deleted. Downstream cells were marked as outdated.', type: 'info' })
     } catch (err) {
       const apiError = handleAPIError(err)
       setError(`Failed to delete cell: ${apiError.message}`)
@@ -601,7 +623,7 @@ const NotebookContainer: React.FC = () => {
   const executeCell = useCallback(async (
     cellId: string,
     action: 'execute' | 'regenerate' = 'execute',
-    options?: { autofix?: boolean; clean_rerun?: boolean }
+    options?: { autofix?: boolean; clean_rerun?: boolean; rerun_comment?: string }
   ) => {
     console.log('🚀 NotebookContainer executeCell called:', { cellId, action, options })
     const forceRegenerate = action === 'regenerate'
@@ -634,7 +656,8 @@ const NotebookContainer: React.FC = () => {
         cell_id: cellId,
         force_regenerate: forceRegenerate,
         autofix: options?.autofix ?? true,
-        clean_rerun: options?.clean_rerun ?? false
+        clean_rerun: options?.clean_rerun ?? false,
+        rerun_comment: options?.rerun_comment
       })
 
       // Check if we should auto-switch to methodology tab
@@ -741,7 +764,7 @@ const NotebookContainer: React.FC = () => {
   const checkDependenciesAndExecute = useCallback(async (
     cellId: string,
     action: 'execute' | 'regenerate',
-    options?: { autofix?: boolean; clean_rerun?: boolean }
+    options?: { autofix?: boolean; clean_rerun?: boolean; rerun_comment?: string }
   ) => {
     if (!notebook) return
 

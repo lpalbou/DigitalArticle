@@ -90,8 +90,6 @@ Before moving any backlog item to `docs/backlog/completed/`, you MUST review and
 
 ### Proposed (needs review)
 
-- [`docs/backlog/proposed/0067_guided_rerun_keep_context_with_user_comment.md`](proposed/0067_guided_rerun_keep_context_with_user_comment.md)
-- [`docs/backlog/proposed/0068_delete_cells_ui_and_api.md`](proposed/0068_delete_cells_ui_and_api.md)
 - [`docs/backlog/proposed/0070_dependency_license_policy_and_minimize_deps.md`](proposed/0070_dependency_license_policy_and_minimize_deps.md)
 - [`docs/backlog/proposed/0071_secure_user_library_installation.md`](proposed/0071_secure_user_library_installation.md)
 - [`docs/backlog/proposed/0072_execution_security_policy_and_guardrails.md`](proposed/0072_execution_security_policy_and_guardrails.md)
@@ -117,6 +115,7 @@ Before moving any backlog item to `docs/backlog/completed/`, you MUST review and
 - [`docs/backlog/completed/0075_split_save_button_primary_action.md`](completed/0075_split_save_button_primary_action.md)
 - [`docs/backlog/completed/0074_unify_llm_markdown_rendering.md`](completed/0074_unify_llm_markdown_rendering.md)
 - [`docs/backlog/completed/0066_cell_rerun_context_hygiene.md`](completed/0066_cell_rerun_context_hygiene.md)
+- [`docs/backlog/completed/0067_guided_rerun_keep_context_with_user_comment.md`](completed/0067_guided_rerun_keep_context_with_user_comment.md)
 - [`docs/backlog/completed/0069_default_safe_autofix_pre_execution.md`](completed/0069_default_safe_autofix_pre_execution.md)
 - [`docs/backlog/completed/0012_fix_traces_after_docker.md`](completed/0012_fix_traces_after_docker.md) (legacy devnote migration)
 - [`docs/backlog/completed/0013_docker_external_ollama_fix.md`](completed/0013_docker_external_ollama_fix.md) (legacy devnote migration)
@@ -136,6 +135,8 @@ Before moving any backlog item to `docs/backlog/completed/`, you MUST review and
 - [`docs/backlog/completed/0029_cell_output_display_improvement_proposal.md`](completed/0029_cell_output_display_improvement_proposal.md) (legacy planning migration)
 - [`docs/backlog/completed/0030_critique_driven_retry_loop_proposal.md`](completed/0030_critique_driven_retry_loop_proposal.md) (legacy planning migration)
 - [`docs/backlog/completed/0065_repo_root_folder_rationalization_data_assets_examples.md`](completed/0065_repo_root_folder_rationalization_data_assets_examples.md)
+- [`docs/backlog/completed/0068_delete_cells_ui_and_api.md`](completed/0068_delete_cells_ui_and_api.md)
+- [`docs/backlog/completed/0076_reduce_llm_initiative_scope_guard.md`](completed/0076_reduce_llm_initiative_scope_guard.md)
 - [`docs/backlog/completed/0031_digital_article_implementation_plan.md`](completed/0031_digital_article_implementation_plan.md) (legacy planning migration)
 
 ### Recurrent (always active; trigger-based)

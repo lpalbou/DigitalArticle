@@ -31,3 +31,6 @@ __tests__/
 # Development
 .env.local
 .env.development
+
+
+docs/presentation

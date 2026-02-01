@@ -13,6 +13,8 @@ import numpy as np
 from datetime import datetime
 import logging
 from .h5_service import h5_processor
+from .file_types import classify_file_type
+from .upload_service import FileUploadService, UploadLimits, UploadError
 
 # Token estimation for large file warning
 try:
@@ -76,6 +78,11 @@ class DataManager:
 
         # Set working directory to notebook_dir so 'data/file.csv' works
         os.chdir(str(self.notebook_dir))
+
+        # Upload helper (streaming-safe, path-safe)
+        # NOTE: We intentionally don't enforce a max upload size here by default; deployments can
+        # enforce request limits at the reverse proxy / ASGI server layer if needed.
+        self._upload_service = FileUploadService(self.data_dir, limits=UploadLimits(max_upload_bytes=None))
 
         logger.info(f"✅ Clean Data Manager initialized:")
         logger.info(f"   Workspace Root: {self.workspace_root}")
@@ -274,11 +281,8 @@ class DataManager:
         for file_path in self.data_dir.iterdir():
             if file_path.is_file():
                 # Determine file type
-                file_extension = file_path.suffix[1:].lower() if file_path.suffix else 'other'
-                if h5_processor.is_h5_file(file_path):
-                    file_type = file_extension  # Keep original extension (h5, hdf5, h5ad)
-                else:
-                    file_type = file_extension
+                is_h5_file = h5_processor.is_h5_file(file_path)
+                file_type = classify_file_type(file_path.name, is_h5_file=is_h5_file)
                 
                 file_info = {
                     'name': file_path.name,  # ORIGINAL FILENAME!
@@ -482,7 +486,7 @@ class DataManager:
                         }
                         file_info['estimated_tokens'] = token_count
                         file_info['is_large_file'] = is_large
-                    elif h5_processor.is_h5_file(file_path):
+                    elif is_h5_file:
                         # H5/HDF5/H5AD file processing
                         h5_metadata = h5_processor.process_file(file_path)
                         file_info['preview'] = h5_metadata
@@ -537,21 +541,35 @@ class DataManager:
     
     def upload_file(self, file_name: str, content: bytes) -> List[Dict[str, Any]]:
         """Upload file with ORIGINAL filename to notebook data directory."""
-        file_path = self.data_dir / file_name  # NO random prefixes!
-        with open(file_path, 'wb') as f:
-            f.write(content)
-        logger.info(f"✅ Uploaded: {file_name}")
-        return self.list_available_files()
+        # Backward-compatible bytes upload (small files). Prefer upload_file_stream for large files.
+        import io
+        return self.upload_file_stream(file_name, io.BytesIO(content))
+
+    def upload_file_stream(self, file_name: str, stream) -> List[Dict[str, Any]]:
+        """
+        Stream-upload a file to the notebook data directory.
+
+        This avoids loading large files entirely into memory (important for medical imaging).
+        """
+        try:
+            stored_name, bytes_written = self._upload_service.save_stream(file_name, stream)
+            logger.info(f"✅ Uploaded: {stored_name} ({bytes_written} bytes)")
+            return self.list_available_files()
+        except UploadError:
+            raise
     
     def delete_file(self, file_name: str) -> bool:
         """Delete file from notebook data directory."""
-        file_path = self.data_dir / file_name
-        if file_path.exists():
-            file_path.unlink()
-            logger.info(f"🗑️ Deleted: {file_name}")
-            return True
-        logger.warning(f"❌ File not found: {file_name}")
-        return False
+        try:
+            deleted = self._upload_service.delete(file_name)
+            if deleted:
+                logger.info(f"🗑️ Deleted: {file_name}")
+                return True
+            logger.warning(f"❌ File not found: {file_name}")
+            return False
+        except UploadError as e:
+            logger.warning(f"❌ Delete rejected for {file_name}: {e}")
+            return False
 
 # Global instance management
 _global_data_manager = None

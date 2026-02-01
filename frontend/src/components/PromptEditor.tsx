@@ -1,22 +1,26 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import { Play, Copy, Check, Activity } from 'lucide-react'
-import { Cell, CellType } from '../types'
+import { Play, Copy, Check, Activity, Trash2 } from 'lucide-react'
+import { cellAPI } from '../services/api'
+import { Cell, CellStatusResponse, CellType } from '../types'
 import EnhancedCodeEditor from './EnhancedCodeEditor'
 import ReRunDropdown from './ReRunDropdown'
 import MarkdownRenderer from './MarkdownRenderer'
+import GuidedRerunModal from './GuidedRerunModal'
+import DeleteCellConfirmModal from './DeleteCellConfirmModal'
 
 interface PromptEditorProps {
   cell: Cell
   onUpdateCell: (updates: Partial<Cell>) => void
+  onDeleteCell?: (cellId: string) => Promise<void>
   onExecuteCell: (
     cellId: string,
     action: 'execute' | 'regenerate',
-    options?: { autofix?: boolean; clean_rerun?: boolean }
+    options?: { autofix?: boolean; clean_rerun?: boolean; rerun_comment?: string }
   ) => void
   onDirectExecuteCell?: (
     cellId: string,
     action: 'execute' | 'regenerate',
-    options?: { autofix?: boolean; clean_rerun?: boolean }
+    options?: { autofix?: boolean; clean_rerun?: boolean; rerun_comment?: string }
   ) => void // Direct execution without dependency check
   onInvalidateCells?: (cellId: string) => void // New callback for cell invalidation
   onViewTraces?: (cellId: string) => void // View LLM execution traces
@@ -26,6 +30,7 @@ interface PromptEditorProps {
 const PromptEditor: React.FC<PromptEditorProps> = ({
   cell,
   onUpdateCell,
+  onDeleteCell,
   onExecuteCell,
   onDirectExecuteCell,
   onInvalidateCells,
@@ -33,6 +38,9 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   isExecuting = false
 }) => {
   const [isEditing, setIsEditing] = useState(false)
+  const [guidedRerunOpen, setGuidedRerunOpen] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [localContent, setLocalContent] = useState(
     cell.cell_type === CellType.PROMPT ? cell.prompt :
     cell.cell_type === CellType.METHODOLOGY ? (cell.scientific_explanation || '') :
@@ -41,6 +49,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   )
   const [copySuccess, setCopySuccess] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [liveStatus, setLiveStatus] = useState<CellStatusResponse | null>(null)
 
   // Auto-resize textarea
   const adjustTextareaHeight = useCallback(() => {
@@ -171,8 +180,101 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     }
   }, [currentContent, contentTypeName])
 
+  // Poll backend cell status while execution is in-flight.
+  // This lets the UI reflect multi-step backend phases (generation, retries, methodology, etc.)
+  // even though /cells/execute is a single long-lived request.
+  useEffect(() => {
+    if (!isExecuting) {
+      setLiveStatus(null)
+      return
+    }
+
+    let cancelled = false
+    let intervalId: number | null = null
+
+    const poll = async () => {
+      try {
+        const status = await cellAPI.getStatus(cell.id)
+        if (cancelled) return
+        setLiveStatus(status)
+      } catch (e) {
+        // Non-fatal: status polling should never block execution UX.
+        if (cancelled) return
+      }
+    }
+
+    // Poll immediately, then at a modest cadence.
+    poll()
+    intervalId = window.setInterval(poll, 600)
+
+    return () => {
+      cancelled = true
+      if (intervalId) window.clearInterval(intervalId)
+    }
+  }, [cell.id, isExecuting])
+
+  const liveMessage = liveStatus?.execution_message?.trim()
+  const isLiveRetrying = Boolean(liveStatus?.is_retrying)
+  const isLiveMethodology = Boolean(liveStatus?.is_writing_methodology)
+  const shouldShowStatus = Boolean(isExecuting)
+
+  const statusTone = isLiveRetrying
+    ? 'yellow'
+    : isLiveMethodology
+      ? 'green'
+      : 'blue'
+
+  const statusTextClass =
+    statusTone === 'yellow'
+      ? 'text-yellow-700'
+      : statusTone === 'green'
+        ? 'text-green-600'
+        : 'text-blue-600'
+
+  const spinnerBorderClass =
+    statusTone === 'yellow'
+      ? 'border-yellow-600'
+      : statusTone === 'green'
+        ? 'border-green-600'
+        : 'border-blue-600'
+
+  const statusMessage = liveMessage
+    ? liveMessage
+    : isExecuting
+      ? 'Generating and executing code…'
+      : ''
+
   return (
     <div className="w-full">
+      <GuidedRerunModal
+        isOpen={guidedRerunOpen}
+        isExecuting={isExecuting}
+        onClose={() => setGuidedRerunOpen(false)}
+        onConfirm={(comment) => {
+          setGuidedRerunOpen(false)
+          // Guided rerun always invalidates downstream cells; we rebuild upstream-only context on the backend.
+          onExecuteCell(cell.id, 'regenerate', { clean_rerun: true, rerun_comment: comment })
+        }}
+      />
+
+      <DeleteCellConfirmModal
+        isOpen={deleteConfirmOpen}
+        isDeleting={isDeleting}
+        onClose={() => {
+          if (!isDeleting) setDeleteConfirmOpen(false)
+        }}
+        onConfirm={async () => {
+          if (!onDeleteCell) return
+          try {
+            setIsDeleting(true)
+            await onDeleteCell(cell.id)
+            setDeleteConfirmOpen(false)
+          } finally {
+            setIsDeleting(false)
+          }
+        }}
+      />
+
       {/* Cell Type Tabs with Run Button */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex space-x-1">
@@ -262,6 +364,19 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
             )}
           </button>
 
+          {/* Delete Cell Button */}
+          {onDeleteCell && (
+            <button
+              onClick={() => setDeleteConfirmOpen(true)}
+              disabled={isExecuting || isDeleting}
+              className="p-1 text-gray-500 hover:text-gray-700 rounded copy-button disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Delete cell"
+              aria-label="Delete cell"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
+
           {/* Execute Button - Adaptive */}
           {(cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.CODE || cell.cell_type === CellType.METHODOLOGY) && (
             <>
@@ -304,6 +419,9 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
                   }}
                   onRegenerateAndExecuteWithoutAutofix={() => {
                     onExecuteCell(cell.id, 'regenerate', { autofix: false })
+                  }}
+                  onGuidedRegenerateAndExecute={() => {
+                    setGuidedRerunOpen(true)
                   }}
                   onCleanRegenerateAndExecute={() => {
                     onExecuteCell(cell.id, 'regenerate', { clean_rerun: true })
@@ -388,18 +506,10 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
       </div>
 
       {/* Status Indicator */}
-      {isExecuting && (
-        <div className="mt-2 flex items-center space-x-2 text-sm text-blue-600">
-          <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full" />
-          <span>Generating and executing code...</span>
-        </div>
-      )}
-      
-      {/* Methodology Writing Indicator */}
-      {cell.is_writing_methodology && (
-        <div className="mt-2 flex items-center space-x-2 text-sm text-green-600">
-          <div className="animate-spin h-4 w-4 border-2 border-green-600 border-t-transparent rounded-full" />
-          <span>Writing methodology...</span>
+      {shouldShowStatus && (
+        <div className={`mt-2 flex items-center space-x-2 text-sm ${statusTextClass}`}>
+          <div className={`animate-spin h-4 w-4 border-2 ${spinnerBorderClass} border-t-transparent rounded-full`} />
+          <span>{statusMessage}</span>
         </div>
       )}
     </div>

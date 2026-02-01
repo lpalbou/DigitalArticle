@@ -21,6 +21,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Clean rerun (upstream-only context) to prevent downstream state contamination**
   - Adds `clean_rerun` execution mode: rebuilds execution context from upstream cells only (ignores downstream globals).
   - Downstream cells are invalidated (marked **STALE**) after a successful rerun.
+- **Guided rerun (keep context + user comment) for partial rewrites**
+  - Adds `rerun_comment` to cell execution so users can request targeted changes (“keep what you did, but change X”).
+  - Rerun comments are persisted in cell metadata for provenance and injected into code generation + retry prompts.
+  - Frontend adds a guided rerun modal accessed via the Re-run dropdown.
+- **Delete cells (UI + robust backend invalidation)**
+  - Added an X delete control per cell with confirmation modal.
+  - Backend deletion now invalidates semantic caches, records an audit event, and marks downstream cells STALE.
+- **Scope guard to reduce LLM over-initiative**
+  - Code generation prompts now include an explicit “do only what was asked” scope guard.
+  - Retry (auto-fix) prompts also include a scope guard to avoid adding extra work while fixing failures.
+- **Expanded file uploads (images + medical imaging)**
+  - Frontend upload picker now supports: **PNG/JPG/TIFF**, **DICOM** (`.dcm/.dicom`), and **NIfTI** (`.nii/.nii.gz`).
+  - Backend adds a **download** endpoint for workspace files and avoids attempting inline preview for DICOM/NIfTI (download-only for now).
+  - Upload persistence is now path-safe and uses streaming copy to reduce memory pressure on large files.
 
 ### Fixed
 - **Restored green Python test suite (trust baseline)**
@@ -35,6 +49,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Unified Abstract + inline review feedback rendering via `frontend/src/components/MarkdownRenderer.tsx`.
 - **Save button UX**
   - Top-right Save is now a split button: left click saves; right chevron opens export options.
+- **TokenTracker log spam during LLM status polling**
+  - Root cause: `/api/llm/status` polls `TokenTracker.get_current_context_tokens()` regularly; “no generations yet / no provider usage metadata” is a normal zero-state but was logged as a WARNING.
+  - Fix: return `0` silently for the normal zero-state; keep warnings only for true internal inconsistencies.
+  - Added a backend pytest to prevent warning-level regressions.
+- **Cell deletion UI affordance**
+  - Replaced the red “X” delete-cell control with a trash icon styled consistently with the copy icon (less visually noisy, clearer intent).
+- **Plotly outputs no longer truncated in cells**
+  - Root cause: interactive Plotly figures were forced into a fixed `600px` container and could be clipped inside rounded cards.
+  - Fix: infer Plotly container height from `figure.layout.height` (preferred) or `layout.grid.rows` (subplots), falling back to a sane default.
+- **Realtime cell execution status messaging**
+  - Root cause: the UI showed a single “Generating and executing…” message, but backend execution is a multi-step pipeline (context build, LLM calls, retries, methodology, post-processing).
+  - Fix: backend now tracks `execution_phase` + `execution_message` in `cell.metadata["execution"]` and exposes it via `/api/cells/{cell_id}/status`; frontend polls this while `/cells/execute` is in-flight and renders the live message.
+- **Figures always fit cell width (no horizontal overflow)**
+  - Root cause: some Plotly figures included a fixed `layout.width`, causing the graph to exceed the cell width and be clipped by rounded containers.
+  - Fix: frontend strips `layout.width` for interactive Plotly outputs and relies on autosizing/responsive sizing to fit the cell.
+  - Also removed hard `max-h` constraints for static images so cells grow vertically with content while keeping width constrained.
 
 ### Changed
 - **Documentation overhaul to eliminate “truth drift”**

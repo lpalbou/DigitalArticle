@@ -7,16 +7,16 @@ import { Cell, CellType, CellState } from '../types'
 interface NotebookCellProps {
   cell: Cell
   onUpdateCell: (cellId: string, updates: Partial<Cell>) => void
-  onDeleteCell: (cellId: string) => void
+  onDeleteCell: (cellId: string) => Promise<void>
   onExecuteCell: (
     cellId: string,
     action: 'execute' | 'regenerate',
-    options?: { autofix?: boolean; clean_rerun?: boolean }
+    options?: { autofix?: boolean; clean_rerun?: boolean; rerun_comment?: string }
   ) => void
   onDirectExecuteCell?: (
     cellId: string,
     action: 'execute' | 'regenerate',
-    options?: { autofix?: boolean; clean_rerun?: boolean }
+    options?: { autofix?: boolean; clean_rerun?: boolean; rerun_comment?: string }
   ) => void // Direct execution without dependency check
   onAddCellBelow: (cellId: string, cellType: CellType) => void
   onInvalidateCells?: (cellId: string) => void // New callback for cell invalidation
@@ -27,6 +27,7 @@ interface NotebookCellProps {
 const NotebookCell: React.FC<NotebookCellProps> = ({
   cell,
   onUpdateCell,
+  onDeleteCell,
   onExecuteCell,
   onDirectExecuteCell,
   onInvalidateCells,
@@ -40,7 +41,7 @@ const NotebookCell: React.FC<NotebookCellProps> = ({
   const handleExecuteCell = useCallback((
     cellId: string,
     action: 'execute' | 'regenerate',
-    options?: { autofix?: boolean; clean_rerun?: boolean }
+    options?: { autofix?: boolean; clean_rerun?: boolean; rerun_comment?: string }
   ) => {
     onExecuteCell(cellId, action, options)
   }, [onExecuteCell])
@@ -124,6 +125,7 @@ const NotebookCell: React.FC<NotebookCellProps> = ({
         <PromptEditor
           cell={cell}
           onUpdateCell={handleUpdateCell}
+          onDeleteCell={onDeleteCell}
           onExecuteCell={handleExecuteCell}
           onDirectExecuteCell={onDirectExecuteCell}
           onInvalidateCells={onInvalidateCells}

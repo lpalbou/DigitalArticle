@@ -6,6 +6,33 @@ import H5FileViewer from './H5FileViewer'
 import ExcelFileViewer from './ExcelFileViewer'
 import MarkdownRenderer from './MarkdownRenderer'
 
+// Determine file type from extension.
+// Defined at module scope so hooks don't need to depend on a new function instance each render.
+const getFileExtension = (filename: string): string => {
+  const lower = filename.toLowerCase()
+  // Preserve multi-part extensions (notably gzipped NIfTI: `.nii.gz`)
+  if (lower.endsWith('.nii.gz')) return 'nii.gz'
+  return lower.split('.').pop() || ''
+}
+
+const getFileTypeFromName = (filename: string): string => {
+  const ext = getFileExtension(filename)
+  switch (ext) {
+    case 'csv': return 'csv'
+    case 'tsv': return 'tsv'
+    case 'txt': return 'txt'
+    case 'md': return 'markdown'
+    case 'json': return 'json'
+    case 'yaml': case 'yml': return 'yaml'
+    case 'xlsx': case 'xls': return 'excel'
+    case 'h5': case 'hdf5': case 'h5ad': return 'h5'
+    case 'jpg': case 'jpeg': case 'png': case 'gif': case 'webp': case 'tif': case 'tiff': return 'image'
+    case 'dcm': case 'dicom': return 'dicom'
+    case 'nii': case 'nii.gz': return 'nifti'
+    default: return 'text'
+  }
+}
+
 interface FileViewerModalProps {
   isOpen: boolean
   onClose: () => void
@@ -24,27 +51,6 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
   const [fileContent, setFileContent] = useState<FileContent | null>(null)
   const [loading, setLoading] = useState(false)
   const [viewMode, setViewMode] = useState<'raw' | 'formatted'>('formatted')
-
-  // Determine file type from extension
-  const getFileExtension = (filename: string): string => {
-    return filename.split('.').pop()?.toLowerCase() || ''
-  }
-
-  const getFileTypeFromName = (filename: string): string => {
-    const ext = getFileExtension(filename)
-    switch (ext) {
-      case 'csv': return 'csv'
-      case 'tsv': return 'tsv'
-      case 'txt': return 'txt'
-      case 'md': return 'markdown'
-      case 'json': return 'json'
-      case 'yaml': case 'yml': return 'yaml'
-      case 'xlsx': case 'xls': return 'excel'
-      case 'h5': case 'hdf5': case 'h5ad': return 'h5'
-      case 'jpg': case 'jpeg': case 'png': case 'gif': case 'webp': case 'tif': case 'tiff': return 'image'
-      default: return 'text'
-    }
-  }
 
   // Handle keyboard events
   useEffect(() => {
@@ -76,6 +82,19 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
     const loadFileContent = async () => {
       setLoading(true)
       try {
+        const fileType = getFileTypeFromName(file.name)
+
+        // Medical imaging formats can be large binary blobs. We don't preview them inline;
+        // instead we offer a direct download link.
+        if (fileType === 'dicom' || fileType === 'nifti') {
+          setFileContent({
+            content: '',
+            contentType: 'application/octet-stream',
+            isBase64: false
+          })
+          return
+        }
+
         // Call the real API to get file content
         const response = await filesAPI.getContent(notebookId, file.path)
         
@@ -181,6 +200,33 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
       )
     }
 
+    const fileType = getFileTypeFromName(file?.name || '')
+
+    // DICOM / NIfTI: no inline preview (download-only)
+    if (file && (fileType === 'dicom' || fileType === 'nifti')) {
+      const downloadHref = `/api/files/${encodeURIComponent(notebookId)}/download?file_path=${encodeURIComponent(file.path)}`
+      return (
+        <div className="text-center py-8">
+          <FileText className="h-16 w-16 mx-auto text-gray-400 mb-4" />
+          <p className="text-gray-700 font-medium">
+            {fileType.toUpperCase()} preview is not available yet
+          </p>
+          <p className="text-sm text-gray-500 mt-2">
+            This is a binary medical imaging file. Download it to view in a dedicated viewer.
+          </p>
+          <div className="mt-6">
+            <a
+              href={downloadHref}
+              className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Download file
+            </a>
+          </div>
+          <p className="text-xs text-gray-400 mt-3">{file.name}</p>
+        </div>
+      )
+    }
+
     if (!fileContent) return null
 
     if (fileContent.error) {
@@ -192,7 +238,6 @@ const FileViewerModal: React.FC<FileViewerModalProps> = ({ isOpen, onClose, note
       )
     }
 
-    const fileType = getFileTypeFromName(file?.name || '')
     const content = fileContent.content
 
     // H5 files - use specialized viewer

@@ -7,7 +7,7 @@ Delete cells (UI “X” control + backend delete endpoint + persistence)
 0068
 
 ## Priority
-- **P2 (proposed)**: important UX capability, but lower than correctness/robustness primitives.
+- **P2 (completed)**: important UX capability, but lower than correctness/robustness primitives.
 
 ## Date / Time
 2026-01-31T10:15:00 (local)
@@ -99,8 +99,56 @@ Option A (hard delete) with confirmation, and record deletion events in traces f
 - Observability captures delete events (at least notebook_id + cell_id + timestamp).
 
 ## Implementation Notes (fill during execution)
-TBD
+### Frontend
+- Added an **X delete control** to each cell header (in `PromptEditor`) plus a confirmation modal.
+- Wired the modal to the existing `cellAPI.delete(notebook_id, cell_id)` call path.
+
+### Backend
+- Reused the existing delete endpoint (`backend/app/api/cells.py::delete_cell`) and strengthened deletion semantics in `NotebookService.delete_cell()`:
+  - clears semantic cache keys (`semantic_cache_*`) on delete
+  - records an audit event (`notebook.metadata["audit_events"]`)
+  - marks downstream cells as **STALE** and sets `execution.needs_clean_rerun = True`
 
 ## Full Report (fill only when moving to completed/)
-TBD
+### What changed (source of truth)
+
+- **Frontend**
+  - `frontend/src/components/PromptEditor.tsx`: added delete button + confirmation flow
+  - `frontend/src/components/DeleteCellConfirmModal.tsx`: new confirmation modal
+  - `frontend/src/components/NotebookCell.tsx`: thread `onDeleteCell` down to `PromptEditor`
+
+- **Backend**
+  - `backend/app/services/notebook_service.py::delete_cell`:
+    - invalidate `semantic_cache_*`
+    - append `audit_events` deletion record
+    - mark downstream cells stale + require clean rerun
+
+- **Tests**
+  - `tests/notebook_persistence/test_delete_cell_invalidation.py`: verifies cache invalidation, downstream staleness, audit event
+
+### Design chosen and why
+Hard delete (Option A) remains the right default because it keeps persistence simple and avoids hidden “soft-deleted” state that can poison provenance and exports.
+
+### A/B/C test evidence
+- **A (mock / conceptual)**:
+  - confirmed UX: click X → confirm modal → delete
+  - confirmed API: `DELETE /api/cells/{notebook_id}/{cell_id}`
+
+- **B (real code + real examples)**:
+  - Backend: `pytest` (includes `test_delete_cell_invalidation.py`)
+  - Frontend gates:
+    - `npm run lint`
+    - `npm run build:check`
+
+- **C (real-world / production-like)**:
+  - Manual recipe (recommended):
+    - run `da-backend` + `da-frontend`
+    - execute a few cells
+    - delete a mid-notebook cell, reload the notebook, confirm:
+      - deleted cell stays deleted
+      - downstream cells are marked STALE
+
+### Risks / follow-ups
+- **Undo / history**: a future backlog can add “undo delete” via notebook versioning (do NOT add soft-delete unless we also solve provenance/export semantics).
+
 

@@ -27,6 +27,7 @@ from .semantic_service import SemanticExtractionService
 from .semantic_analysis_service import SemanticAnalysisService
 from .semantic_profile_service import SemanticProfileService
 from .review_service import ReviewService
+from .execution_phase_tracker import CellExecutionPhaseTracker
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +180,13 @@ class NotebookService:
         logger.info(f"Notebooks in cache: {list(self._notebooks.keys())}")
         return notebook
     
-    def _build_execution_context(self, notebook: Notebook, current_cell: Cell) -> Dict[str, Any]:
+    def _build_execution_context(
+        self,
+        notebook: Notebook,
+        current_cell: Cell,
+        *,
+        rerun_comment: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Build comprehensive execution context for LLM code generation.
 
@@ -194,6 +201,7 @@ class NotebookService:
         Args:
             notebook: Current notebook
             current_cell: Cell being executed
+            rerun_comment: Optional guided rerun comment to steer a partial rewrite.
 
         Returns:
             Context dictionary for LLM with previous cell history and persona guidance
@@ -271,6 +279,23 @@ class NotebookService:
             if previous_cells:
                 context['previous_cells'] = previous_cells
                 logger.info(f"Added {len(previous_cells)} previous cells to context")
+
+            # Guided rerun context (partial rewrite)
+            # We intentionally keep this compact: the primary signal is the prior code + rerun comment.
+            if rerun_comment:
+                cleaned_comment = rerun_comment.strip()
+                if cleaned_comment:
+                    context["rerun_comment"] = cleaned_comment
+                    context["current_cell_context"] = {
+                        "prompt": current_cell.prompt or "",
+                        "previous_code": current_cell.code or "",
+                        "last_status": current_cell.last_result.status if current_cell.last_result else None,
+                        "last_error_type": current_cell.last_result.error_type if current_cell.last_result else None,
+                        "last_error_message": current_cell.last_result.error_message if current_cell.last_result else None,
+                        "last_stdout_len": len(current_cell.last_result.stdout) if current_cell.last_result and current_cell.last_result.stdout else 0,
+                        "last_tables_count": len(current_cell.last_result.tables) if current_cell.last_result and current_cell.last_result.tables else 0,
+                        "last_plots_count": len(current_cell.last_result.plots) if current_cell.last_result and current_cell.last_result.plots else 0,
+                    }
 
             logger.info(f"Built execution context with {len(context)} context items")
             return context
@@ -770,13 +795,56 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         notebook = self._notebooks.get(notebook_id)
         if not notebook:
             return False
-        
-        if notebook.remove_cell(uuid.UUID(cell_id)):
-            self._save_notebook(notebook)
-            logger.info(f"Deleted cell {cell_id} from notebook {notebook.title}")
-            return True
-        
-        return False
+
+        # Capture pre-delete index for downstream invalidation semantics.
+        delete_index = -1
+        try:
+            target_uuid = uuid.UUID(cell_id)
+        except Exception:
+            target_uuid = None
+
+        for idx, c in enumerate(notebook.cells):
+            if (target_uuid and c.id == target_uuid) or (str(c.id) == cell_id):
+                delete_index = idx
+                break
+
+        if not notebook.remove_cell(uuid.UUID(cell_id)):
+            return False
+
+        # Invalidate semantic caches that depend on cell list/order (prevents stale provenance).
+        for key in list(notebook.metadata.keys()):
+            if key.startswith("semantic_cache_"):
+                notebook.metadata.pop(key, None)
+
+        # Record deletion event for auditability (ADR 0005 direction, even before full trace store).
+        notebook.metadata.setdefault("audit_events", [])
+        notebook.metadata["audit_events"].append(
+            {
+                "type": "cell_deleted",
+                "cell_id": cell_id,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+
+        # Mark downstream cells as stale and require clean rerun on next execution.
+        # If we deleted the first cell, we treat the whole notebook as downstream.
+        from_index = max(-1, delete_index - 1)
+        if from_index == -1:
+            start = 0
+        else:
+            start = from_index + 1
+
+        for i in range(start, len(notebook.cells)):
+            downstream = notebook.cells[i]
+            downstream.cell_state = CellState.STALE
+            downstream.metadata.setdefault("execution", {})
+            downstream.metadata["execution"]["needs_clean_rerun"] = True
+            downstream.updated_at = datetime.now()
+
+        notebook.updated_at = datetime.now()
+        self._save_notebook(notebook)
+        logger.info(f"Deleted cell {cell_id} from notebook {notebook.title} (index={delete_index})")
+        return True
     
     def _rebuild_execution_namespace_for_clean_rerun(
         self,
@@ -888,6 +956,11 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         try:
             # Mark cell as executing
             cell.is_executing = True
+            cell.is_writing_methodology = False  # Ensure clean state for UI polling
+            cell.is_retrying = False  # Ensure clean state for UI polling
+
+            phase_tracker = CellExecutionPhaseTracker(notebook=notebook, cell=cell)
+            phase_tracker.set_phase("starting", "Preparing execution…")
 
             # Clear previous execution traces - only keep traces from current execution
             cell.llm_traces = []
@@ -909,6 +982,18 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             # Initialize result for cases where we intentionally short-circuit (e.g., clean rerun rebuild fails)
             result: Optional[ExecutionResult] = None
 
+            # Guided rerun comment (optional): persisted for provenance and injected into LLM prompts.
+            rerun_comment = (request.rerun_comment or "").strip() or None
+            if rerun_comment:
+                cell.metadata.setdefault("rerun_history", [])
+                cell.metadata["rerun_history"].append(
+                    {
+                        "timestamp": datetime.now().isoformat(),
+                        "comment": rerun_comment,
+                        "requested_clean_context": bool(request.clean_rerun),
+                    }
+                )
+
             # Compute rerun semantics:
             # - request.clean_rerun is an explicit user action (clean context, typically paired with regenerate)
             # - cell.metadata["execution"]["needs_clean_rerun"] is an implicit default after edits
@@ -916,6 +1001,10 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             should_clean_context = bool(request.clean_rerun or metadata_needs_clean_rerun)
 
             if should_clean_context:
+                phase_tracker.set_phase(
+                    "clean_rerun_rebuild",
+                    "Rebuilding upstream context (clean rerun)…",
+                )
                 logger.info(
                     f"🧼 Clean rerun requested for cell {cell.id} "
                     f"(explicit={bool(request.clean_rerun)}, due_to_edit={metadata_needs_clean_rerun})"
@@ -929,7 +1018,8 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             # but only if we are still proceeding with execution.
             if result is None:
                 try:
-                    context = self._build_execution_context(notebook, cell)
+                    phase_tracker.set_phase("building_context", "Building execution context…")
+                    context = self._build_execution_context(notebook, cell, rerun_comment=rerun_comment)
                     logger.info(f"Built context with {len(context)} items")
                 except Exception as context_error:
                     logger.warning(f"Context building failed: {context_error}, using empty context")
@@ -943,6 +1033,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 or (request.clean_rerun and request.code is None and bool(cell.prompt))
             )
             if result is None and (not cell.code or force_regenerate):
+                phase_tracker.set_phase("code_generation", "Generating code…")
                 logger.info(f"Generating code for prompt: {cell.prompt[:100]}...")
 
                 try:
@@ -1005,6 +1096,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             
             # Execute code if available OR handle planning errors
             if result is None and cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
+                phase_tracker.set_phase("executing_code", "Executing code…")
                 # Set up notebook-specific context for execution
                 result = self.execution_service.execute_code(
                     cell.code,
@@ -1029,6 +1121,9 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             # Auto-retry logic: if execution/planning failed and we have a prompt, try to fix it with LLM
             if result and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
                 max_retries = 5
+                # Expose for UI polling
+                cell.metadata.setdefault("execution", {})
+                cell.metadata["execution"]["max_retries"] = max_retries
                 should_auto_retry = (
                     result.status == ExecutionStatus.ERROR and
                     (cell.cell_type == CellType.PROMPT or
@@ -1047,6 +1142,12 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                     # Set retry status
                     cell.is_retrying = True
                     cell.retry_count += 1
+                    phase_tracker.set_phase(
+                        "auto_retry",
+                        f"Auto-fixing execution error (attempt {cell.retry_count}/{max_retries})…",
+                        retry_count=cell.retry_count,
+                        max_retries=max_retries,
+                    )
 
                     logger.info(f"🔄 EXECUTION FAILED - Attempting auto-retry #{cell.retry_count}/{max_retries} with LLM for cell {cell.id}")
                     logger.info(f"🔄 Error: {result.error_message}")
@@ -1054,7 +1155,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
 
                     try:
                         # Build context for LLM including the error
-                        context = self._build_execution_context(notebook, cell)
+                        context = self._build_execution_context(notebook, cell, rerun_comment=rerun_comment)
 
                         # Create error context for the LLM
                         error_context = {
@@ -1069,12 +1170,18 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                         # Ask LLM to fix the code with enhanced error analysis from ErrorAnalyzer
                         logger.info(f"🔄 Asking LLM to fix the failed code (attempt #{cell.retry_count})...")
                         print(f"🔄 AUTO-RETRY #{cell.retry_count}: Analyzing error and generating corrected code...")
+                        phase_tracker.set_phase(
+                            "auto_retry_llm_fix",
+                            f"Fixing code (attempt {cell.retry_count}/{max_retries})…",
+                            retry_count=cell.retry_count,
+                            max_retries=max_retries,
+                        )
 
                         # Use suggest_improvements with enhanced error context and tracing
                         # This will automatically use ErrorAnalyzer to provide domain-specific guidance
                         try:
                             # Build full context for retry (includes available variables, DataFrames, previous cells)
-                            retry_context = self._build_execution_context(notebook, cell)
+                            retry_context = self._build_execution_context(notebook, cell, rerun_comment=rerun_comment)
 
                             fixed_code, trace_id, full_trace = await self.llm_service.asuggest_improvements(
                                 prompt=cell.prompt,
@@ -1112,6 +1219,12 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                             # Try executing the fixed code (but don't update cell.code yet!)
                             logger.info("🔄 Executing fixed code...")
                             print(f"🔄 EXECUTING: Testing corrected code...")
+                            phase_tracker.set_phase(
+                                "auto_retry_execute_fix",
+                                f"Auto-fix attempt {cell.retry_count}/{max_retries}: executing corrected code…",
+                                retry_count=cell.retry_count,
+                                max_retries=max_retries,
+                            )
                             retry_result = self.execution_service.execute_code(
                                 fixed_code,
                                 str(cell.id),
@@ -1151,6 +1264,12 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                             logger.warning(f"🔄 All {max_retries} retries exhausted for cell {cell.id}")
                             print(f"🔄 EXHAUSTED: All {max_retries} auto-retry attempts failed for cell {cell.id}")
                             cell.is_retrying = False  # Clear retry status
+                            phase_tracker.set_phase(
+                                "auto_retry_exhausted",
+                                f"Auto-fix exhausted ({max_retries}/{max_retries}).",
+                                retry_count=cell.retry_count,
+                                max_retries=max_retries,
+                            )
                             break
                         
                         # Update should_auto_retry for next iteration
@@ -1172,8 +1291,8 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
 
             # Update cell with result
             cell.last_result = result
-            cell.is_executing = False
             notebook.updated_at = datetime.now()
+            phase_tracker.set_phase("post_execution", "Finalizing outputs…")
 
             # Generate scientific explanation for successful prompt cells
             print(f"🔬 ALWAYS CHECKING scientific explanation conditions:")
@@ -1195,14 +1314,25 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 
                 print("🔬 GENERATING SCIENTIFIC EXPLANATION SYNCHRONOUSLY...")
                 logger.info("🔬 GENERATING SCIENTIFIC EXPLANATION SYNCHRONOUSLY...")
+                cell.is_writing_methodology = True
                 
                 # Retry loop for methodology generation (up to 3 attempts)
                 max_methodology_retries = 3
+                cell.metadata.setdefault("execution", {})
+                cell.metadata["execution"]["max_methodology_retries"] = max_methodology_retries
                 methodology_attempt = 0
                 explanation = ""
 
                 while methodology_attempt < max_methodology_retries and not explanation:
                     methodology_attempt += 1
+                    cell.metadata.setdefault("execution", {})
+                    cell.metadata["execution"]["methodology_attempt"] = methodology_attempt
+                    phase_tracker.set_phase(
+                        "methodology_generation",
+                        f"Writing methodology (attempt {methodology_attempt}/{max_methodology_retries})…",
+                        methodology_attempt=methodology_attempt,
+                        max_methodology_retries=max_methodology_retries,
+                    )
 
                     try:
                         # Prepare execution result data for LLM
@@ -1338,6 +1468,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                         logger.error(f"🔬 ❌ Even fallback methodology failed: {fallback_err}")
                         # ABSOLUTE LAST RESORT: Minimal text to avoid empty methodology
                         cell.scientific_explanation = "Analysis completed successfully."
+                cell.is_writing_methodology = False
             else:
                 logger.info("🔬 Skipping scientific explanation generation (conditions not met)")
             
@@ -1351,7 +1482,13 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 #   once we successfully execute in the rebuilt context.
                 cell.metadata.setdefault("execution", {})
                 cell.metadata["execution"]["needs_clean_rerun"] = False
-                cell.metadata["execution"]["last_rerun_mode"] = "clean" if should_clean_context else "normal"
+                cell.metadata["execution"]["last_rerun_mode"] = (
+                    "guided_keep_context"
+                    if rerun_comment
+                    else ("clean" if should_clean_context else "normal")
+                )
+                if rerun_comment:
+                    cell.metadata["execution"]["last_rerun_comment"] = rerun_comment
 
                 # Mark downstream cells as stale
                 try:
@@ -1364,6 +1501,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
 
             # Extract semantic information from cell (non-blocking)
             try:
+                phase_tracker.set_phase("semantic_extraction", "Extracting semantic information…")
                 logger.info(f"🔍 Extracting semantic information from cell {cell.id}...")
                 cell_semantics = self.semantic_service.extract_cell_semantics(cell, notebook)
                 cell.metadata['semantics'] = cell_semantics.to_jsonld()
@@ -1379,6 +1517,7 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             try:
                 review_settings = notebook.metadata.get('review_settings', {})
                 if review_settings.get('auto_review_enabled', False):
+                    phase_tracker.set_phase("auto_review", "Running auto-review…")
                     logger.info(f"📋 Auto-review enabled - reviewing cell {cell.id}...")
                     cell_review = self.review_service.review_cell(cell, notebook)
                     cell.metadata['review'] = cell_review.dict()
@@ -1389,7 +1528,12 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 pass
 
             # Save notebook
+            phase_tracker.set_phase("saving", "Saving notebook…")
+            cell.is_executing = False
+            cell.is_retrying = False
+            cell.is_writing_methodology = False
             self._save_notebook(notebook)
+            phase_tracker.clear()
             
             logger.info(f"Executed cell {cell.id} with status {result.status}")
             return cell, result
@@ -1405,6 +1549,14 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             
             cell.last_result = error_result
             cell.is_executing = False
+            cell.is_retrying = False
+            cell.is_writing_methodology = False
+            try:
+                phase_tracker = CellExecutionPhaseTracker(notebook=notebook, cell=cell)
+                phase_tracker.set_phase("error", f"Execution failed: {type(e).__name__}")
+            except Exception:
+                # Never let phase tracking failures mask the real error.
+                pass
             self._save_notebook(notebook)
             
             logger.error(f"Failed to execute cell {cell.id}: {e}")

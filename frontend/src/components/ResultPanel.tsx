@@ -21,6 +21,33 @@ interface ResultPanelProps {
   onRefreshReview?: () => void  // Callback to refresh review
 }
 
+/**
+ * Infer a safe Plotly container height.
+ *
+ * Why:
+ * - Some figures (notably multi-row subplots) require taller layouts.
+ * - Forcing a fixed height causes the plot to overflow and get clipped by rounded containers.
+ *
+ * Strategy:
+ * - Prefer an explicit `layout.height` if provided (authoritative).
+ * - Otherwise, if this is a subplot grid, scale height by row count.
+ * - Fallback to a conservative default for single plots.
+ */
+const getPlotlyHeightPx = (layout: any): number => {
+  const explicitHeight = layout?.height
+  if (typeof explicitHeight === 'number' && Number.isFinite(explicitHeight) && explicitHeight > 0) {
+    return explicitHeight
+  }
+
+  const rows = layout?.grid?.rows
+  if (typeof rows === 'number' && Number.isFinite(rows) && rows > 0) {
+    // Heuristic: ~320px per row yields readable subplots while avoiding clipping.
+    return Math.max(450, rows * 320)
+  }
+
+  return 600
+}
+
 const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefreshReview }) => {
   const [warningsCollapsed, setWarningsCollapsed] = useState(true)
 
@@ -157,7 +184,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
                   <img
                     src={`data:image/png;base64,${table.data}`}
                     alt={table.label || 'Figure'}
-                    className="max-w-full max-h-[80vh] h-auto object-contain mx-auto"
+                    className="block max-w-full h-auto mx-auto"
                   />
                 ) : null
               )}
@@ -186,7 +213,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
                 <img
                   src={`data:image/png;base64,${table.data}`}
                   alt={table.label || 'Figure'}
-                  className="max-w-full max-h-[80vh] h-auto object-contain mx-auto"
+                  className="block max-w-full h-auto mx-auto"
                 />
               )}
             </div>
@@ -218,7 +245,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
               <img
                 src={`data:image/png;base64,${plotData}`}
                 alt={plotLabel || `Plot ${index + 1}`}
-                className="max-w-full max-h-[80vh] h-auto object-contain mx-auto"
+                className="block max-w-full h-auto mx-auto"
               />
                   </div>
                 </div>
@@ -228,6 +255,11 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
             {/* Interactive Plotly Plots */}
             {result.interactive_plots.map((plot: any, index: number) => {
               let plotLabel = plot.label;
+              const plotHeightPx = getPlotlyHeightPx(plot?.figure?.layout);
+              // Some captured Plotly figures include a fixed `layout.width` which can exceed the cell width
+              // and get clipped by rounded containers. Strip width so Plotly can autosize to the cell.
+              const rawLayout = plot?.figure?.layout || {}
+              const { width: _fixedWidth, ...layoutWithoutWidth } = rawLayout as any
 
               // If no label and there are orphaned labels, try to use them
               // (offset by number of regular plots that already consumed orphaned labels)
@@ -249,15 +281,18 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
                     <Plot
                       data={plot.figure.data}
                       layout={{
-                        ...plot.figure.layout,
-                        autosize: true
+                        ...layoutWithoutWidth,
+                        autosize: true,
+                        // Ensure the container height matches the figure needs to avoid truncation.
+                        height: plotHeightPx
                       }}
                       config={{
                         responsive: true,
                         displayModeBar: true,
                         displaylogo: false
                       }}
-                      style={{ width: '100%', height: '600px' }}
+                      className="w-full"
+                      style={{ width: '100%', maxWidth: '100%', height: `${plotHeightPx}px` }}
                       useResizeHandler={true}
                     />
                   </div>
@@ -282,7 +317,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
                 <img
                   src={`data:image/png;base64,${image}`}
                   alt={`Image ${index + 1}`}
-                  className="max-w-full max-h-[80vh] h-auto object-contain"
+                  className="block max-w-full h-auto"
                 />
               </div>
             ))}

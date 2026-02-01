@@ -333,6 +333,7 @@ class CellExecuteRequest(BaseModel):
     prompt: Optional[str] = None  # Prompt to generate code from
     autofix: bool = True  # Default: safe deterministic autofix before execution
     clean_rerun: bool = False  # If True, rebuild execution context from upstream cells only (ignore downstream state)
+    rerun_comment: Optional[str] = None  # Optional guided-rerun comment to steer a partial rewrite
 
 
 class CellExecuteResponse(BaseModel):

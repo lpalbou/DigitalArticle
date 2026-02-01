@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { RefreshCw, ChevronDown, Zap, Bot, Bug, Eraser } from 'lucide-react'
+import { RefreshCw, ChevronDown, Zap, Bot, Bug, Eraser, MessageSquare } from 'lucide-react'
 
 interface ReRunDropdownProps {
   onExecuteCode: () => void
   onExecuteCodeWithoutAutofix?: () => void
   onRegenerateAndExecute: () => void
   onRegenerateAndExecuteWithoutAutofix?: () => void
+  onGuidedRegenerateAndExecute?: () => void
   onCleanRegenerateAndExecute?: () => void
   onCleanRegenerateAndExecuteWithoutAutofix?: () => void
   isExecuting?: boolean
@@ -16,6 +17,7 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
   onExecuteCodeWithoutAutofix,
   onRegenerateAndExecute,
   onRegenerateAndExecuteWithoutAutofix,
+  onGuidedRegenerateAndExecute,
   onCleanRegenerateAndExecute,
   onCleanRegenerateAndExecuteWithoutAutofix,
   isExecuting = false
@@ -43,6 +45,11 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
   const handleRegenerateAndExecute = () => {
     setIsOpen(false)
     onRegenerateAndExecute()
+  }
+
+  const handleGuidedRegenerateAndExecute = () => {
+    setIsOpen(false)
+    onGuidedRegenerateAndExecute?.()
   }
 
   const handleExecuteCodeWithoutAutofix = () => {
@@ -163,6 +170,26 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
                     <div className="text-sm font-medium text-gray-900">Regenerate & execute without safe auto-fix</div>
                     <div className="text-xs text-gray-500 mt-1">
                       Generate new code and run without deterministic safe fixes (advanced debugging)
+                    </div>
+                  </div>
+                </div>
+              </button>
+            )}
+
+            {/* Guided rerun (keep context + user comment) */}
+            {onGuidedRegenerateAndExecute && (
+              <button
+                onClick={handleGuidedRegenerateAndExecute}
+                className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0"
+              >
+                <div className="flex items-start space-x-3">
+                  <div className="flex-shrink-0 mt-0.5">
+                    <MessageSquare className="h-4 w-4 text-blue-600" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-gray-900">Guided rerun (keep context + comment)</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Provide a short delta request to partially rewrite results; downstream cells will be invalidated
                     </div>
                   </div>
                 </div>

@@ -587,6 +587,8 @@ Cell 2: print(df.shape)  # Works! df is available
    - **JSON**: Structured data with schema analysis
    - **H5/HDF5**: Scientific data containers with hierarchical structure
    - **H5AD**: Single-cell genomics data (AnnData format) with metadata
+   - **Images**: `.png`, `.jpg/.jpeg`, `.tif/.tiff` (viewable in the file viewer)
+   - **Medical imaging**: **DICOM** (`.dcm/.dicom`) and **NIfTI** (`.nii/.nii.gz`) (download-only for now)
    - **Text files**: Plain text, markdown, etc.
 4. File is copied to the notebook's workspace
 5. Reference it in prompts: `"Load my_data.csv and analyze it"`

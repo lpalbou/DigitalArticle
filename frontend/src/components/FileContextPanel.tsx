@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { Upload, File, X, Database, BarChart3, FileText, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react'
+import { Upload, File, X, Database, BarChart3, FileText, ChevronDown, ChevronRight, AlertTriangle, Image as ImageIcon } from 'lucide-react'
 import { filesAPI, handleAPIError } from '../services/api'
 import { FileInfo } from '../types'
 import FileViewerModal from './FileViewerModal'
@@ -308,10 +308,12 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
     switch (type) {
       case 'csv': case 'tsv': return <BarChart3 className="h-4 w-4 text-green-600" />
       case 'json': return <Database className="h-4 w-4 text-blue-600" />
-      case 'yaml': return <FileText className="h-4 w-4 text-yellow-600" />
-      case 'xlsx': return <BarChart3 className="h-4 w-4 text-orange-600" />
+      case 'yaml': case 'yml': return <FileText className="h-4 w-4 text-yellow-600" />
+      case 'xlsx': case 'xls': return <BarChart3 className="h-4 w-4 text-orange-600" />
       case 'md': return <FileText className="h-4 w-4 text-purple-600" />
       case 'h5': case 'hdf5': case 'h5ad': return <Database className="h-4 w-4 text-indigo-600" />
+      case 'image': return <ImageIcon className="h-4 w-4 text-purple-600" />
+      case 'dicom': case 'nifti': return <File className="h-4 w-4 text-indigo-600" />
       default: return <File className="h-4 w-4 text-gray-600" />
     }
   }
@@ -358,7 +360,7 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
               multiple
               className="hidden"
               onChange={handleFileUpload}
-              accept=".csv,.tsv,.json,.yaml,.yml,.xlsx,.xls,.txt,.md,.h5,.hdf5,.h5ad"
+              accept=".csv,.tsv,.json,.yaml,.yml,.xlsx,.xls,.txt,.md,.h5,.hdf5,.h5ad,.png,.jpg,.jpeg,.tif,.tiff,.dcm,.dicom,.nii,.nii.gz"
             />
           </label>
           

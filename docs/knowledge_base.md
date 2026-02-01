@@ -8,6 +8,9 @@ This file accumulates **non-obvious truths** about the system that we do not wan
 
 - **Code is the source of truth**: docs must be grounded in [`backend/app/*`](../backend/app), [`frontend/src/*`](../frontend/src), [`docker/*`](../docker), and [`docker-compose.yml`](../docker-compose.yml).
 - **Backend routers are mounted in [`backend/app/main.py`](../backend/app/main.py)**. If docs list endpoints, validate against that file.
+- **Uploads must handle multi-part extensions**:
+  - NIfTI is commonly gzipped as `.nii.gz`. Do not infer file type by a naive `split('.')[-1]` (you’ll misclassify it as `.gz`).
+  - Prefer a shared “effective extension” helper (see `backend/app/services/file_types.py`) used by both backend classification and frontend viewer behavior.
 - **Streaming uses SSE** for long-running tasks:
   - model download ([`backend/app/api/models.py`](../backend/app/api/models.py))
   - review streaming ([`backend/app/api/review.py`](../backend/app/api/review.py))
@@ -31,6 +34,19 @@ This file accumulates **non-obvious truths** about the system that we do not wan
 - **Auto-retry max is 5** for execution failures (see `NotebookService.execute_cell()`).
 - **Retry must use original generated code** as the fix target, not mutated retry variants (prevents compounding errors).
 - **Execution runs in-process** (via `exec()`); production hardening requires sandboxing.
+- **Token usage tracking is opportunistic (provider-dependent)**
+  - `TokenTracker` records token counts only when the LLM provider returns `response.usage`.
+  - Before the first successful generation (or when a provider omits usage metadata), “no usage yet” is a normal zero-state; status polling must not spam warning logs.
+- **Plotly output sizing must be content-driven**
+  - Interactive Plotly figures can require tall layouts (e.g., multi-row subplots). Forcing a fixed-height container will clip/truncate the figure inside rounded cards.
+  - Frontend should prefer `figure.layout.height` when present; otherwise infer height from `layout.grid.rows` (subplots) with a safe default fallback.
+- **Plotly output width must be container-driven**
+  - Captured Plotly figures may include a fixed `layout.width` (often larger than the notebook column). If honored, the graph can exceed the cell width and get clipped by rounded containers.
+  - Frontend should strip fixed `layout.width` and rely on Plotly autosize/responsive behavior so figures always fit the cell width.
+- **Cell execution is a pipeline; UI status must be phase-driven**
+  - Backend cell execution includes multiple steps (context build, LLM code generation, deterministic execution, auto-retry/self-correct, methodology generation, post-processing like semantics/review).
+  - A single “Generating…” label is misleading; instead track a lightweight `execution_phase` + `execution_message` under `cell.metadata["execution"]` and expose it via `/api/cells/{cell_id}/status`.
+  - Frontend can poll this status endpoint while `/cells/execute` is in-flight to render accurate realtime-ish progress without turning cell execution into a streaming API.
 - **Cell execution returns a structured lint report**:
   - Backend attaches `ExecutionResult.lint_report` (built-in, deterministic, offline) to support better debugging and self-correction.
   - Frontend surfaces this in `ExecutionDetailsModal` (“Lint” tab).

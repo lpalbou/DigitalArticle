@@ -13,6 +13,7 @@ import {
   CellUpdateRequest,
   CellExecuteRequest,
   CellExecuteResponse,
+  CellStatusResponse,
   CodeGenerationRequest,
   CodeExplanationRequest,
   CodeImprovementRequest,
@@ -164,13 +165,7 @@ export const cellAPI = {
   },
 
   // Get cell status (including methodology writing status)
-  getStatus: async (cellId: string): Promise<{
-    cell_id: string;
-    is_executing: boolean;
-    is_writing_methodology: boolean;
-    has_scientific_explanation: boolean;
-    scientific_explanation: string;
-  }> => {
+  getStatus: async (cellId: string): Promise<CellStatusResponse> => {
     const response = await api.get(`/cells/${cellId}/status`)
     return response.data
   },

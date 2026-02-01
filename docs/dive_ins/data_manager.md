@@ -36,6 +36,8 @@ The `workspace_root` comes from:
 - Tabular data (CSV/TSV/Parquet/Excel): sample rows + inferred column semantics + basic stats
 - Text/JSON/YAML/Markdown: full content for small files (or truncated previews when large)
 - H5/HDF5: metadata view via [`backend/app/services/h5_service.py`](../../backend/app/services/h5_service.py)
+- Images (PNG/JPG/TIFF): listed in context; previewed in the UI via the file content endpoint (base64)
+- Medical imaging (DICOM/NIfTI): listed in context; **download-only** in the UI (no inline preview yet)
 
 This is intentionally designed to give the LLM “enough to act” while remaining robust across diverse data types.
 
