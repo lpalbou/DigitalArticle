@@ -2199,8 +2199,25 @@ class ExecutionService:
             notebook_id: Unique identifier for the notebook
             keep_imports: Whether to keep imported modules
         """
+        # It's normal for a notebook to have no in-memory environment yet:
+        # - first execution after backend start/restart
+        # - user requests a clean rerun before any execution has occurred
+        # - the notebook was never executed in this process
+        #
+        # In those cases, "clearing" is a no-op for memory, but we may still want to clear
+        # persisted state on disk (if requested).
         if notebook_id not in self.notebook_globals:
-            logger.warning(f"⚠️ No execution environment found for notebook {notebook_id}")
+            logger.info(f"🧹 No in-memory execution environment for notebook {notebook_id} (nothing to clear)")
+
+            if clear_saved_state:
+                try:
+                    if self.state_persistence.clear_notebook_state(notebook_id):
+                        logger.info(f"🗑️  Cleared saved state for notebook {notebook_id}")
+                except Exception as e:
+                    logger.error(f"Failed to clear saved state: {e}")
+
+            self.execution_count = 0
+            plt.close("all")
             return
 
         globals_dict = self.notebook_globals[notebook_id]
