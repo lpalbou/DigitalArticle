@@ -82,6 +82,9 @@ Common local base URLs:
 
 ## Legacy guide (historical)
 
+<details>
+<summary>Click to expand the historical guide (kept for context; may drift from the current implementation)</summary>
+
 ## Overview
 
 Digital Article is a computational notebook application where you write what you want to analyze in natural language, and the system generates and executes Python code for you. This guide will walk you through installation, setup, and your first analysis.
@@ -814,3 +817,5 @@ If you're still stuck:
    - Backend and frontend logs
 
 Welcome to Digital Article! We hope this tool makes your data analysis more accessible and your scientific communication more effective.
+
+</details>

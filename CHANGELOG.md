@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Notebook asset numbering regression test**
   - Added pytest coverage to ensure numbering is sequential across the notebook, robust to per-cell label resets, and resilient to legacy plot formats.
 
+### Changed
+- **GitHub docs: clearer “trust model” + concrete example output**
+  - Updated `README.md` to clarify the reliability contract (execution is the source of truth; artifacts are inspectable) and to link an end-to-end PDF export example (`examples/article/Digital_Article_Export_Example.pdf`).
+  - Updated `docs/presentation/README.md` to be open-source friendly (removed internal links, converted absolute links to repo-relative links, and removed broken screenshot references).
+  - Updated `docs/getting-started.md` to collapse the historical legacy guide in a `<details>` block to reduce onboarding confusion while keeping the historical context accessible.
+  - Updated `docs/overview.md` to reflect the presentation doc’s current scope (Mermaid diagrams; screenshots omitted to reduce drift).
+
 ## [0.3.2]
 
 ### Added
@@ -101,6 +108,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `docs/troubleshooting.md` (common failures)
     - `docs/dive_ins/*` (critical component docs)
   - Marked historical planning/devnote docs explicitly as such to avoid misleading readers.
+- **Messaging cohesion for mixed audiences (GitHub-first, still comprehensible to non-technical readers)**
+  - Rewrote the top of `README.md` around a single thesis: **intent → executable code → verified results → publishable methodology**.
+  - Added a short Mermaid diagram and highlighted a concrete proof artifact: `examples/article/Digital_Article_Export_Example.pdf`.
+  - Reduced onboarding noise by collapsing Docker + LLM configuration deep dives behind `<details>` blocks.
+  - Strengthened the “proof gallery” concept in `examples/README.md`.
+  - Updated `docs/presentation/README.md` (one-pager) to include the core loop, an example output link, and an explicitly-labeled illustrative ROI model.
+  - Added a troubleshooting + knowledge-base note about the PyMuPDF “layout analyzer” startup message and its licensing implications (policy grounded in `ADR 0007`).
 
 
 ## [0.3.13] - 2025-12-17

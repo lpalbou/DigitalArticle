@@ -1,14 +1,36 @@
-# Digital Article
+# Digital Article : Your Digital Analytics Assistant
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![React 18](https://img.shields.io/badge/react-18.2-blue.svg)](https://reactjs.org/)
 [![FastAPI](https://img.shields.io/badge/fastapi-0.104+-green.svg)](https://fastapi.tiangolo.com/)
 
-> Transform computational notebooks from code-first to article-first. Write what you want to analyze in natural language; let AI generate the code.
+> Article-first analytics notebook: **intent → executable code → verified results → publishable methodology** (with traceability).
 
 ## What is Digital Article?
 
-Digital Article inverts the traditional computational notebook paradigm. Instead of writing code to perform analysis, you describe your analysis in natural language, and the system generates, executes, and documents the code for you—automatically creating publication-ready scientific methodology text.
+Digital Article is an **article-first** analytics notebook: instead of starting from code, you state what you want to learn in plain language, and Digital Article turns that intent into:
+
+- **executable analysis code** (always inspectable + editable)
+- **verified results** (real runtime outputs: figures, tables, logs, errors)
+- **publishable narrative** (methodology/results sections, plus optional abstract)
+
+The result is a living report that stays useful after it’s written: it can be re-run, queried, and extended with clear provenance rather than becoming a static snapshot.
+
+### 60-second overview (the core loop)
+
+Digital Article’s key idea is the “article-first execution loop”:
+
+**intent → executable code → verified results → publishable methodology** (with traceability).
+
+```mermaid
+flowchart LR
+  I["Intent (prompt)"] --> C["Code (generated/edited)"]
+  C --> E["Execution (truth)"]
+  E --> R["Results (figures/tables)"]
+  E --> M["Methodology (article text)"]
+```
+
+**Proof artifact**: see the example scientific PDF export in [`examples/article/Digital_Article_Export_Example.pdf`](examples/article/Digital_Article_Export_Example.pdf) (Kaplan–Meier, Cox model, diagnostics).
 
 ![Digital Article](assets/da-illustration.jpg)
 
@@ -38,6 +60,18 @@ Digital Article inverts the traditional computational notebook paradigm. Instead
 - **Persistent Execution Context**: Variables persist across cells, and can be restored after backend restarts
 - **Workspace Isolation**: Each notebook has its own data workspace
 - **AI Review (Optional)**: Generate a peer-review style critique of your article with trace capture and SSE streaming
+
+## What makes it trustworthy (and what it does not)
+
+Digital Article treats **execution as the source of truth**: the model proposes code, but results come from real runtime outputs.
+
+To support review and audit, Digital Article keeps key artifacts inspectable:
+- **Code + diffs**: generated code (and any edits / safe rewrites)
+- **Results + errors**: plots, tables, stdout/stderr, and tracebacks
+- **Deterministic guardrails**: lint reports and “safe auto-fix” reports (offline, before spending LLM budget)
+- **LLM traces (where supported)**: prompts, responses, and timing metadata
+
+It does **not** guarantee scientific correctness: always review the code, outputs, and methodology (the optional “critical reviewer” can help surface methodological issues).
 
 ## Who Is This For?
 
@@ -100,6 +134,14 @@ When running locally, the `config.json` at the root should use relative paths:
 ```
 
 **Full setup guide**: See [Getting Started](docs/getting-started.md)
+
+## Example output (PDF)
+
+- [`examples/article/Digital_Article_Export_Example.pdf`](examples/article/Digital_Article_Export_Example.pdf) — end-to-end survival analysis demo (Kaplan–Meier curves, Cox model, and diagnostics) exported as a publication-style PDF.
+- More example content: [`examples/README.md`](examples/README.md)
+
+<details>
+<summary>Docker deployment (optional)</summary>
 
 ### Docker Deployment
 
@@ -165,6 +207,11 @@ When running in Docker, the container uses environment variables to override pat
 
 **Full Docker guide**: See [docker/README.md](docker/README.md)
 
+</details>
+
+<details>
+<summary>LLM configuration (how config is stored, precedence, remote access)</summary>
+
 ## LLM Configuration
 
 Digital Article requires an LLM provider to generate code from prompts. Configuration is intentionally flexible (local servers, cloud APIs, Docker).
@@ -186,6 +233,8 @@ Digital Article requires an LLM provider to generate code from prompts. Configur
 
 ### Remote Access
 All configuration works seamlessly when accessing Digital Article from remote machines (e.g., `http://server-ip:3000`). The settings modal and status footer use relative API paths for proper remote connectivity.
+
+</details>
 
 ## Example Usage
 
@@ -273,6 +322,7 @@ Digital Article is built on the belief that **analytical tools should adapt to h
 ## Documentation
 
 - **Start here**: [Getting Started](docs/getting-started.md)
+- **One-pager (why it exists + core loop)**: [Digital Article one-pager](docs/presentation/README.md)
 - **Canonical map**: [Architecture](docs/architecture.md)
 - **Common fixes**: [Troubleshooting](docs/troubleshooting.md)
 - **Docs index**: [Documentation overview](docs/overview.md)
@@ -292,7 +342,7 @@ Digital Article is built on the belief that **analytical tools should adapt to h
 
 ## Current Status
 
-**Version**: 0.3.13 (Beta)
+**Version**: 0.3.2 (Beta)
 
 **Working Features**:
 - ✅ Natural language to code generation
@@ -301,11 +351,10 @@ Digital Article is built on the belief that **analytical tools should adapt to h
 - ✅ Scientific methodology generation
 - ✅ Matplotlib and Plotly visualization support
 - ✅ Pandas DataFrame capture and display
-- ✅ Multi-format export (JSON, HTML, Markdown)
-- ✅ Scientific PDF export
+- ✅ Export: scientific PDF + clean JSON (HTML/Markdown exports are early-stage placeholders; see `docs/export.md`)
 - ✅ File upload and workspace management
 - ✅ Persistent execution context across cells
- - ✅ Article review (SSE streaming + trace capture)
+- ✅ Article review (SSE streaming + trace capture)
 
 **Limitations / Production Readiness**: See [docs/limitations.md](docs/limitations.md).
 

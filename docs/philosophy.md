@@ -26,6 +26,8 @@ For domain experts—biologists, clinicians, social scientists, business analyst
 
 **Digital Article inverts the paradigm**: What if the analytical narrative could be the primary interface, with code as a derived implementation detail?
 
+**Core loop**: **intent → executable code → verified results → publishable methodology**.
+
 ### Conceptual Model
 
 Instead of:
