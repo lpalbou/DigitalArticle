@@ -55,11 +55,19 @@ def sanitize_for_json(obj: Any) -> Any:
     if isinstance(obj, np.dtype):
         return str(obj)
     
-    # Handle pandas NaT and NaN
+    # Handle pandas NaT / NaN (scalar only).
+    #
+    # Important:
+    # - `pd.isna()` returns array-like results for containers (list/ndarray/Series/...).
+    # - Evaluating those in boolean context is ambiguous (and can raise or warn),
+    #   and it can also incorrectly collapse containers like `[np.nan]` into `None`.
+    #
+    # So we only treat the object itself as missing when `pd.isna(obj)` returns a scalar bool.
     try:
-        if pd.isna(obj):
+        na = pd.isna(obj)
+        if isinstance(na, (bool, np.bool_)) and bool(na):
             return None
-    except (TypeError, ValueError):
+    except Exception:
         pass
     
     # Handle pandas Timestamp
@@ -82,7 +90,8 @@ def sanitize_for_json(obj: Any) -> Any:
     
     # Handle numpy arrays
     if isinstance(obj, np.ndarray):
-        return obj.tolist()
+        # Convert to pure python types, then sanitize recursively (handles NaN values, nested arrays, etc.).
+        return sanitize_for_json(obj.tolist())
     
     # Handle datetime
     if isinstance(obj, datetime):
