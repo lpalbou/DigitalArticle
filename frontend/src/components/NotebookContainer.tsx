@@ -798,6 +798,37 @@ const NotebookContainer: React.FC = () => {
     }
   }, [notebook, executeCell])
 
+  // Regenerate and execute all cells from a given cell onwards
+  const regenerateAllFromHere = useCallback(async (startCellId: string) => {
+    if (!notebook) return
+    
+    // Find the index of the starting cell
+    const startIndex = notebook.cells.findIndex(c => c.id === startCellId)
+    if (startIndex === -1) return
+    
+    // Get all cells from the starting cell onwards
+    const cellsToRegenerate = notebook.cells.slice(startIndex)
+    
+    // Regenerate and execute each cell sequentially
+    for (const cell of cellsToRegenerate) {
+      // Only regenerate cells that can be regenerated (PROMPT, CODE, METHODOLOGY)
+      if (cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.CODE || cell.cell_type === CellType.METHODOLOGY) {
+        // Only regenerate if cell has a prompt
+        if (cell.prompt && cell.prompt.trim()) {
+          try {
+            await executeCell(cell.id, 'regenerate')
+            // Wait a bit between regenerations to avoid overwhelming the system
+            await new Promise(resolve => setTimeout(resolve, 1000))
+          } catch (err) {
+            // If a cell fails, stop regeneration chain
+            console.error(`Failed to regenerate cell ${cell.id}:`, err)
+            break
+          }
+        }
+      }
+    }
+  }, [notebook, executeCell])
+
   // Check for dependent cells and show modal if needed
   const checkDependenciesAndExecute = useCallback(async (
     cellId: string,
@@ -1446,6 +1477,7 @@ const NotebookContainer: React.FC = () => {
               onExecuteCell={checkDependenciesAndExecute}
               onDirectExecuteCell={executeCell}
               onExecuteAllFromHere={executeAllFromHere}
+              onRegenerateAllFromHere={regenerateAllFromHere}
               onAddCellBelow={addCellBelow}
               onInvalidateCells={invalidateCells}
               onViewTraces={viewCellTraces}

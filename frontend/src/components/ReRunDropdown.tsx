@@ -5,6 +5,7 @@ interface ReRunDropdownProps {
   onExecuteCode: () => void
   onExecuteAllFromHere?: () => void
   onRegenerateAndExecute: () => void
+  onRegenerateAllFromHere?: () => void
   onRegenerateAndExecuteWithoutAutofix?: () => void
   onGuidedRegenerateAndExecute?: () => void
   onCleanRegenerateAndExecute?: () => void
@@ -16,6 +17,7 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
   onExecuteCode,
   onExecuteAllFromHere,
   onRegenerateAndExecute,
+  onRegenerateAllFromHere,
   onRegenerateAndExecuteWithoutAutofix,
   onGuidedRegenerateAndExecute,
   onCleanRegenerateAndExecute,
@@ -45,6 +47,11 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
   const handleRegenerateAndExecute = () => {
     setIsOpen(false)
     onRegenerateAndExecute()
+  }
+
+  const handleRegenerateAllFromHere = () => {
+    setIsOpen(false)
+    onRegenerateAllFromHere?.()
   }
 
   const handleGuidedRegenerateAndExecute = () => {
@@ -100,7 +107,7 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
       {isOpen && !isExecuting && (
         <div className="absolute top-full right-0 mt-1 w-80 bg-white border border-gray-200 rounded-md shadow-lg z-50">
           <div className="py-1">
-            {/* Execute existing code */}
+            {/* Execute current cell code */}
             <button
               onClick={handleExecuteCode}
               className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0"
@@ -110,7 +117,7 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
                   <Zap className="h-4 w-4 text-blue-500" />
                 </div>
                 <div className="flex-1">
-                  <div className="text-sm font-medium text-gray-900">Execute existing code</div>
+                  <div className="text-sm font-medium text-gray-900">Execute current cell code</div>
                   <div className="text-xs text-gray-500 mt-1">
                     Run current code (no auto-fix - code should already work)
                   </div>
@@ -118,7 +125,7 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
               </div>
             </button>
 
-            {/* Execute all cells from here */}
+            {/* Execute all cells code from here */}
             {onExecuteAllFromHere && (
               <button
                 onClick={handleExecuteAllFromHere}
@@ -129,7 +136,7 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
                     <Play className="h-4 w-4 text-green-600" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-sm font-medium text-gray-900">Execute all cells from here</div>
+                    <div className="text-sm font-medium text-gray-900">Execute all cells code from here</div>
                     <div className="text-xs text-gray-500 mt-1">
                       Execute this cell and all downstream cells sequentially
                     </div>
@@ -138,7 +145,7 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
               </button>
             )}
 
-            {/* Regenerate code and execute */}
+            {/* Regenerate current cell */}
             <button
               onClick={handleRegenerateAndExecute}
               className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0"
@@ -148,7 +155,7 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
                   <Bot className="h-4 w-4 text-purple-500" />
                 </div>
                 <div className="flex-1">
-                  <div className="text-sm font-medium text-gray-900">Regenerate code & execute</div>
+                  <div className="text-sm font-medium text-gray-900">Regenerate current cell</div>
                   <div className="text-xs text-gray-500 mt-1">
                     Generate new code from prompt and execute (safe auto-fix enabled by default)
                   </div>
@@ -156,7 +163,27 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
               </div>
             </button>
 
-            {/* Regenerate code and execute without safe autofix */}
+            {/* Regenerate all cells from here */}
+            {onRegenerateAllFromHere && (
+              <button
+                onClick={handleRegenerateAllFromHere}
+                className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0"
+              >
+                <div className="flex items-start space-x-3">
+                  <div className="flex-shrink-0 mt-0.5">
+                    <Bot className="h-4 w-4 text-purple-600" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-gray-900">Regenerate all cells from here</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Regenerate and execute this cell and all downstream cells sequentially
+                    </div>
+                  </div>
+                </div>
+              </button>
+            )}
+
+            {/* Regenerate current cell without safe autofix */}
             {onRegenerateAndExecuteWithoutAutofix && (
               <button
                 onClick={handleRegenerateAndExecuteWithoutAutofix}
@@ -167,7 +194,7 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
                     <Bug className="h-4 w-4 text-purple-600" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-sm font-medium text-gray-900">Regenerate & execute without safe auto-fix</div>
+                    <div className="text-sm font-medium text-gray-900">Regenerate current cell without safe auto-fix</div>
                     <div className="text-xs text-gray-500 mt-1">
                       Generate new code and run without deterministic safe fixes (advanced debugging)
                     </div>

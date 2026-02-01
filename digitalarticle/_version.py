@@ -5,9 +5,9 @@ This module provides the single source of truth for version information.
 Update both __version__ and __release_date__ when releasing new versions.
 """
 
-__version__ = "0.3.13"
+__version__ = "0.3.2"
 __version_info__ = tuple(map(int, __version__.split(".")))
-__release_date__ = "December 17, 2025"
+__release_date__ = "Jan 31, 2025"
 
 # Additional version metadata
 __author__ = "Laurent-Philippe Albou"

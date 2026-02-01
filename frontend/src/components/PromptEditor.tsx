@@ -23,6 +23,7 @@ interface PromptEditorProps {
     options?: { autofix?: boolean; clean_rerun?: boolean; rerun_comment?: string }
   ) => void // Direct execution without dependency check
   onExecuteAllFromHere?: (cellId: string) => void // Execute this cell and all downstream cells
+  onRegenerateAllFromHere?: (cellId: string) => void // Regenerate and execute this cell and all downstream cells
   onInvalidateCells?: (cellId: string) => void // New callback for cell invalidation
   onViewTraces?: (cellId: string) => void // View LLM execution traces
   isExecuting?: boolean
@@ -35,6 +36,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   onExecuteCell,
   onDirectExecuteCell,
   onExecuteAllFromHere,
+  onRegenerateAllFromHere,
   onInvalidateCells,
   onViewTraces,
   isExecuting = false
@@ -415,6 +417,9 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
                     console.log('🔄 ReRunDropdown onRegenerateAndExecute called for cell:', cell.id)
                     onExecuteCell(cell.id, 'regenerate')
                   }}
+                  onRegenerateAllFromHere={onRegenerateAllFromHere ? () => {
+                    onRegenerateAllFromHere(cell.id)
+                  } : undefined}
                   onRegenerateAndExecuteWithoutAutofix={() => {
                     onExecuteCell(cell.id, 'regenerate', { autofix: false })
                   }}

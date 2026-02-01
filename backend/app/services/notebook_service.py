@@ -1123,7 +1123,17 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 phase_tracker.set_phase("executing_code", "Executing code…")
                 # Initialize figure/table counters from existing notebook cells
                 # This ensures sequential numbering across the entire article
+                # MUST be called before execute_code to ensure counters are set correctly
                 self.execution_service._initialize_counters_from_notebook(notebook)
+                
+                # Log current counter state for debugging
+                notebook_id_str = str(notebook.id)
+                table_count = self.execution_service.notebook_table_counters.get(notebook_id_str, 0)
+                figure_count = self.execution_service.notebook_figure_counters.get(notebook_id_str, 0)
+                logger.debug(
+                    f"🔢 Counter state before execution: Table {table_count}, Figure {figure_count}"
+                )
+                
                 # Set up notebook-specific context for execution
                 result = self.execution_service.execute_code(
                     cell.code,
