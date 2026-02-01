@@ -28,6 +28,7 @@ from .semantic_analysis_service import SemanticAnalysisService
 from .semantic_profile_service import SemanticProfileService
 from .review_service import ReviewService
 from .execution_phase_tracker import CellExecutionPhaseTracker
+from .notebook_asset_numbering_service import NotebookAssetNumberingService
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,10 @@ class NotebookService:
             logger.info("🔄 Initializing execution service...")
             self.execution_service = ExecutionService()
             logger.info("✅ Execution service initialized")
+
+            logger.info("🔄 Initializing notebook asset numbering service...")
+            self.asset_numbering_service = NotebookAssetNumberingService()
+            logger.info("✅ Notebook asset numbering service initialized")
             
             logger.info("🔄 Initializing scientific PDF service...")
             self.pdf_service = ScientificPDFService()
@@ -127,6 +132,14 @@ class NotebookService:
                         data = json.load(f)
                     
                     notebook = Notebook(**data)
+                    # Ensure numbering is correct for notebooks created before the numbering service existed
+                    # (or notebooks saved with legacy per-cell numbering).
+                    try:
+                        self.asset_numbering_service.renumber_in_place(notebook)
+                    except Exception as numbering_err:
+                        logger.warning(
+                            f"⚠️ Failed to renumber assets while loading notebook {notebook_file.name}: {numbering_err}"
+                        )
                     self._notebooks[str(notebook.id)] = notebook
                     logger.info(f"Loaded notebook: {notebook.title}")
                     
@@ -1121,18 +1134,6 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             # Execute code if available OR handle planning errors
             if result is None and cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
                 phase_tracker.set_phase("executing_code", "Executing code…")
-                # Initialize figure/table counters from existing notebook cells
-                # This ensures sequential numbering across the entire article
-                # MUST be called before execute_code to ensure counters are set correctly
-                self.execution_service._initialize_counters_from_notebook(notebook)
-                
-                # Log current counter state for debugging
-                notebook_id_str = str(notebook.id)
-                table_count = self.execution_service.notebook_table_counters.get(notebook_id_str, 0)
-                figure_count = self.execution_service.notebook_figure_counters.get(notebook_id_str, 0)
-                logger.debug(
-                    f"🔢 Counter state before execution: Table {table_count}, Figure {figure_count}"
-                )
                 
                 # Set up notebook-specific context for execution
                 result = self.execution_service.execute_code(
@@ -1330,6 +1331,14 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             cell.last_result = result
             notebook.updated_at = datetime.now()
             phase_tracker.set_phase("post_execution", "Finalizing outputs…")
+
+            # IMPORTANT: Renumber figures/tables deterministically across the whole notebook
+            # *before* generating methodology text, so any narrative that references Figure/Table
+            # numbers uses the final, notebook-wide numbering (not per-cell or execution-order).
+            try:
+                self.asset_numbering_service.renumber_in_place(notebook)
+            except Exception as numbering_err:
+                logger.warning(f"⚠️ Failed to renumber notebook assets post-execution: {numbering_err}")
 
             # Generate scientific explanation for successful prompt cells
             print(f"🔬 ALWAYS CHECKING scientific explanation conditions:")
@@ -1613,6 +1622,16 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
         try:
             notebook_file = self.notebooks_dir / f"{notebook.id}.json"
             temp_file = self.notebooks_dir / f"{notebook.id}.json.tmp"
+
+            # Ensure figures/tables are uniquely and sequentially numbered across the whole notebook
+            # before persisting. This is derived data, so we compute it deterministically from content.
+            try:
+                self.asset_numbering_service.renumber_in_place(notebook)
+            except Exception as numbering_err:
+                # Never block saving due to numbering issues; log loudly and continue.
+                logger.error(
+                    f"❌ Failed to renumber notebook assets for {notebook.id}: {numbering_err}"
+                )
 
             # Write to temporary file first
             with open(temp_file, 'w', encoding='utf-8') as f:

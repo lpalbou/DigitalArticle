@@ -43,6 +43,24 @@ This file accumulates **non-obvious truths** about the system that we do not wan
 - **Plotly output width must be container-driven**
   - Captured Plotly figures may include a fixed `layout.width` (often larger than the notebook column). If honored, the graph can exceed the cell width and get clipped by rounded containers.
   - Frontend should strip fixed `layout.width` and rely on Plotly autosize/responsive behavior so figures always fit the cell width.
+- **Figure/table numbering must be derived from notebook order (not execution-time counters)**
+  - Execution-time counters are inherently sensitive to out-of-order execution and to LLM/user labels that restart at `1` per cell.
+  - Treat numbering as *derived data* and apply it deterministically by scanning notebook cells in order.
+  - Implementation: `backend/app/services/notebook_asset_numbering_service.py::NotebookAssetNumberingService`.
+- **Article view should render only explicit `display()` outputs**
+  - Backend captures additional “debug” artifacts (e.g., variable DataFrames and stdout-parsed tables) for observability and Execution Details.
+  - These should **not** be rendered in the main notebook/article output by default; otherwise intermediate state leaks into the paper.
+- **Scientific PDF export must sanitize markdown-ish LLM output**
+  - LLMs sometimes emit markdown headers despite “no headers” instructions (e.g., `# Introduction`, `## Subsection`).
+  - PDF export must strip redundant section headers and render subsection headings cleanly; raw `#` markers in the PDF are a correctness/UX bug.
+  - Implementation: `backend/app/services/pdf_markdown_renderer.py::PDFMarkdownRenderer`.
+- **PDF text rendering must be ASCII-safe with base fonts**
+  - ReportLab base fonts (e.g., Helvetica) do not include many Unicode glyphs; unsupported characters show as black squares.
+  - Convert common scientific Unicode (superscripts, en/em dashes, Greek letters) to ASCII-safe equivalents during PDF text cleaning.
+  - Implementation: `backend/app/services/pdf_service_scientific.py::_clean_text_for_pdf`.
+- **Plotly → PNG in PDF export requires Kaleido at runtime**
+  - Interactive Plotly figures must be rasterized for PDFs; this uses Plotly’s Kaleido engine.
+  - Ensure `kaleido` is installed in the runtime environment used by the backend export path (root project + backend package).
 - **Cell execution is a pipeline; UI status must be phase-driven**
   - Backend cell execution includes multiple steps (context build, LLM code generation, deterministic execution, auto-retry/self-correct, methodology generation, post-processing like semantics/review).
   - A single “Generating…” label is misleading; instead track a lightweight `execution_phase` + `execution_message` under `cell.metadata["execution"]` and expose it via `/api/cells/{cell_id}/status`.

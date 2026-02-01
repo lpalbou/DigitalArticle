@@ -9,6 +9,7 @@ import base64
 import io
 import logging
 import math
+import re
 from typing import List, Optional, Dict, Any, Tuple
 
 import pandas as pd
@@ -27,6 +28,7 @@ from reportlab.platypus.flowables import HRFlowable, Flowable
 from PIL import Image as PILImage
 
 from ..models.notebook import Notebook, Cell, CellType
+from .pdf_markdown_renderer import PDFMarkdownRenderer
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,13 @@ class ScientificPDFService:
     def __init__(self):
         self.styles = getSampleStyleSheet()
         self._setup_consistent_styles()
+
+        # Render markdown-ish LLM output cleanly in PDFs (strip # headers, keep subsections).
+        self._markdown_renderer = PDFMarkdownRenderer(
+            styles=self.styles,
+            clean_text_for_pdf=self._clean_text_for_pdf,
+            format_code_for_pdf=self._format_code_for_pdf,
+        )
         
         # Counters for figures and tables
         self.figure_counter = 1
@@ -225,6 +234,10 @@ class ScientificPDFService:
             PDF content as bytes
         """
         logger.info(f"Generating PDF from LLM-generated scientific article: {scientific_article.get('title', 'Untitled')}")
+
+        # IMPORTANT: This service instance is reused; counters must be reset per document.
+        self.figure_counter = 1
+        self.table_counter = 1
         
         # Create PDF buffer
         buffer = io.BytesIO()
@@ -286,14 +299,15 @@ class ScientificPDFService:
         """Add title page with LLM-generated title."""
         # Use LLM-generated title if available, otherwise notebook title
         title = scientific_article.get('title', notebook.title)
+        title = self._strip_leading_markdown_heading(title)
         
         # Title
-        title_para = Paragraph(self._clean_text_for_pdf(title), self.styles['Title'])
+        title_para = Paragraph(self._clean_text_for_pdf(title), self.styles['ArticleTitle'])
         story.append(title_para)
         story.append(Spacer(1, 0.5*inch))
         
         # Author and metadata
-        author_text = f"<b>Author:</b> {notebook.author}"
+        author_text = f"<b>Author:</b> {self._clean_text_for_pdf(notebook.author)}"
         author_para = Paragraph(author_text, self.styles['AuthorInfo'])
         story.append(author_para)
         
@@ -322,10 +336,31 @@ class ScientificPDFService:
         heading = Paragraph(section_title, self.styles['SectionHeading'])
         story.append(heading)
         
-        # Section content (LLM-generated)
-        content_para = Paragraph(self._clean_text_for_pdf(section_content), self.styles['BodyText'])
-        story.append(content_para)
+        # Section content (LLM-generated) — render markdown-ish output cleanly:
+        # - strip redundant "# Introduction" / "# Methodology" headings
+        # - render "## ..." as proper subheadings
+        story.extend(
+            self._markdown_renderer.render(
+                section_content,
+                skip_first_heading=section_title,
+                body_style_name="ScientificBody",
+                heading_style_name="SubsectionHeading",
+                subheading_style_name="SubsectionHeading",
+            )
+        )
         story.append(Spacer(1, 0.2*inch))
+
+    def _strip_leading_markdown_heading(self, text: str) -> str:
+        """Remove a leading markdown heading prefix (e.g., '# Title') if present."""
+        if not isinstance(text, str):
+            return ""
+        s = text.strip()
+        if not s:
+            return ""
+        # Only strip a single leading heading marker; keep the rest of the string intact.
+        if s.startswith("#"):
+            s = s.lstrip("#").strip()
+        return s
 
     def _add_empirical_evidence_section(self, story: List, notebook: Notebook):
         """Add empirical evidence section with code snippets and outputs."""
@@ -359,8 +394,17 @@ class ScientificPDFService:
                 
                 # Figures if available
                 if cell.last_result and cell.last_result.plots:
-                    for plot_data in cell.last_result.plots:
+                    for plot_entry in cell.last_result.plots:
                         try:
+                            # Support both legacy plot format (base64 string) and dict format
+                            plot_b64 = (
+                                plot_entry.get("data", "")
+                                if isinstance(plot_entry, dict)
+                                else plot_entry
+                            )
+                            if not plot_b64:
+                                continue
+
                             # Add figure
                             # Generate meaningful caption
                             caption = f"Figure {figure_counter}. "
@@ -369,7 +413,7 @@ class ScientificPDFService:
                             else:
                                 caption += f"Data visualization from analysis step {i}"
                             
-                            self._add_figure_to_story(story, plot_data, f"Figure {figure_counter}", caption)
+                            self._add_figure_to_story(story, plot_b64, f"Figure {figure_counter}", caption)
                             figure_counter += 1
                         except Exception as e:
                             logger.warning(f"Failed to add figure to PDF: {e}")
@@ -501,19 +545,21 @@ class ScientificPDFService:
                             logger.warning(f"Empty plot data for figure {figure_counter}")
                             continue
 
-                        # Create meaningful scientific caption
-                        caption = f"Figure {figure_counter}. "
-                        if plot_label:
-                            # Use explicit label from display()
-                            caption += plot_label
-                        elif cell.prompt:
-                            # Generate scientific caption based on analysis type
-                            caption += self._generate_figure_caption(cell.prompt, cell.code, cell.last_result)
-                        else:
-                            caption += f"Data visualization from analysis step {i}"
+                        # Prefer the authoritative notebook-wide label if present.
+                        # (Avoid duplicating "Figure N" in both title and caption.)
+                        figure_title = plot_label.strip() if plot_label else f"Figure {figure_counter}"
 
-                        self._add_figure_to_story(story, plot_b64, f"Figure {figure_counter}", caption)
-                        figure_counter += 1
+                        # Caption should describe what the figure shows (no numbering prefix).
+                        if cell.prompt:
+                            caption = self._generate_figure_caption(cell.prompt, cell.code, cell.last_result)
+                        else:
+                            caption = f"Data visualization from analysis step {i}"
+
+                        self._add_figure_to_story(story, plot_b64, figure_title, caption)
+
+                        # Only advance the counter when we had to fall back to local numbering.
+                        if not plot_label:
+                            figure_counter += 1
                     except Exception as e:
                         logger.warning(f"Failed to add figure {figure_counter} to results: {e}")
 
@@ -521,18 +567,21 @@ class ScientificPDFService:
             if cell.last_result.interactive_plots:
                 for plot_data in cell.last_result.interactive_plots:
                     try:
+                        plot_label = (plot_data.get("label") or "").strip()
+
                         # Convert Plotly to PNG
                         png_base64 = self._convert_plotly_to_png(plot_data)
                         if png_base64:
-                            caption = f"Figure {figure_counter}. "
-                            plot_name = plot_data.get('name', 'Interactive visualization')
+                            figure_title = plot_label if plot_label else f"Figure {figure_counter}"
                             if cell.prompt:
-                                caption += self._generate_figure_caption(cell.prompt, cell.code, cell.last_result)
+                                caption = self._generate_figure_caption(cell.prompt, cell.code, cell.last_result)
                             else:
-                                caption += f"Interactive visualization: {plot_name}"
+                                plot_name = plot_data.get('name', 'Interactive visualization')
+                                caption = f"Interactive visualization: {plot_name}"
 
-                            self._add_figure_to_story(story, png_base64, f"Figure {figure_counter}", caption)
-                            figure_counter += 1
+                            self._add_figure_to_story(story, png_base64, figure_title, caption)
+                            if not plot_label:
+                                figure_counter += 1
                         else:
                             # Fallback: add description only if conversion failed
                             logger.warning(f"Could not convert interactive plot to image, adding description")
@@ -547,6 +596,9 @@ class ScientificPDFService:
         for cell in notebook.cells:
             if cell.last_result and cell.last_result.tables:
                 for table_data in cell.last_result.tables:
+                    # Only include explicitly displayed tables in article exports
+                    if table_data.get("source") != "display":
+                        continue
                     # Skip HTML tables (embedded Plotly) - these are handled as figures
                     if table_data.get('type') == 'html':
                         continue
@@ -798,7 +850,14 @@ class ScientificPDFService:
                 
                 # Add figures (plots)
                 if cell.last_result.plots:
-                    for plot_b64 in cell.last_result.plots:
+                    for plot_entry in cell.last_result.plots:
+                        plot_b64 = (
+                            plot_entry.get("data", "")
+                            if isinstance(plot_entry, dict)
+                            else plot_entry
+                        )
+                        if not plot_b64:
+                            continue
                         self._add_figure(story, plot_b64, cell.prompt or f"Analysis {i}")
                 
                 # Add interactive plots
@@ -809,6 +868,9 @@ class ScientificPDFService:
                 # Add tables
                 if cell.last_result.tables:
                     for table_data in cell.last_result.tables:
+                        # Only include explicitly displayed tables in article exports
+                        if table_data.get("source") != "display":
+                            continue
                         self._add_professional_table(story, table_data)
                 
                 story.append(Spacer(1, 16))
@@ -864,10 +926,18 @@ class ScientificPDFService:
     
     def _add_interactive_plot_description(self, story: List, plot_data: Dict):
         """Add description for interactive plots."""
-        plot_name = plot_data.get('name', f'Interactive Analysis {self.figure_counter}')
+        plot_label = (plot_data.get("label") or "").strip()
+        plot_name = plot_data.get('name', None)
+
+        # Prefer label description over generic variable name like "fig"
+        if plot_label:
+            description_text = plot_label
+        else:
+            plot_name = plot_name or f'Interactive Analysis {self.figure_counter}'
+            description_text = f"Figure {self.figure_counter}: Interactive visualization: {plot_name}"
         
         description = Paragraph(
-            f"<b>Figure {self.figure_counter}.</b> Interactive visualization: {plot_name}. "
+            f"{self._clean_text_for_pdf(description_text)}. "
             "This analysis includes interactive elements available in the digital version.",
             self.styles['Caption']
         )
@@ -925,7 +995,9 @@ class ScientificPDFService:
     def _add_professional_table(self, story: List, table_data: Dict):
         """Add a professionally formatted table with proper numbering."""
         try:
-            table_name = table_data.get('name', f'Data Table {self.table_counter}')
+            # Prefer explicit display label (e.g., "Table 4: Cox Proportional Hazards Model Results")
+            table_label = (table_data.get("label") or "").strip()
+            table_name = table_label or table_data.get('name', f'Data Table {self.table_counter}')
             columns = table_data.get('columns', [])
             data = table_data.get('data', [])
             shape = table_data.get('shape', [0, 0])
@@ -934,7 +1006,8 @@ class ScientificPDFService:
                 return
             
             # Table caption
-            caption_text = f"<b>Table {self.table_counter}.</b> {table_name}"
+            # Do not duplicate numbering: if label already starts with "Table N", use it directly.
+            caption_text = f"<b>{self._clean_text_for_pdf(table_name)}</b>"
             if shape[0] > 0:
                 caption_text += f" (n = {shape[0]} observations)"
             caption_text += "."
@@ -1028,20 +1101,58 @@ class ScientificPDFService:
         # Clean up text
         text = text.strip()
 
+        # Convert Unicode superscripts to ASCII in a meaning-preserving way.
+        #
+        # Why:
+        # - LLMs often emit scientific notation like `10¹¹` (superscripts) which Helvetica can't render.
+        # - Converting `10¹¹` → `10^11` preserves intent and avoids black-square glyphs.
+        superscript_digit_map = {
+            '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4',
+            '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9',
+            '⁺': '+', '⁻': '-', '⁽': '(', '⁾': ')',
+        }
+
+        def _superscript_repl(match: re.Match) -> str:
+            seq = match.group(0)
+            converted = ''.join(superscript_digit_map.get(ch, '') for ch in seq).strip()
+            if not converted:
+                return ''
+            # Only prefix with caret when superscripts follow a digit (typical exponent form).
+            # Otherwise, treat as a footnote/citation-style marker and just inline the digits.
+            start = match.start()
+            if start > 0 and text[start - 1].isdigit():
+                return f"^{converted}"
+            return converted
+
+        text = re.sub(r"[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁽⁾]+", _superscript_repl, text)
+
         # Convert Unicode subscripts/superscripts to ASCII (Helvetica doesn't support them)
         subscript_map = {
             '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4',
             '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9',
             '₋': '-', '₊': '+', '₌': '=', '₍': '(', '₎': ')',
+            # Superscripts (common in scientific notation like 10¹¹)
+            '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4',
+            '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9',
+            '⁺': '+', '⁻': '-', '⁽': '(', '⁾': ')',
             '∞': 'inf', '∑': 'sum', '∏': 'prod', '√': 'sqrt',
             '≤': '<=', '≥': '>=', '≠': '!=', '±': '+/-',
-            '×': 'x', '÷': '/', '•': '*', '·': '*',
+            '×': 'x', '÷': '/', '•': '-', '·': '*',
             'α': 'alpha', 'β': 'beta', 'γ': 'gamma', 'δ': 'delta',
             'μ': 'mu', 'σ': 'sigma', 'λ': 'lambda', 'τ': 'tau',
+            # Common additional Greek symbols that may appear in diagnostics (e.g., rho)
+            'ρ': 'rho', 'θ': 'theta', 'ε': 'epsilon', 'π': 'pi', 'φ': 'phi', 'ω': 'omega',
+            # Dashes/quotes that Helvetica often lacks
+            '–': '-', '—': '-', '−': '-', '‑': '-', '‒': '-', '―': '-',
+            '“': '"', '”': '"', '‘': "'", '’': "'", '…': '...',
         }
 
         for unicode_char, ascii_equiv in subscript_map.items():
             text = text.replace(unicode_char, ascii_equiv)
+
+        # Final safety net: remove any remaining non-ASCII characters to avoid "black squares"
+        # when using standard PDF base fonts (Helvetica).
+        text = text.encode('ascii', errors='ignore').decode('ascii')
 
         # Escape HTML special characters
         text = text.replace('&', '&amp;')

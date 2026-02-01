@@ -89,8 +89,6 @@ class ExecutionService:
         # Global figure/table counters per notebook for sequential numbering across entire article
         self.notebook_table_counters: Dict[str, int] = {}  # Table 1, 2, 3... per notebook
         self.notebook_figure_counters: Dict[str, int] = {}  # Figure 1, 2, 3... per notebook
-        # Track which notebooks have had counters initialized to avoid re-initializing unnecessarily
-        self._counters_initialized: Dict[str, bool] = {}  # notebook_id -> bool
 
         # State persistence service for automatic save/restore across backend restarts
         from .state_persistence_service import StatePersistenceService
@@ -294,109 +292,10 @@ class ExecutionService:
 
         return self.notebook_globals[notebook_id]
 
-    def _initialize_counters_from_notebook(self, notebook) -> None:
-        """
-        Initialize figure and table counters from existing notebook cells.
-        
-        This ensures sequential numbering across the entire article by counting
-        all existing figures and tables in cells that have been executed.
-        
-        Args:
-            notebook: The Notebook object to scan for existing figures/tables
-        """
-        notebook_id = str(notebook.id)
-        
-        # Only initialize once per notebook session (unless explicitly reset)
-        # Note: This resets on backend restart, which is correct - we need to recount
-        if self._counters_initialized.get(notebook_id, False):
-            logger.debug(f"📊 Counters already initialized for notebook {notebook_id}, skipping re-initialization")
-            return
-        
-        max_table_num = 0
-        max_figure_num = 0
-        
-        # Scan all cells for existing figures and tables
-        for cell in notebook.cells:
-            if cell.last_result:
-                # Count tables from display() calls
-                for table in cell.last_result.tables:
-                    # Check if it's a display table (source='display' or has label)
-                    if table.get('source') == 'display' or table.get('label'):
-                        label = table.get('label', '')
-                        # Extract number from labels like "Table 1", "Table 2", etc.
-                        if label.startswith('Table '):
-                            try:
-                                # Handle "Table 1", "Table 1: Description", etc.
-                                num_str = label.replace('Table ', '').split(':')[0].strip()
-                                num = int(num_str)
-                                max_table_num = max(max_table_num, num)
-                            except ValueError:
-                                # Label doesn't have a number, count it anyway
-                                max_table_num += 1
-                        elif table.get('type') == 'table' or table.get('type') == 'html':
-                            # Table without numbered label, count it
-                            max_table_num += 1
-                
-                # Count figures from display() calls
-                for plot in cell.last_result.plots:
-                    if isinstance(plot, dict):
-                        # Check if it's a display plot (source='display' or has label)
-                        if plot.get('source') == 'display' or plot.get('label'):
-                            label = plot.get('label', '')
-                            # Extract number from labels like "Figure 1", "Figure 2", etc.
-                            if label.startswith('Figure '):
-                                try:
-                                    # Handle "Figure 1", "Figure 1: Description", etc.
-                                    num_str = label.replace('Figure ', '').split(':')[0].strip()
-                                    num = int(num_str)
-                                    max_figure_num = max(max_figure_num, num)
-                                except ValueError:
-                                    # Label doesn't have a number, count it anyway
-                                    max_figure_num += 1
-                            elif plot.get('type') == 'image' or plot.get('data'):
-                                # Image without numbered label, count it
-                                max_figure_num += 1
-                    elif isinstance(plot, str):
-                        # Base64 string plot (auto-captured), count it
-                        max_figure_num += 1
-                
-                # Also count interactive plots
-                if cell.last_result.interactive_plots:
-                    for plot in cell.last_result.interactive_plots:
-                        if isinstance(plot, dict):
-                            label = plot.get('label', '')
-                            if label.startswith('Figure '):
-                                try:
-                                    num_str = label.replace('Figure ', '').split(':')[0].strip()
-                                    num = int(num_str)
-                                    max_figure_num = max(max_figure_num, num)
-                                except ValueError:
-                                    max_figure_num += 1
-                            elif plot.get('figure') or plot.get('data'):
-                                # Interactive plot without numbered label, count it
-                                max_figure_num += 1
-        
-        # Set counters to continue from where we left off
-        # IMPORTANT: Always set counters, even if max is 0 (ensures they exist)
-        self.notebook_table_counters[notebook_id] = max_table_num
-        self.notebook_figure_counters[notebook_id] = max_figure_num
-        self._counters_initialized[notebook_id] = True
-        
-        # Log detailed information for debugging
-        cells_with_results = sum(1 for c in notebook.cells if c.last_result)
-        total_tables = sum(len(c.last_result.tables) for c in notebook.cells if c.last_result)
-        total_plots = sum(len(c.last_result.plots) for c in notebook.cells if c.last_result)
-        total_interactive = sum(len(c.last_result.interactive_plots or []) for c in notebook.cells if c.last_result)
-        
-        logger.info(
-            f"📊 Initialized counters for notebook {notebook_id}: "
-            f"Table {max_table_num}, Figure {max_figure_num}"
-        )
-        logger.debug(
-            f"   Scanned {len(notebook.cells)} cells, "
-            f"{cells_with_results} with results, "
-            f"{total_tables} tables, {total_plots} plots, {total_interactive} interactive plots found"
-        )
+    # NOTE:
+    # Figure/table numbering is now handled by `NotebookAssetNumberingService` at the
+    # notebook level (execution-order independent). ExecutionService should only
+    # capture raw outputs; numbering is applied deterministically before save/return.
 
     def set_notebook_execution_seed(self, notebook_id: str, seed: Optional[int] = None):
         """
@@ -807,13 +706,13 @@ class ExecutionService:
                     f"✅ Captured {len(displayed_tables)} table(s), {len(displayed_plots)} plot(s), {len(other_displays)} other display(s)"
                 )
 
-                # 2. Then capture other outputs (auto-captured plots without labels)
-                auto_plots = self._capture_plots()
+                # 2. Then capture other outputs (auto-captured plots with sequential numbering)
+                auto_plots = self._capture_plots(notebook_id)
                 auto_plots = sanitize_for_json(auto_plots)  # Sanitize numpy types
                 result.plots.extend(auto_plots)  # Add auto-captured plots after displayed ones
                 logger.info(f"📊 Captured {len(auto_plots)} additional auto-captured plot(s)")
 
-                interactive_plots = self._capture_interactive_plots(globals_dict, pre_execution_plotly_figures)
+                interactive_plots = self._capture_interactive_plots(globals_dict, notebook_id, pre_execution_plotly_figures)
                 result.interactive_plots = sanitize_for_json(interactive_plots)  # Sanitize numpy types
 
                 # 3. Capture intermediary DataFrame variables (for debugging in Execution Details)
@@ -1399,12 +1298,15 @@ class ExecutionService:
         
         return '\n'.join(processed_lines)
     
-    def _capture_plots(self) -> List[str]:
+    def _capture_plots(self, notebook_id: str) -> List[Dict[str, Any]]:
         """
         Capture matplotlib plots as base64-encoded PNG images.
         
+        Args:
+            notebook_id: Notebook ID (kept for backward compatibility; numbering is applied later)
+        
         Returns:
-            List of base64-encoded plot images
+            List of plot dictionaries with image data (labels are assigned later)
         """
         plots = []
         
@@ -1422,7 +1324,12 @@ class ExecutionService:
                 
                 # Encode as base64
                 plot_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
-                plots.append(plot_data)
+
+                plots.append({
+                    'type': 'image',
+                    'data': plot_data,
+                    'source': 'auto-captured'
+                })
                 
                 buffer.close()
             
@@ -1462,18 +1369,11 @@ class ExecutionService:
         try:
             # Priority 1: DataFrames (check before _repr_html_ to use our custom TableDisplay)
             if isinstance(obj, pd.DataFrame):
+                # Preserve explicit labels; only auto-label when no label is provided.
+                # Notebook-wide numbering is applied later by NotebookAssetNumberingService.
                 if label is None:
                     self.notebook_table_counters[notebook_id] += 1
                     label = f"Table {self.notebook_table_counters[notebook_id]}"
-                elif label.startswith('Table '):
-                    # If label is provided, ensure counter is at least that high
-                    try:
-                        num_str = label.replace('Table ', '').split(':')[0].strip()
-                        num = int(num_str)
-                        if num > self.notebook_table_counters[notebook_id]:
-                            self.notebook_table_counters[notebook_id] = num
-                    except ValueError:
-                        pass
 
                 table_data = self._dataframe_to_table_data(obj, "displayed_result")
                 table_data['source'] = 'display'
@@ -1497,18 +1397,11 @@ class ExecutionService:
 
             # Priority 3: Matplotlib figures (BEFORE _repr_html_ check to avoid HTML rendering)
             if hasattr(obj, 'savefig') and callable(getattr(obj, 'savefig')):
+                # Preserve explicit labels; only auto-label when no label is provided.
+                # Notebook-wide numbering is applied later by NotebookAssetNumberingService.
                 if label is None:
                     self.notebook_figure_counters[notebook_id] += 1
                     label = f"Figure {self.notebook_figure_counters[notebook_id]}"
-                elif label.startswith('Figure '):
-                    # If label is provided, ensure counter is at least that high
-                    try:
-                        num_str = label.replace('Figure ', '').split(':')[0].strip()
-                        num = int(num_str)
-                        if num > self.notebook_figure_counters[notebook_id]:
-                            self.notebook_figure_counters[notebook_id] = num
-                    except ValueError:
-                        pass
 
                 buffer = io.BytesIO()
                 obj.savefig(buffer, format='png', bbox_inches='tight', dpi=150)
@@ -2232,7 +2125,7 @@ class ExecutionService:
             logger.debug(traceback.format_exc())
             return None, 0
     
-    def _capture_interactive_plots(self, globals_dict: Dict[str, Any], pre_execution_figures: dict = None) -> List[Dict[str, Any]]:
+    def _capture_interactive_plots(self, globals_dict: Dict[str, Any], notebook_id: str, pre_execution_figures: dict = None) -> List[Dict[str, Any]]:
         """
         Capture Plotly interactive plots created during the current cell execution.
 
@@ -2241,11 +2134,12 @@ class ExecutionService:
 
         Args:
             globals_dict: The notebook's global namespace
+            notebook_id: Notebook ID (kept for backward compatibility; numbering is applied later)
             pre_execution_figures: Dict mapping figure variable names to their object IDs
                                    that existed before execution. If None, all figures are captured.
 
         Returns:
-            List of Plotly figure JSON data (only new figures)
+            List of Plotly figure JSON data (only new figures; labels are assigned later)
         """
         interactive_plots = []
         pre_execution_figures = pre_execution_figures or {}
@@ -2280,11 +2174,12 @@ class ExecutionService:
                                 return d
                         
                         safe_figure = convert_numpy_in_dict(figure_dict)
-                        
+
                         plot_data = {
                             'name': name,
                             'figure': safe_figure,
-                            'json': obj.to_json()
+                            'json': obj.to_json(),
+                            'source': 'auto-captured'
                         }
                         interactive_plots.append(plot_data)
                         logger.info(f"Captured interactive plot: {name}")

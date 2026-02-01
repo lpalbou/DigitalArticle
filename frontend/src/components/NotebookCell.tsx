@@ -54,6 +54,13 @@ const NotebookCell: React.FC<NotebookCellProps> = ({
 
   // Get cell state styling
   const getCellStateClass = () => {
+    // If cell is currently executing, show wider blue border
+    if (isRunning) {
+      // Slow, noticeable "working" pulse to help users keep track of the active cell.
+      // (Regression fix: this used to blink/pulse and users rely on it.)
+      return 'border-l-8 border-l-blue-500 animate-pulse'
+    }
+    
     const state = cell.cell_state || CellState.FRESH
     switch (state) {
       case CellState.FRESH:
@@ -61,7 +68,7 @@ const NotebookCell: React.FC<NotebookCellProps> = ({
       case CellState.STALE:
         return 'border-l-4 border-l-amber-400'
       case CellState.EXECUTING:
-        return 'border-l-4 border-l-blue-400 animate-pulse'
+        return 'border-l-4 border-l-blue-400'
       default:
         return ''
     }

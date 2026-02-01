@@ -53,6 +53,7 @@ dependencies = [
     "reportlab>=4.0.7",
     "weasyprint>=60.0",
     "markdown>=3.5.1",
+    "kaleido>=0.2.1",  # For Plotly → PNG conversion in scientific PDF export
     "requests>=2.31.0",
 ]
 
@@ -84,6 +85,7 @@ all = [
     "reportlab>=4.0.7",
     "weasyprint>=60.0",
     "markdown>=3.5.1",
+    "kaleido>=0.2.1",
     "requests>=2.31.0",
 ]
 

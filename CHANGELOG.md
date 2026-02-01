@@ -5,6 +5,30 @@ All notable changes to the Digital Article project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.14] - 2026-02-01
+
+### Fixed
+- **Notebook-wide figure/table numbering + duplication**
+  - Root cause: numbering was being inferred from execution-time counters and/or LLM-provided labels (often restarting at `1` per cell), which breaks ordering and creates duplicate `Figure N` / `Table N` labels across a notebook.
+  - Fix: moved numbering to a deterministic notebook-wide pass (`NotebookAssetNumberingService`) that renumbers based on **cell order**, preserves descriptions, and de-duplicates obvious repeated plot payloads.
+  - Applied on notebook load, post-execution (before methodology), and before save to keep UI + exports consistent.
+- **Article view showed intermediate DataFrames / stdout-parsed tables**
+  - Root cause: backend captures variable DataFrames (`source="variable"`) and stdout-parsed DataFrames (`source="stdout"`) for debugging, and the ResultPanel was rendering them in the main article output.
+  - Fix: article view now renders **only** `source="display"` tables. Debug tables remain available via Execution Details.
+  - PDF export now includes **only** `source="display"` tables as well.
+- **Scientific PDF export leaked markdown headers + mis-captioned assets**
+  - Root cause: LLM article sections sometimes included markdown headers (`# Introduction`, `## ...`), which were embedded verbatim into the PDF, duplicating section titles and showing raw `#` markers.
+  - Fix: added a lightweight markdown renderer for PDFs (`PDFMarkdownRenderer`) that strips redundant section headers and renders internal headings cleanly.
+  - Also fixed figure/table captions to prefer the notebook’s explicit `Figure N:` / `Table N:` labels (instead of variable names like `displayed_result`), eliminating mismatched numbering like `Figure 3. Figure 5: ...`.
+  - Ensured Plotly interactive figures can be rendered in PDFs by adding `kaleido` to the root package dependencies (not just the backend package).
+  - Fixed “black square” glyphs in PDFs by converting common Unicode punctuation/superscripts (e.g., `10¹¹`, en-dash, rho) to ASCII-safe equivalents during PDF text cleaning.
+- **Executing cell highlight no longer pulsing**
+  - Restored the slow `animate-pulse` emphasis for currently executing cells to make the active cell obvious during long runs.
+
+### Added
+- **Notebook asset numbering regression test**
+  - Added pytest coverage to ensure numbering is sequential across the notebook, robust to per-cell label resets, and resilient to legacy plot formats.
+
 ## [0.3.2]
 
 ### Added
