@@ -4,8 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "digital-article-backend"
-# Note: Keep in sync with /digitalarticle/_version.py
-version = "0.3.2"
+# Single source of truth:
+# - `digitalarticle/_version.py` for the repo
+# - this backend package derives its version dynamically via `backend/app/_version.py`
+dynamic = ["version"]
 description = "Backend API for Digital Article - computational notebooks with natural language"
 license = {text = "MIT"}
 authors = [
@@ -68,3 +70,6 @@ analysis = [
 
 [tool.setuptools]
 packages = ["app"]
+
+[tool.setuptools.dynamic]
+version = {attr = "app._version.__version__"}

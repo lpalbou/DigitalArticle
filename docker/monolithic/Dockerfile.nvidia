@@ -45,6 +45,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 WORKDIR /build
 COPY backend/pyproject.toml ./
 COPY backend/app ./app
+# Needed for backend dynamic version (single source of truth: `digitalarticle/_version.py`)
+COPY digitalarticle/_version.py ./digitalarticle/_version.py
 # CFLAGS to allow building older C extensions with newer GCC
 RUN pip install --no-cache-dir --upgrade pip && \
     CFLAGS="-Wno-error=incompatible-pointer-types" pip install --no-cache-dir .

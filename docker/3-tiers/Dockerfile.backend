@@ -19,6 +19,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 WORKDIR /build
 COPY backend/pyproject.toml ./
 COPY backend/app ./app
+COPY digitalarticle/_version.py ./digitalarticle/_version.py
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
@@ -45,6 +46,7 @@ WORKDIR /app
 
 # Copy application code
 COPY backend/ ./backend/
+COPY digitalarticle/_version.py ./digitalarticle/_version.py
 
 # Copy configuration
 COPY config.json .
