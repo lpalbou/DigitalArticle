@@ -22,6 +22,7 @@ interface PromptEditorProps {
     action: 'execute' | 'regenerate',
     options?: { autofix?: boolean; clean_rerun?: boolean; rerun_comment?: string }
   ) => void // Direct execution without dependency check
+  onExecuteAllFromHere?: (cellId: string) => void // Execute this cell and all downstream cells
   onInvalidateCells?: (cellId: string) => void // New callback for cell invalidation
   onViewTraces?: (cellId: string) => void // View LLM execution traces
   isExecuting?: boolean
@@ -33,6 +34,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   onDeleteCell,
   onExecuteCell,
   onDirectExecuteCell,
+  onExecuteAllFromHere,
   onInvalidateCells,
   onViewTraces,
   isExecuting = false
@@ -399,20 +401,16 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
                     console.log('🔄 onDirectExecuteCell available:', !!onDirectExecuteCell)
                     console.log('🔄 Cell type:', cell.cell_type)
                     if (onDirectExecuteCell) {
-                      console.log('🔄 Using onDirectExecuteCell')
-                      onDirectExecuteCell(cell.id, 'execute')
-                    } else {
-                      console.log('🔄 Falling back to onExecuteCell')
-                      onExecuteCell(cell.id, 'execute')
-                    }
-                  }}
-                  onExecuteCodeWithoutAutofix={() => {
-                    if (onDirectExecuteCell) {
+                      console.log('🔄 Using onDirectExecuteCell (no autofix)')
                       onDirectExecuteCell(cell.id, 'execute', { autofix: false })
                     } else {
+                      console.log('🔄 Falling back to onExecuteCell (no autofix)')
                       onExecuteCell(cell.id, 'execute', { autofix: false })
                     }
                   }}
+                  onExecuteAllFromHere={onExecuteAllFromHere ? () => {
+                    onExecuteAllFromHere(cell.id)
+                  } : undefined}
                   onRegenerateAndExecute={() => {
                     console.log('🔄 ReRunDropdown onRegenerateAndExecute called for cell:', cell.id)
                     onExecuteCell(cell.id, 'regenerate')

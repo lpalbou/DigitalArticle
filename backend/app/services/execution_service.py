@@ -89,6 +89,8 @@ class ExecutionService:
         # Global figure/table counters per notebook for sequential numbering across entire article
         self.notebook_table_counters: Dict[str, int] = {}  # Table 1, 2, 3... per notebook
         self.notebook_figure_counters: Dict[str, int] = {}  # Figure 1, 2, 3... per notebook
+        # Track which notebooks have had counters initialized to avoid re-initializing unnecessarily
+        self._counters_initialized: Dict[str, bool] = {}  # notebook_id -> bool
 
         # State persistence service for automatic save/restore across backend restarts
         from .state_persistence_service import StatePersistenceService
@@ -291,6 +293,93 @@ class ExecutionService:
                 self.notebook_globals[notebook_id] = self._initialize_globals()
 
         return self.notebook_globals[notebook_id]
+
+    def _initialize_counters_from_notebook(self, notebook) -> None:
+        """
+        Initialize figure and table counters from existing notebook cells.
+        
+        This ensures sequential numbering across the entire article by counting
+        all existing figures and tables in cells that have been executed.
+        
+        Args:
+            notebook: The Notebook object to scan for existing figures/tables
+        """
+        notebook_id = str(notebook.id)
+        
+        # Only initialize once per notebook (unless explicitly reset)
+        if self._counters_initialized.get(notebook_id, False):
+            return
+        
+        max_table_num = 0
+        max_figure_num = 0
+        
+        # Scan all cells for existing figures and tables
+        for cell in notebook.cells:
+            if cell.last_result:
+                # Count tables from display() calls
+                for table in cell.last_result.tables:
+                    if table.get('source') == 'display' and table.get('label'):
+                        label = table.get('label', '')
+                        # Extract number from labels like "Table 1", "Table 2", etc.
+                        if label.startswith('Table '):
+                            try:
+                                # Handle "Table 1", "Table 1: Description", etc.
+                                num_str = label.replace('Table ', '').split(':')[0].strip()
+                                num = int(num_str)
+                                max_table_num = max(max_table_num, num)
+                            except ValueError:
+                                # Label doesn't have a number, count it anyway
+                                max_table_num += 1
+                        elif table.get('type') == 'table':
+                            # Table without numbered label, count it
+                            max_table_num += 1
+                
+                # Count figures from display() calls
+                for plot in cell.last_result.plots:
+                    if isinstance(plot, dict) and plot.get('source') == 'display' and plot.get('label'):
+                        label = plot.get('label', '')
+                        # Extract number from labels like "Figure 1", "Figure 2", etc.
+                        if label.startswith('Figure '):
+                            try:
+                                # Handle "Figure 1", "Figure 1: Description", etc.
+                                num_str = label.replace('Figure ', '').split(':')[0].strip()
+                                num = int(num_str)
+                                max_figure_num = max(max_figure_num, num)
+                            except ValueError:
+                                # Label doesn't have a number, count it anyway
+                                max_figure_num += 1
+                        elif plot.get('type') == 'image':
+                            # Image without numbered label, count it
+                            max_figure_num += 1
+                    elif isinstance(plot, str):
+                        # Base64 string plot (auto-captured), count it
+                        max_figure_num += 1
+                
+                # Also count interactive plots
+                if cell.last_result.interactive_plots:
+                    for plot in cell.last_result.interactive_plots:
+                        if isinstance(plot, dict) and plot.get('label'):
+                            label = plot.get('label', '')
+                            if label.startswith('Figure '):
+                                try:
+                                    num_str = label.replace('Figure ', '').split(':')[0].strip()
+                                    num = int(num_str)
+                                    max_figure_num = max(max_figure_num, num)
+                                except ValueError:
+                                    max_figure_num += 1
+                            else:
+                                # Interactive plot without numbered label, count it
+                                max_figure_num += 1
+        
+        # Set counters to continue from where we left off
+        self.notebook_table_counters[notebook_id] = max_table_num
+        self.notebook_figure_counters[notebook_id] = max_figure_num
+        self._counters_initialized[notebook_id] = True
+        
+        logger.info(
+            f"📊 Initialized counters for notebook {notebook_id}: "
+            f"Table {max_table_num}, Figure {max_figure_num}"
+        )
 
     def set_notebook_execution_seed(self, notebook_id: str, seed: Optional[int] = None):
         """

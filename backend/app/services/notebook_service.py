@@ -962,20 +962,22 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             phase_tracker = CellExecutionPhaseTracker(notebook=notebook, cell=cell)
             phase_tracker.set_phase("starting", "Preparing execution…")
 
-            # Clear previous execution traces - only keep traces from current execution
-            cell.llm_traces = []
-            logger.info(f"🗑️ Cleared previous LLM traces for cell {cell.id}")
-
             # Reset retry counter for fresh execution attempt
             # CRITICAL: Without this, re-running a cell that already failed 5 times won't retry
             cell.retry_count = 0
             logger.info(f"🔄 Reset retry counter for cell {cell.id}")
 
+            # Track if prompt/code changed (affects whether to clear traces)
+            prompt_changed = False
+            code_changed = False
+            
             # Handle direct code execution
             if request.code:
+                code_changed = (cell.code != request.code)
                 cell.code = request.code
                 cell.updated_at = datetime.now()
             elif request.prompt:
+                prompt_changed = (cell.prompt != request.prompt)
                 cell.prompt = request.prompt
                 cell.updated_at = datetime.now()
 
@@ -1032,6 +1034,28 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 request.force_regenerate
                 or (request.clean_rerun and request.code is None and bool(cell.prompt))
             )
+            
+            # Only clear traces when code is being regenerated (not just re-executed)
+            # This preserves trace history when user just re-runs the same code
+            # Clear traces if:
+            # 1. Code will be regenerated (no code exists or force_regenerate)
+            # 2. Prompt changed (will generate new code)
+            # 3. Code was manually changed (user edited it)
+            will_regenerate_code = result is None and (not cell.code or force_regenerate)
+            should_clear_traces = will_regenerate_code or prompt_changed or code_changed
+            
+            if should_clear_traces:
+                cell.llm_traces = []
+                reason = []
+                if will_regenerate_code:
+                    reason.append("code regeneration")
+                if prompt_changed:
+                    reason.append("prompt changed")
+                if code_changed:
+                    reason.append("code changed")
+                logger.info(f"🗑️ Cleared previous LLM traces for cell {cell.id} ({', '.join(reason)})")
+            else:
+                logger.info(f"📝 Preserving {len(cell.llm_traces)} previous LLM traces for cell {cell.id} (re-execution only)")
             if result is None and (not cell.code or force_regenerate):
                 phase_tracker.set_phase("code_generation", "Generating code…")
                 logger.info(f"Generating code for prompt: {cell.prompt[:100]}...")
@@ -1097,6 +1121,9 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             # Execute code if available OR handle planning errors
             if result is None and cell.code and cell.cell_type in (CellType.PROMPT, CellType.CODE, CellType.METHODOLOGY):
                 phase_tracker.set_phase("executing_code", "Executing code…")
+                # Initialize figure/table counters from existing notebook cells
+                # This ensures sequential numbering across the entire article
+                self.execution_service._initialize_counters_from_notebook(notebook)
                 # Set up notebook-specific context for execution
                 result = self.execution_service.execute_code(
                     cell.code,

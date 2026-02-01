@@ -655,7 +655,8 @@ const NotebookContainer: React.FC = () => {
       const response = await cellAPI.execute({
         cell_id: cellId,
         force_regenerate: forceRegenerate,
-        autofix: options?.autofix ?? true,
+        // Default: autofix only for regenerate actions, not for simple execute
+        autofix: options?.autofix ?? (forceRegenerate ? true : false),
         clean_rerun: options?.clean_rerun ?? false,
         rerun_comment: options?.rerun_comment
       })
@@ -670,28 +671,34 @@ const NotebookContainer: React.FC = () => {
       console.log('🔬 SCIENTIFIC EXPLANATION:', response.cell.scientific_explanation)
       console.log('🔬 SHOULD SWITCH TO METHODOLOGY:', shouldSwitchToMethodology)
 
-      // Refresh notebook to get updated cell states (including stale states for downstream cells)
-      if (notebookId) {
-        await loadNotebook(notebookId)
-      }
-
       // Update cell with both the updated cell data AND execution result
-      // IMPORTANT: Do this AFTER loadNotebook to preserve the cell_type switch
+      // We update state directly instead of reloading the entire notebook to preserve scroll position
       setNotebook(prev => {
         if (!prev) return prev
 
-        const newCells = prev.cells.map(cell => 
-          cell.id === cellId 
-            ? { 
-                ...response.cell, // Use the updated cell from the backend (includes generated code!)
-                is_executing: false,
-                last_result: response.result,
-                execution_count: cell.execution_count + 1,
-                // Auto-switch to Methodology tab if scientific explanation was generated
-                cell_type: shouldSwitchToMethodology ? CellType.METHODOLOGY : response.cell.cell_type
-              }
-            : cell
-        )
+        const cellIndex = prev.cells.findIndex(c => c.id === cellId)
+        if (cellIndex === -1) return prev
+
+        const updatedCell = {
+          ...response.cell, // Use the updated cell from the backend (includes generated code!)
+          is_executing: false,
+          last_result: response.result,
+          execution_count: (prev.cells[cellIndex].execution_count || 0) + 1,
+          // Auto-switch to Methodology tab if scientific explanation was generated
+          cell_type: shouldSwitchToMethodology ? CellType.METHODOLOGY : response.cell.cell_type
+        }
+
+        // Update the executed cell and mark downstream cells as stale
+        const newCells = prev.cells.map((cell, idx) => {
+          if (cell.id === cellId) {
+            return updatedCell
+          }
+          // Mark downstream cells as stale (they need to be re-executed)
+          if (idx > cellIndex && cell.cell_state !== CellState.FRESH) {
+            return { ...cell, cell_state: CellState.STALE }
+          }
+          return cell
+        })
 
         return { ...prev, cells: newCells }
       })
@@ -759,6 +766,37 @@ const NotebookContainer: React.FC = () => {
       })
     }
   }, [notebook, notebookId, loadNotebook, saveNotebook])
+
+  // Execute all cells from a given cell onwards
+  const executeAllFromHere = useCallback(async (startCellId: string) => {
+    if (!notebook) return
+    
+    // Find the index of the starting cell
+    const startIndex = notebook.cells.findIndex(c => c.id === startCellId)
+    if (startIndex === -1) return
+    
+    // Get all cells from the starting cell onwards
+    const cellsToExecute = notebook.cells.slice(startIndex)
+    
+    // Execute each cell sequentially
+    for (const cell of cellsToExecute) {
+      // Only execute cells that can be executed (PROMPT, CODE, METHODOLOGY)
+      if (cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.CODE || cell.cell_type === CellType.METHODOLOGY) {
+        // Check if cell has code to execute
+        if (cell.code && cell.code.trim()) {
+          try {
+            await executeCell(cell.id, 'execute', { autofix: false })
+            // Wait a bit between executions to avoid overwhelming the system
+            await new Promise(resolve => setTimeout(resolve, 500))
+          } catch (err) {
+            // If a cell fails, stop execution chain
+            console.error(`Failed to execute cell ${cell.id}:`, err)
+            break
+          }
+        }
+      }
+    }
+  }, [notebook, executeCell])
 
   // Check for dependent cells and show modal if needed
   const checkDependenciesAndExecute = useCallback(async (
@@ -1407,6 +1445,7 @@ const NotebookContainer: React.FC = () => {
               onDeleteCell={deleteCell}
               onExecuteCell={checkDependenciesAndExecute}
               onDirectExecuteCell={executeCell}
+              onExecuteAllFromHere={executeAllFromHere}
               onAddCellBelow={addCellBelow}
               onInvalidateCells={invalidateCells}
               onViewTraces={viewCellTraces}

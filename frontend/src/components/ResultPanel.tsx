@@ -154,21 +154,256 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
           }
         });
 
+        // Group tables that should appear below figures
+        // Strategy: If a table immediately follows a figure in the display order,
+        // and the table has no explicit label or a generic label, group it with the figure
+        const displayItems: Array<{type: 'table' | 'plot' | 'interactive', item: any, index: number, groupedWith?: number}> = [];
+        
+        // First, collect all display items in order
+        const displayTables = result.tables.filter((t: any) => {
+          if (t.source !== 'display') return false;
+          if (t.type === 'html' && (!t.content || t.content === null)) return false;
+          if (t.type === 'html' && t.content && t.content.includes('plotly')) return false;
+          return true;
+        });
+        
+        const displayPlots = result.plots.filter((p: any) => {
+          const plotData = typeof p === 'string' ? p : p.data;
+          return !!plotData;
+        });
+        
+        const displayInteractivePlots = result.interactive_plots || [];
+        
+        // Build ordered list maintaining original capture order
+        // In execution: tables and plots are captured separately, but we need to interleave them
+        // For now, maintain original order: tables first, then plots, then interactive plots
+        // (This matches the original rendering order in the code below)
+        displayTables.forEach((table, idx) => {
+          displayItems.push({type: 'table', item: table, index: idx});
+        });
+        displayPlots.forEach((plot, idx) => {
+          displayItems.push({type: 'plot', item: plot, index: idx});
+        });
+        displayInteractivePlots.forEach((plot, idx) => {
+          displayItems.push({type: 'interactive', item: plot, index: idx});
+        });
+        
+        // Mark tables that should be grouped with figures
+        // Since tables render first, we check if a table should be grouped with the NEXT figure
+        // A table is grouped if:
+        // 1. It appears before a figure (plot or interactive) in the display order
+        // 2. It has no label or a label that suggests it's part of the figure (e.g., "Number at Risk")
+        for (let i = 0; i < displayItems.length - 1; i++) {
+          const current = displayItems[i];
+          const next = displayItems[i + 1];
+          
+          if (current.type === 'table' && (next.type === 'plot' || next.type === 'interactive')) {
+            const tableLabel = current.item.label || '';
+            const lowerLabel = tableLabel.toLowerCase();
+            
+            // Group if no label, or if label suggests it's part of the figure
+            // Common patterns: "number at risk", "at risk", "risk table", etc.
+            if (!tableLabel || 
+                lowerLabel.includes('at risk') || 
+                lowerLabel.includes('risk table') ||
+                lowerLabel.includes('number at risk') ||
+                (tableLabel.startsWith('Table ') && !tableLabel.includes(':'))) {
+              current.groupedWith = i + 1;
+            }
+          }
+        }
+
         return (
           <>
-            {/* Analysis Results */}
-            {result.tables.filter((t: any) => {
-              // Filter for display source
-              if (t.source !== 'display') return false;
-              // Skip html-type tables with no content (broken old captures)
-              if (t.type === 'html' && (!t.content || t.content === null)) return false;
-              // Skip plotly html tables (duplicates of interactive_plots)
-              if (t.type === 'html' && t.content && t.content.includes('plotly')) return false;
-              return true;
-            }).map((table: any, index: number) => {
+            {/* Analysis Results - Render with grouping */}
+            {displayItems.map((displayItem, displayIndex) => {
+              // Skip tables that are grouped with figures (they'll be rendered below the figure)
+              // But only skip if the figure hasn't been rendered yet
+              if (displayItem.type === 'table' && displayItem.groupedWith !== undefined) {
+                const targetIndex = displayItem.groupedWith;
+                // Only skip if target figure comes after this table
+                if (targetIndex > displayIndex) {
+                  return null;
+                }
+              }
+              
+              if (displayItem.type === 'table') {
+                const table = displayItem.item;
+                const displayType = table.type || 'table';
+                return (
+                  <div key={`table-${displayIndex}`} className="mb-4 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+                    {table.label && (
+                      <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
+                        <h4 className="text-sm font-semibold text-gray-900">{table.label}</h4>
+                      </div>
+                    )}
+                    <div className="p-4">
+                      {displayType === 'table' && <TableDisplay table={table} />}
+                      {displayType === 'html' && (
+                        table.content ? (
+                          <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: table.content }} />
+                        ) : table.data ? (
+                          <img
+                            src={`data:image/png;base64,${table.data}`}
+                            alt={table.label || 'Figure'}
+                            className="block max-w-full h-auto mx-auto"
+                          />
+                        ) : null
+                      )}
+                      {displayType === 'json' && (
+                        <pre className="bg-gray-50 p-3 rounded text-xs overflow-x-auto font-mono">
+                          <code className="text-gray-800">{table.content}</code>
+                        </pre>
+                      )}
+                      {displayType === 'text' && (
+                        <pre className="bg-gray-50 p-3 rounded text-sm overflow-x-auto whitespace-pre-wrap font-mono">
+                          {table.content}
+                        </pre>
+                      )}
+                      {displayType === 'model' && (
+                        <div className="bg-gradient-to-r from-purple-50 to-blue-50 p-4 rounded-lg border border-purple-200">
+                          <div className="flex items-center mb-3">
+                            <BarChart3 className="h-5 w-5 text-purple-600 mr-2" />
+                            <span className="font-semibold text-purple-900">Machine Learning Model</span>
+                          </div>
+                          <pre className="bg-white p-3 rounded text-xs overflow-x-auto font-mono border">
+                            <code className="text-gray-800">{table.content}</code>
+                          </pre>
+                        </div>
+                      )}
+                      {displayType === 'image' && (
+                        <img
+                          src={`data:image/png;base64,${table.data}`}
+                          alt={table.label || 'Figure'}
+                          className="block max-w-full h-auto mx-auto"
+                        />
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+              
+              if (displayItem.type === 'plot') {
+                const plot = displayItem.item;
+                const plotData = typeof plot === 'string' ? plot : plot.data;
+                let plotLabel = typeof plot === 'object' && plot.label ? plot.label : null;
+
+                // If no label and there's an orphaned label, use it
+                if (!plotLabel && orphanedLabels.length > 0) {
+                  const plotIndex = displayItems.filter((d, idx) => idx < displayIndex && d.type === 'plot').length;
+                  if (plotIndex < orphanedLabels.length) {
+                    plotLabel = orphanedLabels[plotIndex];
+                  }
+                }
+
+                // Find any tables grouped with this plot
+                const groupedTables = displayItems.filter((d, idx) => 
+                  d.type === 'table' && d.groupedWith === displayIndex
+                );
+
+                return (
+                  <div key={`plot-${displayIndex}`} className="mb-4 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+                    {plotLabel && (
+                      <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
+                        <h4 className="text-sm font-semibold text-gray-900">{plotLabel}</h4>
+                      </div>
+                    )}
+                    <div className="p-4">
+                      <img
+                        src={`data:image/png;base64,${plotData}`}
+                        alt={plotLabel || `Plot ${displayIndex + 1}`}
+                        className="block max-w-full h-auto mx-auto"
+                      />
+                      {/* Render grouped tables directly below the figure */}
+                      {groupedTables.map((groupedItem, groupedIdx) => {
+                        const table = groupedItem.item;
+                        const displayType = table.type || 'table';
+                        return (
+                          <div key={`grouped-table-${groupedIdx}`} className="mt-4">
+                            {displayType === 'table' && <TableDisplay table={table} />}
+                            {displayType === 'html' && table.content && (
+                              <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: table.content }} />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              }
+              
+              if (displayItem.type === 'interactive') {
+                const plot = displayItem.item;
+                let plotLabel = plot.label;
+                const plotHeightPx = getPlotlyHeightPx(plot?.figure?.layout);
+                const rawLayout = plot?.figure?.layout || {}
+                const { width: _fixedWidth, ...layoutWithoutWidth } = rawLayout as any
+
+                // If no label and there are orphaned labels, try to use them
+                if (!plotLabel && orphanedLabels.length > 0) {
+                  const plotIndex = displayItems.filter((d, idx) => 
+                    idx < displayIndex && (d.type === 'plot' || d.type === 'interactive')
+                  ).length;
+                  if (plotIndex < orphanedLabels.length) {
+                    plotLabel = orphanedLabels[plotIndex];
+                  }
+                }
+
+                // Find any tables grouped with this interactive plot
+                const groupedTables = displayItems.filter((d, idx) => 
+                  d.type === 'table' && d.groupedWith === displayIndex
+                );
+
+                return (
+                  <div key={`interactive-${displayIndex}`} className="mb-4 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+                    {plotLabel && (
+                      <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
+                        <h4 className="text-sm font-semibold text-gray-900">{plotLabel}</h4>
+                      </div>
+                    )}
+                    <div className="p-4">
+                      <Plot
+                        data={plot.figure.data}
+                        layout={{
+                          ...layoutWithoutWidth,
+                          autosize: true,
+                          height: plotHeightPx
+                        }}
+                        config={{
+                          responsive: true,
+                          displayModeBar: true,
+                          displaylogo: false
+                        }}
+                        className="w-full"
+                        style={{ width: '100%', maxWidth: '100%', height: `${plotHeightPx}px` }}
+                        useResizeHandler={true}
+                      />
+                      {/* Render grouped tables directly below the figure */}
+                      {groupedTables.map((groupedItem, groupedIdx) => {
+                        const table = groupedItem.item;
+                        const displayType = table.type || 'table';
+                        return (
+                          <div key={`grouped-table-${groupedIdx}`} className="mt-4">
+                            {displayType === 'table' && <TableDisplay table={table} />}
+                            {displayType === 'html' && table.content && (
+                              <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: table.content }} />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              }
+              
+              return null;
+            })}
+
+            {/* Legacy rendering for non-display items (variable tables, stdout tables) */}
+            {result.tables.filter((t: any) => t.source !== 'display').map((table: any, index: number) => {
         const displayType = table.type || 'table';
         return (
-          <div key={`table-${index}`} className="mb-4 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+          <div key={`table-legacy-${index}`} className="mb-4 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
             {table.label && (
               <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
                 <h4 className="text-sm font-semibold text-gray-900">{table.label}</h4>
@@ -220,85 +455,6 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
           </div>
         );
       })}
-
-            {/* Matplotlib Plots */}
-            {result.plots.map((plot: any, index: number) => {
-              const plotData = typeof plot === 'string' ? plot : plot.data;
-              let plotLabel = typeof plot === 'object' && plot.label ? plot.label : null;
-
-              // If no label and there's an orphaned label, use it
-              if (!plotLabel && orphanedLabels.length > index) {
-                plotLabel = orphanedLabels[index];
-              }
-
-        // Skip if no plot data
-        if (!plotData) return null;
-
-              return (
-                <div key={`plot-${index}`} className="mb-4 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
-                  {plotLabel && (
-                    <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
-                      <h4 className="text-sm font-semibold text-gray-900">{plotLabel}</h4>
-                    </div>
-                  )}
-                  <div className="p-4">
-              <img
-                src={`data:image/png;base64,${plotData}`}
-                alt={plotLabel || `Plot ${index + 1}`}
-                className="block max-w-full h-auto mx-auto"
-              />
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Interactive Plotly Plots */}
-            {result.interactive_plots.map((plot: any, index: number) => {
-              let plotLabel = plot.label;
-              const plotHeightPx = getPlotlyHeightPx(plot?.figure?.layout);
-              // Some captured Plotly figures include a fixed `layout.width` which can exceed the cell width
-              // and get clipped by rounded containers. Strip width so Plotly can autosize to the cell.
-              const rawLayout = plot?.figure?.layout || {}
-              const { width: _fixedWidth, ...layoutWithoutWidth } = rawLayout as any
-
-              // If no label and there are orphaned labels, try to use them
-              // (offset by number of regular plots that already consumed orphaned labels)
-              if (!plotLabel && orphanedLabels.length > 0) {
-                const orphanedIndex = result.plots.length + index;
-                if (orphanedIndex < orphanedLabels.length) {
-                  plotLabel = orphanedLabels[orphanedIndex];
-                }
-              }
-
-              return (
-                <div key={`interactive-${index}`} className="mb-4 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
-                  {plotLabel && (
-                    <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
-                      <h4 className="text-sm font-semibold text-gray-900">{plotLabel}</h4>
-                    </div>
-                  )}
-                  <div className="p-4">
-                    <Plot
-                      data={plot.figure.data}
-                      layout={{
-                        ...layoutWithoutWidth,
-                        autosize: true,
-                        // Ensure the container height matches the figure needs to avoid truncation.
-                        height: plotHeightPx
-                      }}
-                      config={{
-                        responsive: true,
-                        displayModeBar: true,
-                        displaylogo: false
-                      }}
-                      className="w-full"
-                      style={{ width: '100%', maxWidth: '100%', height: `${plotHeightPx}px` }}
-                      useResizeHandler={true}
-                    />
-                  </div>
-                </div>
-              );
-            })}
           </>
         );
       })()}
