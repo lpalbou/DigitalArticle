@@ -78,8 +78,14 @@ flowchart TB
 - **Execution state snapshots (pickle)**:
   - Current default root: [`backend/notebook_workspace/`](../backend/notebook_workspace) (see [`backend/app/services/state_persistence_service.py::StatePersistenceService`](../backend/app/services/state_persistence_service.py))
   - Triggered by: [`backend/app/services/execution_service.py`](../backend/app/services/execution_service.py)
+- **Observability traces (JSONL)** — ADR 0005:
+  - Root: `{workspace_root}/traces/`
+  - Schema: [`backend/app/models/trace.py::TraceEvent`](../backend/app/models/trace.py) (flow → task → step hierarchy)
+  - Store: [`backend/app/services/trace_store.py::TraceStore`](../backend/app/services/trace_store.py) (append-only JSONL, auto-rotation)
+  - API: [`backend/app/api/traces.py`](../backend/app/api/traces.py) (`/api/traces/*`)
+  - Features: secret redaction, truncation with notice, retention cleanup
 
-### Critical “dive-in” docs (start here after the map)
+### Critical "dive-in" docs (start here after the map)
 
 - [`docs/dive_ins/notebook_service.md`](dive_ins/notebook_service.md) — orchestration + execution loop + auto-retry
 - [`docs/dive_ins/llm_service.md`](dive_ins/llm_service.md) — AbstractCore integration, tracing, token tracking, config surfaces
@@ -388,34 +394,41 @@ class Notebook:
 
 **Key Methods**:
 - `create_notebook()` - Initialize with default prompt cell
-- `execute_cell()` - **Core orchestration**:
+- `execute_cell()` - **Core orchestration with dual self-correction**:
   1. Generate code from prompt (LLMService)
   2. Execute code (ExecutionService)
-  3. Auto-retry on errors (up to 3 attempts with LLM fixes)
-  4. Generate scientific explanation (LLMService)
-  5. Save results
+  3. **Loop A**: Auto-retry on execution errors (up to 5 attempts with LLM fixes)
+  4. **Loop B**: Validate logic/semantics, auto-correct if wrong (up to 2 attempts)
+  5. Generate scientific explanation (LLMService)
+  6. Save results
 
-**Auto-Retry Logic**:
-```python
-if execution_failed and has_prompt and retry_count < 3:
-    # Build detailed error context
-    error_context = {
-        'previous_code': code,
-        'error_message': error_message,
-        'traceback': traceback
-    }
+**Dual Self-Correction Loops** (what makes Digital Article unique):
 
-    # Ask LLM to fix with detailed prompt about error
-    fixed_code = llm_service.fix_code(error_context)
-
-    # Re-execute
-    result = execution_service.execute(fixed_code)
-
-    if result.success:
-        break  # Exit retry loop
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ LOOP A: Execution Correctness (syntax/runtime errors)          │
+│   Code Gen → Execute → [If error: Fix → Re-execute → repeat]   │
+│   (up to 5 attempts)                                            │
+└─────────────────────────────────────────────────────────────────┘
+                          │ Success
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ LOOP B: Logic Correctness (semantic/domain errors)             │
+│   Validate → [If fail: Fix → back to Loop A → repeat]          │
+│   (up to 2 attempts, configurable in settings)                  │
+└─────────────────────────────────────────────────────────────────┘
+                          │ Pass
+                          ▼
+                   Methodology Generation
 ```
 
-> **📖 Detailed Error Handling**: For comprehensive documentation on the error handling system, specialized analyzers, and development guidelines, see [Error Handling System](error-handling.md).
+- **Loop A catches**: Syntax errors, import failures, runtime exceptions
+- **Loop B catches**: Wrong statistical test, missing assumptions, output doesn't match intent
+
+> **📖 Documentation**:
+> - [Error Handling System](error-handling.md) - Loop A (execution errors)
+> - [Logic Self-Correction](dive_ins/logic_self_correction.md) - Loop B (semantic errors)
+> - [ADR 0004](adr/0004-recursive-self-correction-loop.md) - Architecture decision
 
 **Persistence**: JSON files in [`notebooks/`](../notebooks) directory
 - One file per notebook: `{notebook_id}.json`

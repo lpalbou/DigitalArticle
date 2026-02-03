@@ -35,7 +35,11 @@ requires-python = ">=3.8"
 dependencies = [
     "fastapi>=0.104.1",
     "uvicorn[standard]>=0.24.0",
-    "abstractcore[all]>=2.6.9",
+    # NOTE: Do not depend on AbstractCore's "embeddings" extra by default.
+    # It currently pins NumPy < 2.0, which conflicts with Tellurium/libRoadRunner (NumPy ~= 2.2).
+    # The backend pins NumPy for runtime compatibility; keeping root aligned avoids unsatisfiable installs
+    # when users install both packages (recommended).
+    "abstractcore[anthropic,huggingface,lmstudio,ollama,openai]>=2.6.9",
     "pandas>=2.1.4",
     "numpy>=1.26.0",
     "matplotlib>=3.8.2",
@@ -67,7 +71,7 @@ dev = [
 all = [
     "fastapi>=0.104.1",
     "uvicorn[standard]>=0.24.0",
-    "abstractcore[all]>=2.6.9",
+    "abstractcore[anthropic,huggingface,lmstudio,ollama,openai]>=2.6.9",
     "pandas>=2.1.4",
     "numpy>=1.26.0",
     "matplotlib>=3.8.2",

@@ -83,6 +83,7 @@ docker run -p 80:80 -v da-data:/app/data \
 |----------|---------|-------------|
 | `LLM_PROVIDER` | `openai-compatible` | Provider to use |
 | `LLM_MODEL` | *(empty)* | Model name (auto-detect if empty) |
+| `DA_CONTACT_EMAIL` | `lpalbou@gmail.com` | Email shown in the app under Help → Contact |
 
 ### Provider URLs
 

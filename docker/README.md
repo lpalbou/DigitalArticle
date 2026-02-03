@@ -43,6 +43,7 @@ docker run -p 80:80 -v da-data:/app/data digital-article
 | `LLM_PROVIDER` | `openai-compatible` |
 | `LLM_MODEL` | *(empty - auto-detect)* |
 | `OPENAI_COMPATIBLE_BASE_URL` | `http://host.docker.internal:1234/v1` |
+| `DA_CONTACT_EMAIL` | `lpalbou@gmail.com` |
 
 The container connects to any OpenAI-compatible server (LMStudio, llama.cpp, vLLM, LocalAI, etc.) running on your host machine at port 1234.
 
@@ -55,6 +56,7 @@ The container connects to any OpenAI-compatible server (LMStudio, llama.cpp, vLL
 docker run -p 80:80 -v da-data:/app/data \
     -e OPENAI_COMPATIBLE_BASE_URL=http://host.docker.internal:8080/v1 \
     -e LLM_MODEL=my-model-name \
+    -e DA_CONTACT_EMAIL=support@example.com \
     digital-article
 
 # Different port

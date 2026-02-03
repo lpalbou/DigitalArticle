@@ -297,7 +297,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
                 }
 
                 // Find any tables grouped with this plot
-                const groupedTables = displayItems.filter((d, idx) => 
+                const groupedTables = displayItems.filter((d) => 
                   d.type === 'table' && d.groupedWith === displayIndex
                 );
 
@@ -350,7 +350,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, cellReview, onRefresh
                 }
 
                 // Find any tables grouped with this interactive plot
-                const groupedTables = displayItems.filter((d, idx) => 
+                const groupedTables = displayItems.filter((d) => 
                   d.type === 'table' && d.groupedWith === displayIndex
                 );
 

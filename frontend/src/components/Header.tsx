@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BookOpen, Plus, Save, Download, AlertTriangle, ChevronDown, Settings, ClipboardCheck } from 'lucide-react'
+import { BookOpen, Plus, Save, Download, AlertTriangle, ChevronDown, Settings, ClipboardCheck, HelpCircle } from 'lucide-react'
 import SettingsModal from './SettingsModal'
 import ArticleQuickAccess from './ArticleQuickAccess'
 import ArticleBrowserModal from './ArticleBrowserModal'
+import HelpModal from './HelpModal'
 
 interface HeaderProps {
   onNewNotebook?: () => void
@@ -45,6 +46,7 @@ const Header: React.FC<HeaderProps> = ({
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [showBrowserModal, setShowBrowserModal] = useState(false)
   const [showReviewDropdown, setShowReviewDropdown] = useState(false)
+  const [showHelpModal, setShowHelpModal] = useState(false)
 
   const handleNewNotebook = () => {
     setShowConfirmModal(true)
@@ -83,6 +85,15 @@ const Header: React.FC<HeaderProps> = ({
 
             {/* Action Buttons */}
             <div className="flex items-center space-x-2">
+              {/* Help / Contact Icon */}
+              <button
+                onClick={() => setShowHelpModal(true)}
+                className="p-2.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Help & Documentation"
+              >
+                <HelpCircle className="h-5 w-5" />
+              </button>
+
               {/* Settings Icon */}
               <button
                 onClick={() => setShowSettingsModal(true)}
@@ -308,6 +319,14 @@ const Header: React.FC<HeaderProps> = ({
           isOpen={showSettingsModal}
           onClose={() => setShowSettingsModal(false)}
           notebookId={currentNotebookId}
+        />
+      )}
+
+      {/* Help Modal */}
+      {showHelpModal && (
+        <HelpModal
+          isOpen={showHelpModal}
+          onClose={() => setShowHelpModal(false)}
         />
       )}
 

@@ -23,6 +23,7 @@
         "Specify reference genome version (e.g., GRCh38, mm10) and annotation (e.g., GENCODE, Ensembl)",
         "Report quality control metrics (reads mapped, genes detected, percent mitochondrial)",
         "Use appropriate normalization for the data type (counts vs TPM vs FPKM)",
+        "For single-cell data: follow scverse/AnnData conventions (use adata.obs/adata.var, keep raw counts in layers when possible, document filtering thresholds)",
         "Document batch correction methods if multiple batches are present",
         "Validate differential expression results with independent datasets when possible"
       ],
@@ -32,6 +33,8 @@
         "Generate volcano plots for differential expression results",
         "Create UMAP/t-SNE plots colored by cell type, cluster, or expression",
         "Perform gene set enrichment analysis (GSEA) for functional interpretation",
+        "If batch effects are present: apply batch correction and show diagnostics (before/after UMAP, marker stability); prefer probabilistic approaches when available, otherwise use scanpy's standard tools",
+        "When sharing results: produce cellxgene-friendly outputs (AnnData with clear obs/var annotations)",
         "Use clusterProfiler-style GO/KEGG enrichment where applicable",
         "Generate heatmaps for top differentially expressed genes",
         "Include MA plots for quality assessment"
@@ -68,6 +71,23 @@
         "Include sample size (number of samples or cells)"
       ],
       "preferences": [],
+      "examples": []
+    },
+    {
+      "scope": "review",
+      "system_prompt_addition": "Act as a genomics reviewer. Evaluate whether preprocessing, QC, normalization, batch correction, and statistical testing choices are appropriate for the assay type and question. Be strict about multiple testing and biological interpretability.",
+      "user_prompt_prefix": "",
+      "user_prompt_suffix": "",
+      "constraints": [
+        "Flag missing QC reporting (e.g., library size, genes detected, mitochondrial fraction) or unclear filtering thresholds",
+        "Flag missing multiple testing correction for high-dimensional analyses",
+        "Flag unaddressed batch effects when multiple batches/conditions exist",
+        "Require clear mapping between results and biological interpretation (genes, pathways, cell types)"
+      ],
+      "preferences": [
+        "Recommend robustness checks (subsampling, alternative normalization, sensitivity to thresholds) when results are decision-relevant",
+        "Encourage transparent reporting of software versions and reference genome/annotation"
+      ],
       "examples": []
     }
   ],

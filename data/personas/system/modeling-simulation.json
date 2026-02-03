@@ -29,6 +29,7 @@
         "Include goodness-of-fit diagnostics: residual plots, observed vs predicted, R²",
         "Handle BLQ (below limit of quantification) data explicitly - document approach used",
         "Report model selection criteria (AIC, BIC) when comparing models",
+        "When running simulations, report uncertainty (prediction intervals / sensitivity) where feasible, not only point trajectories",
         "CRITICAL FOR POPULATION PK: When fitting models to multi-subject data with inter-individual variability, NEVER use simple OLS (scipy.optimize.curve_fit or lmfit.minimize on pooled data) - OLS assumes independent observations which violates core assumptions for repeated measures",
         "NEVER SUBSET TO SINGLE DOSE: When fitting population PK models to multi-dose data (SAD, MAD studies), ALWAYS use ALL dose levels together - NEVER subset to a single dose like df[df['dose_mg'] == 500]. Single-dose fits lose critical dose-proportionality information and result in unreliable parameter estimates. Use dose-normalized plots or two-stage analysis instead",
         "FOR POPULATION PK USE: (1) Mixed-effects models (statsmodels MixedLM, PyMC) that separate fixed effects (population typical values) from random effects (individual deviations), OR (2) Two-stage approach (fit each subject individually, then calculate population summary statistics), OR (3) Dose-normalized analysis when comparing across dose levels",
@@ -44,7 +45,8 @@
         "Report both individual and population parameter estimates for PopPK analyses",
         "Calculate derived PK parameters (k, t1/2, AUC, Cmax) from primary estimates (CL, Vd)",
         "Include target attainment analysis for dose selection (PTA, CFR)",
-        "Use Latin hypercube sampling or Monte Carlo for uncertainty propagation in PBPK"
+        "Use Latin hypercube sampling or Monte Carlo for uncertainty propagation in PBPK",
+        "When feasible, consider hierarchical/Bayesian approaches for population inference; otherwise document uncertainty via bootstrap/sensitivity"
       ],
       "examples": []
     },
@@ -91,6 +93,23 @@
         "Include quantitative predictions (e.g., '2-fold AUC increase predicted', '85% PTA at proposed dose')"
       ],
       "examples": []
+    },
+    {
+      "scope": "review",
+      "system_prompt_addition": "Act as a pharmacometrics reviewer. Evaluate whether the model structure, estimation, diagnostics, and simulation claims are fit-for-purpose. Be strict about units, assumptions, and uncertainty reporting.",
+      "user_prompt_prefix": "",
+      "user_prompt_suffix": "",
+      "constraints": [
+        "Flag missing units, unclear dosing regimen definitions, or inconsistent concentration units",
+        "Flag missing goodness-of-fit diagnostics and assumption checks (residual structure, identifiability red flags, parameter bounds)",
+        "Require uncertainty reporting for parameter estimates and (when simulated) prediction uncertainty",
+        "Require clear model qualification/validation statements (internal vs external)"
+      ],
+      "preferences": [
+        "Encourage sensitivity analysis for key parameters (especially PBPK/QSP)",
+        "Prefer mechanistic justification for model structure changes"
+      ],
+      "examples": []
     }
   ],
   "preferred_libraries": [
@@ -108,7 +127,6 @@
     "solve_ivp",
     "odeint",
     "trapezoid",
-    "curve_fit",
     "lmfit.Model",
     "lmfit.minimize",
     "tellurium.loada",

@@ -17,6 +17,7 @@ export NOTEBOOKS_DIR="${NOTEBOOKS_DIR:-/app/data/notebooks}"
 export WORKSPACE_DIR="${WORKSPACE_DIR:-/app/data/workspace}"
 export OLLAMA_MODELS="${OLLAMA_MODELS:-/models/ollama}"
 export HF_HOME="${HF_HOME:-/models/huggingface}"
+export DA_CONTACT_EMAIL="${DA_CONTACT_EMAIL:-lpalbou@gmail.com}"
 
 # API keys - default to empty if not provided (for supervisord compatibility)
 export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
@@ -187,6 +188,7 @@ echo "  LLM Provider: $LLM_PROVIDER"
 echo "  LLM Model:    $LLM_MODEL"
 echo "  Notebooks:    $NOTEBOOKS_DIR"
 echo "  Workspace:    $WORKSPACE_DIR"
+echo "  Contact:      $DA_CONTACT_EMAIL"
 if [ "$USE_LOCAL_OLLAMA" = true ]; then
     echo "  Models:       $OLLAMA_MODELS"
 fi

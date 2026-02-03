@@ -128,22 +128,51 @@ with coefficient of variation indicating moderate heterogeneity (CV = 28%)."
 - Allows technical users to dive deeper when needed
 - Mirrors how scientific papers work (methods in appendix, results front and center)
 
-### 5. Intelligent Error Recovery
+### 5. Intelligent Error Recovery (Dual Self-Correction)
 
-**Principle**: The system should attempt to fix its own errors before asking for help.
+**Principle**: The system should attempt to fix its own errors before asking for help—both **syntax errors** and **semantic errors**.
 
-**Implementation**: Auto-retry mechanism with LLM self-correction
+**Implementation**: Two distinct self-correction loops (see [ADR 0004](adr/0004-recursive-self-correction-loop.md) and [Logic Self-Correction Dive-in](dive_ins/logic_self_correction.md)):
+
 ```
-Execution fails → Extract error traceback → Ask LLM to fix → Re-execute → (Repeat up to 5x)
+┌─────────────────────────────────────────────────────────────────┐
+│ LOOP A: Execution Correctness (syntax/runtime errors)          │
+│   Code Gen → Execute → [If error: Fix → Re-execute → repeat]   │
+│   (up to 5 attempts)                                            │
+└─────────────────────────────────────────────────────────────────┘
+                          │ Success
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ LOOP B: Logic Correctness (semantic/domain errors)             │
+│   Validate → [If fail: Fix → back to Loop A → repeat]          │
+│   (up to 2 attempts, configurable)                              │
+└─────────────────────────────────────────────────────────────────┘
+                          │ Pass
+                          ▼
+                   Methodology Generation
 ```
+
+**Loop A catches**:
+- Syntax errors, import failures, typos
+- Runtime exceptions (KeyError, FileNotFoundError)
+- API misuse (wrong function arguments)
+
+**Loop B catches** (what makes Digital Article unique):
+- Wrong statistical test for data type (t-test on non-normal data)
+- Missing assumption checks (Shapiro-Wilk before parametric tests)
+- Incorrect column usage, missing preprocessing
+- Output doesn't match prompt intent (asked for plot, got table)
 
 **Rationale**:
-- LLMs often make simple mistakes (syntax errors, wrong function calls)
-- LLMs are surprisingly good at debugging their own code when given error messages
-- Reduces frustration for users
-- Improves perceived reliability
+- LLMs often make simple mistakes (syntax errors) → Loop A fixes these
+- LLMs also make *domain mistakes* (wrong methodology) → Loop B fixes these
+- Code that executes successfully can still be **scientifically wrong**
+- Reduces frustration for users across both technical and domain dimensions
+- Improves perceived reliability for non-programmer domain experts
 
-**Success Rate**: Approximately 60-70% of initial failures are resolved by auto-retry (empirical observation)
+**Success Rate**: 
+- Loop A (execution): ~60-70% of initial failures resolved
+- Loop B (logic): Catches wrong-but-running code that would otherwise go unnoticed
 
 ### 6. Rich, Multi-Modal Output Capture
 

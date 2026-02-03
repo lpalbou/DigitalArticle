@@ -13,7 +13,7 @@ This page is the **index** of documentation for Digital Article. The guiding rul
 - [`docs/architecture.md`](architecture.md) — canonical system map (routers, services, persistence, diagrams)
 - [`docs/limitations.md`](limitations.md) — known limitations + production readiness expectations
 - [`docs/troubleshooting.md`](troubleshooting.md) — common failure modes (LLM connectivity, Docker networking, SSE, exports)
-- [`docs/error-handling.md`](error-handling.md) — ErrorAnalyzer + auto-retry architecture
+- [`docs/error-handling.md`](error-handling.md) — ErrorAnalyzer + execution auto-retry (Loop A: syntax/runtime errors)
 - [`docs/export.md`](export.md) — export formats and endpoints (including streaming)
 - [`docs/docker-containerization.md`](docker-containerization.md) — containerization rationale (canonical section) + legacy notes
 - [`docs/variable-state-persistence.md`](variable-state-persistence.md) — execution state snapshot design + current storage nuance
@@ -31,6 +31,7 @@ All dive-ins start with a summary, how the component fits in the bigger picture,
 - [`docs/dive_ins/data_manager.md`](dive_ins/data_manager.md)
 - [`docs/dive_ins/review_service.md`](dive_ins/review_service.md)
 - [`docs/dive_ins/persona_system.md`](dive_ins/persona_system.md)
+- [`docs/dive_ins/logic_self_correction.md`](dive_ins/logic_self_correction.md) — post-success validation (catches "code runs but answer is wrong")
 
 ## Data-flow diagrams
 

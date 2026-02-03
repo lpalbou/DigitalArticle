@@ -6,6 +6,7 @@ notebook content without modifying any article data.
 """
 
 import logging
+import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
@@ -202,8 +203,25 @@ Be helpful, specific, and always reference your review findings when relevant.""
                     if preview:
                         if isinstance(preview, str):
                             file_info.append(f"  Preview:\n{preview[:1500]}")
-                        elif isinstance(preview, dict) and preview.get('sample_data'):
-                            file_info.append(f"  Sample data:\n{preview.get('sample_data')}")
+                        elif isinstance(preview, dict):
+                            if preview.get('sample_data'):
+                                file_info.append(f"  Sample data:\n{preview.get('sample_data')}")
+                            elif preview.get('overview'):
+                                overview = preview.get('overview', {})
+                                structure = overview.get('structure')
+                                if structure is not None:
+                                    try:
+                                        struct_json = json.dumps(structure, indent=2, ensure_ascii=False, default=str)
+                                        if len(struct_json) > 1000:
+                                            struct_json = struct_json[:1000] + "\n#COMPACTION_NOTICE: structure truncated for chat readability.\n"
+                                        file_info.append(f"  Structure overview:\n{struct_json}")
+                                    except Exception:
+                                        file_info.append(f"  Structure overview:\n{str(structure)[:1000]}")
+                                samples = overview.get('samples', [])
+                                if isinstance(samples, list) and samples:
+                                    s0 = samples[0] if isinstance(samples[0], dict) else None
+                                    if s0 and s0.get('text'):
+                                        file_info.append(f"  Sample (head window):\n{s0.get('text')[:1000]}")
                     
                     context_parts.append("\n".join(file_info))
                 logger.info(f"📁 Added {len(files)} files to chat context")

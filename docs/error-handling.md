@@ -2,7 +2,16 @@
 
 ## Overview
 
-This document describes Digital Article's intelligent error handling and auto-retry system. The system provides automatic error analysis, enhanced LLM context, and code fixes to minimize user interruption during data analysis.
+Digital Article has **two distinct self-correction loops** that work together to ensure both correct execution AND correct analysis:
+
+| Loop | What it fixes | When it runs | Max attempts |
+|------|---------------|--------------|--------------|
+| **Loop A (Execution)** | Syntax errors, runtime exceptions, import failures | Code doesn't run | 5 |
+| **Loop B (Logic)** | Wrong methodology, missing assumptions, output doesn't match intent | Code runs but answer is wrong | 2 |
+
+This document focuses on **Loop A** (execution error handling). For **Loop B** (logic/semantic validation), see:
+- [Logic Self-Correction Dive-in](dive_ins/logic_self_correction.md) - Full documentation
+- [ADR 0004](adr/0004-recursive-self-correction-loop.md) - Architecture decision
 
 **Related Documentation:**
 - [Architecture Overview](architecture.md) - Overall system design
@@ -11,7 +20,31 @@ This document describes Digital Article's intelligent error handling and auto-re
 - [Error Enhancement System](backlog/completed/0018_error_enhancement_system.md) - Implementation details
 - [Getting Started](getting-started.md) - User-facing error recovery features
 
-This document defines the **single source of truth** for error handling architecture to prevent parallel implementations and ensure consistency.
+This document defines the **single source of truth** for execution error handling architecture.
+
+---
+
+## The Two Loops
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ LOOP A: Execution Correctness (THIS DOCUMENT)                  │
+│   Code Gen → Execute → [If error: Fix → Re-execute → repeat]   │
+└─────────────────────────────────────────────────────────────────┘
+                          │ Success
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ LOOP B: Logic Correctness (see dive_ins/logic_self_correction) │
+│   Validate → [If fail: Fix → back to Loop A → repeat]          │
+└─────────────────────────────────────────────────────────────────┘
+                          │ Pass
+                          ▼
+                   Methodology Generation
+```
+
+**Key insight**: Loop B can trigger Loop A. If logic correction changes the code, we must re-execute (which might fail and trigger runtime fixes).
+
+---
 
 ## User Experience
 

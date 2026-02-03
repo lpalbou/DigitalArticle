@@ -107,8 +107,69 @@ Start with Option B (append-only store + strict schema) and keep the schema comp
 - Compaction/truncation in traces is either absent or explicitly marked/logged per ADR 0003.
 
 ## Implementation Notes (fill during execution)
-TBD
+
+### Phase 1 Implementation (2026-02-01)
+
+**Files created:**
+- `backend/app/models/trace.py` - TraceEvent schema with hierarchy (flow/task/step), StepType enum, redaction and truncation utilities
+- `backend/app/services/trace_store.py` - Singleton JSONL append-only trace store with query support
+- `backend/app/api/traces.py` - REST API for querying traces (`/api/traces/query`, `/api/traces/flow/{flow_id}`, etc.)
+- `tests/observability/test_trace_store.py` - 19 tests covering persistence, redaction, queries
+
+**Files modified:**
+- `backend/app/services/llm_service.py` - Added `_persist_llm_trace()` method, instrumented `agenerate_code_from_prompt()`
+- `backend/app/services/notebook_service.py` - Added flow-level traces around `execute_cell()`
+- `backend/app/main.py` - Registered traces router
+
+**Schema:**
+- `flow_id`: Root operation (e.g., cell execution)
+- `task_id`: Sub-operation (e.g., code generation, retry)
+- `step_id`: Atomic action (e.g., single LLM call)
+- `parent_step_id`: Hierarchy linking
+
+**Storage:**
+- Location: `{workspace_root}/traces/traces.jsonl`
+- Format: Append-only JSONL
+- Rotation: Automatic at 50MB with dated archives
+- Retention: 30 days default (cleanup endpoint available)
+
+**Redaction:**
+- API keys (`sk-*`, `key-*`)
+- Bearer tokens
+- Passwords and secrets in config strings
+
+**Truncation (per ADR 0003):**
+- Prompts: 10,000 chars max
+- Responses: 20,000 chars max
+- Code: 10,000 chars max
+- All truncations include `#TRUNCATION_NOTICE`
+
+**Tests:** 231 tests pass (including 19 new observability tests)
+
+### Phase 2: UI Decision (2026-02-01)
+
+**Decision:** Keep the existing per-cell Execution Details modal as the primary trace UI.
+
+The per-cell view (ExecutionDetailsModal) is:
+- More contextual (tied to the cell you're inspecting)
+- Already has excellent UX (tabs, cost estimation, export, etc.)
+- Easier to access (click on a cell)
+
+The global TraceViewerModal was built but removed from the header because:
+- It duplicated the per-cell view's functionality
+- Less contextual (harder to find the trace you care about)
+- Added UI clutter
+
+**What remains:**
+- `TraceStore` backend persistence (JSONL) for audit/compliance
+- REST API `/api/traces/*` for programmatic access
+- Per-cell view uses `cell.llm_traces` (saved with notebook JSON)
+- TraceStore provides secondary audit trail independent of notebook lifecycle
+
+**Files kept but not exposed in header:**
+- `frontend/src/components/TraceViewerModal.tsx` - Available for future admin/debug use
+- `frontend/src/services/api.ts::traceAPI` - API client for trace queries
 
 ## Full Report (fill only when moving to completed/)
-TBD
+TBD (move to completed/ after Docker validation)
 

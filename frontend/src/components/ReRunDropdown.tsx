@@ -3,6 +3,7 @@ import { RefreshCw, ChevronDown, Zap, Bot, Bug, Eraser, MessageSquare, Play } fr
 
 interface ReRunDropdownProps {
   onExecuteCode: () => void
+  onExecuteCodeWithAutofix?: () => void
   onExecuteAllFromHere?: () => void
   onRegenerateAndExecute: () => void
   onRegenerateAllFromHere?: () => void
@@ -15,6 +16,7 @@ interface ReRunDropdownProps {
 
 const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
   onExecuteCode,
+  onExecuteCodeWithAutofix,
   onExecuteAllFromHere,
   onRegenerateAndExecute,
   onRegenerateAllFromHere,
@@ -42,6 +44,11 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
   const handleExecuteCode = () => {
     setIsOpen(false)
     onExecuteCode()
+  }
+
+  const handleExecuteCodeWithAutofix = () => {
+    setIsOpen(false)
+    onExecuteCodeWithAutofix?.()
   }
 
   const handleRegenerateAndExecute = () => {
@@ -124,6 +131,26 @@ const ReRunDropdown: React.FC<ReRunDropdownProps> = ({
                 </div>
               </div>
             </button>
+
+            {/* Execute current cell code WITH auto-fix (no regeneration) */}
+            {onExecuteCodeWithAutofix && (
+              <button
+                onClick={handleExecuteCodeWithAutofix}
+                className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0"
+              >
+                <div className="flex items-start space-x-3">
+                  <div className="flex-shrink-0 mt-0.5">
+                    <Bug className="h-4 w-4 text-orange-600" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-gray-900">Execute current cell code (with auto-fix)</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Execute current code and allow runtime + logic auto-corrections (no regeneration)
+                    </div>
+                  </div>
+                </div>
+              </button>
+            )}
 
             {/* Execute all cells code from here */}
             {onExecuteAllFromHere && (

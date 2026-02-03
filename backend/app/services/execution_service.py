@@ -766,7 +766,19 @@ class ExecutionService:
             
             result.status = ExecutionStatus.ERROR
             result.error_type = type(e).__name__
-            result.error_message = str(e)
+            # Provide actionable guidance for common environment errors.
+            if isinstance(e, ModuleNotFoundError):
+                missing = getattr(e, "name", None)
+                if missing:
+                    result.error_message = (
+                        f"{str(e)}\n\n"
+                        f"HINT: Missing Python package '{missing}'. Install it (e.g. `pip install {missing}`)\n"
+                        f"or install backend dependencies (`pip install -e backend`)."
+                    )
+                else:
+                    result.error_message = str(e)
+            else:
+                result.error_message = str(e)
             result.traceback = full_traceback
             result.stderr = stderr_content + "\n\nFULL PYTHON STACK TRACE:\n" + full_traceback
             

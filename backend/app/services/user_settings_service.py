@@ -47,10 +47,33 @@ class ReproducibilitySettings(BaseModel):
     code_seed: Optional[int] = None
 
 
+class ExecutionSettings(BaseModel):
+    """Execution behavior settings."""
+    # Logic self-correction (ADR 0004): validate semantic correctness after execution
+    logic_validation_enabled: bool = True
+    # Total correction budget (applies to HIGH severity issues; also serves as a hard upper bound)
+    max_logic_corrections: int = Field(default=3, ge=0, le=5)
+    # Policy knobs: when to attempt auto-correction for MEDIUM/LOW issues.
+    #
+    # Interpretation:
+    # - When the highest severity present is MEDIUM, only attempt correction while
+    #   logic_correction_count < medium_retry_max_corrections.
+    # - When the highest severity present is LOW, only attempt correction while
+    #   logic_correction_count < low_retry_max_corrections.
+    #
+    # This prevents “over-correction” after several iterations (user-controlled).
+    #
+    # DEFAULT POLICY:
+    # - Fix HIGH severity issues only (MEDIUM/LOW are logged unless user opts in)
+    medium_retry_max_corrections: int = Field(default=0, ge=0, le=5)
+    low_retry_max_corrections: int = Field(default=0, ge=0, le=5)
+
+
 class UserSettings(BaseModel):
     """Complete user settings schema."""
     llm: LLMSettings = Field(default_factory=LLMSettings)
     reproducibility: ReproducibilitySettings = Field(default_factory=ReproducibilitySettings)
+    execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
     version: int = 1  # For future migrations
 
 

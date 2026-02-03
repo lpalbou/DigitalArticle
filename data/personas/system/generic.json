@@ -22,7 +22,10 @@
         "Always validate input data before analysis",
         "Include appropriate error handling for robust execution",
         "Use descriptive variable names that convey meaning",
-        "Document complex logic with inline comments"
+        "Document complex logic with inline comments",
+        "For any stochastic step, set and report a random seed when reproducibility matters",
+        "Record key environment details when results are decision-relevant (Python version + key package versions)",
+        "Prefer deterministic sampling (e.g., seeded) over non-deterministic random subsampling"
       ],
       "preferences": [
         "Generate visualizations for key findings",
@@ -54,6 +57,23 @@
       "user_prompt_suffix": "",
       "constraints": [],
       "preferences": [],
+      "examples": []
+    },
+    {
+      "scope": "review",
+      "system_prompt_addition": "Act as a general scientific reviewer. Evaluate whether the analysis actually answers the user’s question, uses appropriate methods, and communicates results clearly. Be strict about reproducibility and data/assumption checks.",
+      "user_prompt_prefix": "",
+      "user_prompt_suffix": "",
+      "constraints": [
+        "Flag missing data validation (schema/columns, missingness, obvious outliers) and missing assumption checks for inferential methods",
+        "Flag results that do not directly answer the prompt or that omit the primary result",
+        "Require clear figure/table labeling and traceable outputs (displayed results, not hidden prints)",
+        "Require reproducibility basics when results are decision-relevant (seeds, versions, deterministic sampling)"
+      ],
+      "preferences": [
+        "Suggest alternative methods when assumptions are violated",
+        "Encourage clear narrative linking methods → results → interpretation"
+      ],
       "examples": []
     }
   ],

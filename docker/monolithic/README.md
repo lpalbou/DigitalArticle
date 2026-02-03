@@ -39,10 +39,14 @@ We provide 2 variants optimized for different hardware. All variants provide the
 3. Run the container:
    ```bash
    # Standard (uses bundled Ollama)
-   docker run -p 80:80 -v ./data:/app/data digital-article:unified
+   docker run -p 80:80 -v ./data:/app/data \
+     -e DA_CONTACT_EMAIL=support@example.com \
+     digital-article:unified
    
    # NVIDIA GPU (requires --gpus all)
-   docker run --gpus all -p 80:80 -v ./data:/app/data digital-article:unified
+   docker run --gpus all -p 80:80 -v ./data:/app/data \
+     -e DA_CONTACT_EMAIL=support@example.com \
+     digital-article:unified
    ```
 
 ### Option B: Copy to Root (For PaaS/Platforms)

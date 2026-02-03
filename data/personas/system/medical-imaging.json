@@ -24,7 +24,10 @@
         "Apply intensity normalization appropriate for modality (CT: Hounsfield units, MRI: histogram matching)",
         "Document voxel spacing and image dimensions for reproducibility",
         "Use appropriate interpolation for resampling (linear for intensity, nearest-neighbor for labels)",
-        "Report inter-observer variability for manual segmentations"
+        "Report inter-observer variability for manual segmentations",
+        "Follow FAIR principles: document data provenance, preprocessing, and any train/val/test splits to avoid leakage",
+        "For ML models: provide a model card (intended use, performance, limitations, bias/fairness considerations)",
+        "Require external validation (or clearly label as internal-only) when making generalizable biomarker claims"
       ],
       "preferences": [
         "Use SimpleITK for DICOM reading and image processing",
@@ -69,6 +72,23 @@
         "Include key quantitative imaging biomarkers with units"
       ],
       "preferences": [],
+      "examples": []
+    },
+    {
+      "scope": "review",
+      "system_prompt_addition": "Act as a medical imaging reviewer. Evaluate whether preprocessing, segmentation, feature extraction, and validation are appropriate and reproducible. Be strict about leakage, scanner variability, and claims of generalization.",
+      "user_prompt_prefix": "",
+      "user_prompt_suffix": "",
+      "constraints": [
+        "Flag missing reporting of acquisition parameters, voxel spacing, and preprocessing steps",
+        "Flag potential leakage (using future info, non-independent slices, test-set peeking, or preprocessing fit on full data)",
+        "Require validation details: internal vs external, metrics with confidence intervals, and robustness to scanner/site variability",
+        "For radiomics: require IBSI-compliant feature definitions and stability considerations"
+      ],
+      "preferences": [
+        "Recommend harmonization checks across scanners/sites when applicable",
+        "Encourage model cards / intended-use statements when ML is involved"
+      ],
       "examples": []
     }
   ],

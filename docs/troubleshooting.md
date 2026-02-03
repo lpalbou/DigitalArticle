@@ -34,6 +34,29 @@ If you are new, start from [`docs/getting-started.md`](getting-started.md) and c
 - **Docker “localhost” trap**: inside containers, `localhost` is *the container*, not your host.
   - Prefer `http://host.docker.internal:PORT` on Docker Desktop, or see Linux section below.
 
+## `pip install` gets stuck / `ResolutionTooDeep` during dependency resolution
+
+If `pip` reports something like `pip._vendor.resolvelib.resolvers.ResolutionTooDeep`, it usually means the resolver is backtracking heavily.
+
+In Digital Article, the main known trigger is **Tellurium** (SBML/QSP modeling):
+
+- Tellurium’s core solver (`libRoadRunner`) **requires NumPy ~= 2.2** on Python 3.12 wheels.
+- Older dependency sets could accidentally pull **conflicting NumPy constraints** (notably via AbstractCore’s optional “embeddings” stack), which makes the environment **unsatisfiable** and can manifest as `ResolutionTooDeep` instead of a clean “version conflict” error.
+
+**Fix**
+
+- Install the core backend first (no Tellurium):
+
+```bash
+python -m pip install -e ".[dev]" -e backend
+```
+
+- Then, only if you actually need SBML/QSP simulation workflows, install Tellurium explicitly:
+
+```bash
+python -m pip install -e "backend[modeling]"
+```
+
 ## “I changed Settings but execution still uses the old provider/model”
 
 **What’s happening**

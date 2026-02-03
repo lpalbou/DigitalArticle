@@ -11,6 +11,15 @@ This file accumulates **non-obvious truths** about the system that we do not wan
 - **Uploads must handle multi-part extensions**:
   - NIfTI is commonly gzipped as `.nii.gz`. Do not infer file type by a naive `split('.')[-1]` (you’ll misclassify it as `.gz`).
   - Prefer a shared “effective extension” helper (see `backend/app/services/file_types.py`) used by both backend classification and frontend viewer behavior.
+- **LLM file context must be schema-first (not full-file)**:
+  - The LLM’s role is to generate **runtime code**; the runtime reads the full file from disk.
+  - Therefore, `files_in_context` should contain **structured overviews** (schema + stats + samples) rather than full raw payloads (token-heavy and often misleading).
+  - Any LLM-context compaction must be explicit per ADR 0003 via `#COMPACTION_NOTICE:` and INFO logs.
+  - Implementation: `backend/app/services/file_context_preview.py` + prompt rendering in `backend/app/services/llm_service.py`.
+- **Per-notebook workspace isolation exists, but process-wide CWD is still a footgun**:
+  - Each notebook has its own workspace directory under `Config.get_workspace_root()` (uploads live under `{workspace_root}/{notebook_id}/data/`).
+  - To reduce global side effects, `DataManagerClean` does **not** change the process working directory; `ExecutionService.execute_code()` sets the working directory at execution time.
+  - This makes file previews / context-building safer and keeps execution semantics explicit.
 - **Streaming uses SSE** for long-running tasks:
   - model download ([`backend/app/api/models.py`](../backend/app/api/models.py))
   - review streaming ([`backend/app/api/review.py`](../backend/app/api/review.py))
@@ -88,6 +97,26 @@ This file accumulates **non-obvious truths** about the system that we do not wan
   - Some environments / pytest import modes do not reliably place the repo root on `sys.path`.
   - `tests/conftest.py` ensures the repo root is on `sys.path` so `import backend.app.*` remains deterministic.
 
+## Dependency invariants (packaging)
+
+- **Tellurium/libRoadRunner requires NumPy ~= 2.2 on Python 3.12 wheels**:
+  - Installing `backend[modeling]` can upgrade NumPy to the 2.2.x line (this is expected).
+- **AbstractCore “embeddings” extra is currently incompatible with NumPy 2.2**:
+  - As of AbstractCore `2.9.1`, `abstractcore[embeddings]` declares `numpy<2.0.0`.
+  - We therefore **exclude** `embeddings` from the default AbstractCore dependency set to keep `backend[modeling]` solvable by pip.
+
+## Logic self-correction invariants (ADR 0004)
+
+- **Logic Validation is correctness-first (truthful by design)**:
+  - The validator must **FAIL only on evidence-backed HIGH blockers** (plain wrong answers / explicit prompt violations).
+  - MEDIUM/LOW findings are **non-blocking** and should be used sparingly; avoid “best practice” policing unless the user explicitly asked.
+  - Implementation enforces this both in the validator prompt and in parsing: `backend/app/services/logic_validation_service.py`.
+- **Correction issue selection must be evidence-grounded**:
+  - When a correction loop is triggered by a HIGH severity finding, we also include a small number of
+    **evidence-backed MEDIUM issues** in the correction request.
+  - Rationale: we are already spending a correction call; including the most grounded medium issues often
+    resolves the real user-visible mismatch in one shot and prevents “wasted” correction attempts on spurious HIGH flags.
+
 ## Persistence invariants (current mismatch)
 
 - **Workspace files** (uploads + user settings) use `Config.get_workspace_root()` (repo default: [`data/workspace`](../data/workspace)) via `DataManagerClean`.
@@ -97,9 +126,9 @@ This file accumulates **non-obvious truths** about the system that we do not wan
 ## Persona + review invariants
 
 - Persona selection is stored in `notebook.metadata['personas']` and combined via `PersonaService.combine_personas()`.
-- The `reviewer` persona exists as a system persona but is marked `is_active: false` (hidden from normal listing) while still used internally by `ReviewService` as a template source.
+- The `reviewer` persona exists as a system persona and is **active/visible** in the UI; `ReviewService` also loads it directly by slug as the default review template source.
 
 ## DEPRECATED
 
-- _None yet._
+- **Reviewer persona hidden from listing**: historically `reviewer.json` used `is_active: false` to hide it from normal persona listing while still being used internally by `ReviewService`. This is no longer the case (the reviewer persona is now active/visible).
 

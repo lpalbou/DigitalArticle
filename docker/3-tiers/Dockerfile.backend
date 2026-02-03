@@ -54,6 +54,9 @@ COPY config.json .
 # Copy default system personas
 COPY data/personas/system/ ./data/personas/system/
 
+# Copy user-facing documentation for the in-app Help modal
+COPY user_docs/ ./user_docs/
+
 # Copy entrypoint script
 COPY docker/3-tiers/entrypoint.backend.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

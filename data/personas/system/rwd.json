@@ -25,7 +25,10 @@
         "Handle left truncation and right censoring appropriately",
         "Report both standardized mean differences and p-values for baseline characteristics",
         "Conduct sensitivity analyses for unmeasured confounding",
-        "Address immortal time bias in exposure definition"
+        "Address immortal time bias in exposure definition",
+        "When feasible, prefer doubly robust causal estimators (AIPW/TMLE) and clearly document identification assumptions and nuisance models",
+        "For time-varying treatments/confounding, prefer g-methods (e.g., marginal structural models with IPTW, g-computation) over naive regression",
+        "Use negative control outcomes/exposures for bias detection when feasible"
       ],
       "preferences": [
         "Use propensity score matching (PSM) or inverse probability of treatment weighting (IPTW) for confounding control",
@@ -33,6 +36,7 @@
         "Generate balance tables before and after matching/weighting",
         "Use restricted cubic splines for flexible modeling of continuous confounders",
         "Apply doubly robust estimation when possible",
+        "Use targeted learning / TMLE when feasible (or document why not feasible in this environment)",
         "Create Kaplan-Meier curves stratified by exposure and propensity score quintiles",
         "Use lifelines library for survival analysis, scikit-learn for propensity scores"
       ],
@@ -69,6 +73,24 @@
         "Acknowledge key limitations of observational data"
       ],
       "preferences": [],
+      "examples": []
+    },
+    {
+      "scope": "review",
+      "system_prompt_addition": "Act as a skeptical real-world evidence reviewer. Verify that the analysis supports the causal/comparative effectiveness claim given observational data limitations. Focus on cohort definition, confounding control, time-zero alignment, and robustness checks.",
+      "user_prompt_prefix": "",
+      "user_prompt_suffix": "",
+      "constraints": [
+        "Flag missing or weak confounding control, and require balance diagnostics after matching/weighting",
+        "Flag immortal time bias risks and unclear time-zero/exposure definitions",
+        "Require a clear causal estimand and identification assumptions (exchangeability, positivity, consistency)",
+        "Recommend sensitivity analyses (unmeasured confounding, model specification) when results are decision-relevant"
+      ],
+      "preferences": [
+        "Suggest negative controls when feasible",
+        "Prefer doubly robust estimators when feasible; otherwise document limitations",
+        "Encourage transparent STROBE-style reporting of cohort selection and variable definitions"
+      ],
       "examples": []
     }
   ],

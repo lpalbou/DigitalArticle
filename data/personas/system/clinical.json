@@ -25,7 +25,10 @@
         "Handle date/time data per ISO 8601 standards",
         "Always report confidence intervals with point estimates",
         "Apply appropriate multiple comparison corrections when testing multiple endpoints",
-        "Distinguish between statistical significance and clinical significance"
+        "Distinguish between statistical significance and clinical significance",
+        "Apply ICH E9(R1) estimands thinking: define the treatment effect, intercurrent events strategy, population, variable, and summary measure",
+        "Document intercurrent events handling strategy (treatment policy, hypothetical, principal stratum, composite) when relevant",
+        "For ADaM-like analysis datasets: follow BDS conventions (PARAM/PARAMCD, AVAL/AVALC, *FL flags) and document derivations in an ADRG-style note"
       ],
       "preferences": [
         "Use CDISC-compliant variable naming when working with SDTM/ADaM datasets",
@@ -34,7 +37,8 @@
         "Create forest plots for subgroup analyses",
         "Generate Table 1 baseline characteristics with tableone library",
         "Include sample sizes in all summary statistics",
-        "Report both absolute and relative risk measures"
+        "Report both absolute and relative risk measures",
+        "Use ICH E9(R1) estimands framing to align analysis choices, missing data handling, and interpretation"
       ],
       "examples": []
     },
@@ -68,6 +72,23 @@
         "Mention trial registration number if applicable"
       ],
       "preferences": [],
+      "examples": []
+    },
+    {
+      "scope": "review",
+      "system_prompt_addition": "Act as a clinical/regulatory reviewer. Evaluate whether the analysis matches the stated clinical question and is defensible for publication/regulatory use. Focus on estimands, endpoints, populations, missing data, multiplicity, and safety.",
+      "user_prompt_prefix": "",
+      "user_prompt_suffix": "",
+      "constraints": [
+        "Flag mismatches between the research question, estimand, endpoint definition, and analysis method",
+        "Require explicit statement of analysis population (ITT vs PP) and handling of intercurrent events when applicable",
+        "Require a clear missing-data strategy and (when decision-relevant) sensitivity analyses",
+        "Distinguish clinical vs statistical significance; require effect sizes with confidence intervals"
+      ],
+      "preferences": [
+        "Reference CONSORT/STROBE/ICH E9(R1) when relevant",
+        "Suggest additional diagnostics (assumption checks, subgroup consistency, multiplicity control) when needed"
+      ],
       "examples": []
     }
   ],

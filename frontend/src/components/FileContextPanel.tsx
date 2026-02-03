@@ -1,19 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { Upload, File, X, Database, BarChart3, FileText, ChevronDown, ChevronRight, AlertTriangle, Image as ImageIcon } from 'lucide-react'
+import { Upload, File, X, Database, BarChart3, FileText, ChevronDown, ChevronRight, Image as ImageIcon } from 'lucide-react'
 import { filesAPI, handleAPIError } from '../services/api'
 import { FileInfo } from '../types'
 import FileViewerModal from './FileViewerModal'
-
-// Token estimation threshold (matches backend LARGE_FILE_TOKEN_THRESHOLD)
-const LARGE_FILE_TOKEN_THRESHOLD = 25000
-
-// File types that send full content to LLM (need token check)
-const FULL_CONTENT_FILE_TYPES = ['.txt', '.md', '.json', '.yaml', '.yml']
-
-interface LargeFileWarning {
-  file: File
-  estimatedTokens: number
-}
 
 interface FileContextPanelProps {
   notebookId?: string
@@ -27,34 +16,6 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
   const [isDragOver, setIsDragOver] = useState(false)
   const [selectedFile, setSelectedFile] = useState<FileInfo | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
-  
-  // Large file confirmation modal state
-  const [largeFileWarning, setLargeFileWarning] = useState<LargeFileWarning | null>(null)
-  const [pendingFiles, setPendingFiles] = useState<File[]>([])
-  
-  // Simple token estimation (~4 chars per token, adjusted for content type)
-  // For JSON, we first minify to estimate based on what LLM actually receives
-  const estimateTokens = useCallback((content: string, fileType: string): number => {
-    let charsPerToken = 4.0
-    let effectiveContent = content
-    
-    if (fileType === '.json') {
-      // Minify JSON before estimation (LLM receives minified version)
-      try {
-        const parsed = JSON.parse(content)
-        effectiveContent = JSON.stringify(parsed)  // No spaces = minified
-        charsPerToken = 2.5  // Minified JSON is very token-dense
-      } catch {
-        charsPerToken = 3.0  // Fallback if parse fails
-      }
-    } else if (fileType === '.yaml' || fileType === '.yml') {
-      charsPerToken = 3.5
-    } else if (fileType === '.md') {
-      charsPerToken = 3.8
-    }
-    
-    return Math.ceil(effectiveContent.length / charsPerToken)
-  }, [])
 
   const loadAvailableFiles = useCallback(async () => {
     if (!notebookId) {
@@ -92,85 +53,6 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
     loadAvailableFiles()
   }, [loadAvailableFiles, refreshTrigger])
 
-  // Check if file is a full-content type that needs token estimation
-  const isFullContentFile = useCallback((filename: string): boolean => {
-    const ext = '.' + filename.split('.').pop()?.toLowerCase()
-    return FULL_CONTENT_FILE_TYPES.includes(ext)
-  }, [])
-  
-  // Process file upload with large file check
-  const processFileUpload = useCallback(async (file: File): Promise<void> => {
-    if (!notebookId) return
-    
-    const ext = '.' + file.name.split('.').pop()?.toLowerCase()
-    
-    // For full-content files, check token count
-    if (isFullContentFile(file.name)) {
-      try {
-        const content = await file.text()
-        const estimatedTokens = estimateTokens(content, ext)
-        
-        if (estimatedTokens > LARGE_FILE_TOKEN_THRESHOLD) {
-          // Show warning modal
-          setLargeFileWarning({ file, estimatedTokens })
-          return
-        }
-      } catch (error) {
-        console.warn('Could not read file for token estimation:', error)
-        // Proceed with upload anyway
-      }
-    }
-    
-    // Upload the file
-    try {
-      console.log(`Uploading file: ${file.name}`)
-      await filesAPI.upload(notebookId, file)
-      console.log(`Successfully uploaded: ${file.name}`)
-    } catch (error) {
-      const apiError = handleAPIError(error)
-      console.error(`Failed to upload ${file.name}:`, apiError.message)
-    }
-  }, [notebookId, isFullContentFile, estimateTokens])
-  
-  // Handle confirmed upload of large file
-  const handleConfirmLargeFile = useCallback(async () => {
-    if (!notebookId || !largeFileWarning) return
-    
-    try {
-      console.log(`Uploading large file (confirmed): ${largeFileWarning.file.name}`)
-      await filesAPI.upload(notebookId, largeFileWarning.file)
-      console.log(`Successfully uploaded: ${largeFileWarning.file.name}`)
-    } catch (error) {
-      const apiError = handleAPIError(error)
-      console.error(`Failed to upload ${largeFileWarning.file.name}:`, apiError.message)
-    }
-    
-    setLargeFileWarning(null)
-    
-    // Continue with remaining pending files
-    const remaining = [...pendingFiles]
-    setPendingFiles([])
-    for (const file of remaining) {
-      await processFileUpload(file)
-    }
-    
-    await loadAvailableFiles()
-  }, [notebookId, largeFileWarning, pendingFiles, processFileUpload, loadAvailableFiles])
-  
-  // Handle cancel of large file upload
-  const handleCancelLargeFile = useCallback(async () => {
-    setLargeFileWarning(null)
-    
-    // Continue with remaining pending files (skip the large one)
-    const remaining = [...pendingFiles]
-    setPendingFiles([])
-    for (const file of remaining) {
-      await processFileUpload(file)
-    }
-    
-    await loadAvailableFiles()
-  }, [pendingFiles, processFileUpload, loadAvailableFiles])
-
   const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!notebookId) {
       console.error('No notebook ID available for file upload')
@@ -182,27 +64,9 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
     // Reset input immediately
     event.target.value = ''
     
-    // Process files one by one (may pause for large file confirmation)
+    // Upload files one by one
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
-      const ext = '.' + file.name.split('.').pop()?.toLowerCase()
-      
-      // For full-content files, check token count before upload
-      if (isFullContentFile(file.name)) {
-        try {
-          const content = await file.text()
-          const estimatedTokens = estimateTokens(content, ext)
-          
-          if (estimatedTokens > LARGE_FILE_TOKEN_THRESHOLD) {
-            // Store remaining files and show warning
-            setPendingFiles(files.slice(i + 1))
-            setLargeFileWarning({ file, estimatedTokens })
-            return  // Stop processing, wait for user confirmation
-          }
-        } catch (error) {
-          console.warn('Could not read file for token estimation:', error)
-        }
-      }
       
       // Upload the file
       try {
@@ -217,7 +81,7 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
     
     // Refresh the file list after uploads
     await loadAvailableFiles()
-  }, [notebookId, loadAvailableFiles, isFullContentFile, estimateTokens])
+  }, [notebookId, loadAvailableFiles])
 
   const handleDrop = useCallback(async (event: React.DragEvent) => {
     event.preventDefault()
@@ -230,27 +94,9 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
     
     const files = Array.from(event.dataTransfer.files)
     
-    // Process files one by one (may pause for large file confirmation)
+    // Upload files one by one
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
-      const ext = '.' + file.name.split('.').pop()?.toLowerCase()
-      
-      // For full-content files, check token count before upload
-      if (isFullContentFile(file.name)) {
-        try {
-          const content = await file.text()
-          const estimatedTokens = estimateTokens(content, ext)
-          
-          if (estimatedTokens > LARGE_FILE_TOKEN_THRESHOLD) {
-            // Store remaining files and show warning
-            setPendingFiles(files.slice(i + 1))
-            setLargeFileWarning({ file, estimatedTokens })
-            return  // Stop processing, wait for user confirmation
-          }
-        } catch (error) {
-          console.warn('Could not read file for token estimation:', error)
-        }
-      }
       
       // Upload the file
       try {
@@ -265,7 +111,7 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
     
     // Refresh the file list after uploads
     await loadAvailableFiles()
-  }, [notebookId, loadAvailableFiles, isFullContentFile, estimateTokens])
+  }, [notebookId, loadAvailableFiles])
 
   const removeFile = useCallback(async (filePath: string) => {
     if (!notebookId) {
@@ -455,60 +301,6 @@ const FileContextPanel: React.FC<FileContextPanelProps> = ({ notebookId, onFiles
         file={selectedFile}
       />
       
-      {/* Large File Warning Modal */}
-      {largeFileWarning && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 overflow-hidden">
-            {/* Header */}
-            <div className="bg-amber-50 px-6 py-4 border-b border-amber-100">
-              <div className="flex items-center space-x-3">
-                <AlertTriangle className="h-6 w-6 text-amber-600" />
-                <h3 className="text-lg font-semibold text-amber-800">Large File Warning</h3>
-              </div>
-            </div>
-            
-            {/* Content */}
-            <div className="px-6 py-4">
-              <p className="text-gray-700 mb-4">
-                The file <strong className="text-gray-900">{largeFileWarning.file.name}</strong> is 
-                estimated to contain approximately <strong className="text-amber-600">
-                {largeFileWarning.estimatedTokens.toLocaleString()} tokens</strong>.
-              </p>
-              
-              <div className="bg-gray-50 rounded-lg p-4 mb-4">
-                <p className="text-sm text-gray-600">
-                  <strong>What this means:</strong>
-                </p>
-                <ul className="text-sm text-gray-600 mt-2 space-y-1 list-disc list-inside">
-                  <li>Processing may take longer than usual</li>
-                  <li>LLM analysis may be less accurate for very large files</li>
-                  <li>Consider splitting the file if possible</li>
-                </ul>
-              </div>
-              
-              <p className="text-sm text-gray-500">
-                Do you want to proceed with uploading this file?
-              </p>
-            </div>
-            
-            {/* Actions */}
-            <div className="px-6 py-4 bg-gray-50 flex justify-end space-x-3">
-              <button
-                onClick={handleCancelLargeFile}
-                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmLargeFile}
-                className="px-4 py-2 text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition-colors"
-              >
-                Upload Anyway
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

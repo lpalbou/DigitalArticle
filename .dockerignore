@@ -42,10 +42,18 @@ Dockerfile*
 docker-compose*.yml
 .dockerignore
 
-# Documentation (not needed in container)
+# Documentation (internal developer docs are NOT shipped in the container)
 docs/
 *.md
 LICENSE
+
+# Help / user documentation (needed in container)
+!user_docs/
+!user_docs/**/*
+!user_docs/**/*.md
+
+# Untracked artifacts (do not bake into images; mount them if needed)
+untracked/
 
 # Tests (not needed in production container)
 tests/

@@ -88,6 +88,9 @@ COPY config.json ./config.json
 # Copy default system personas
 COPY data/personas/system/ ./data/personas/system/
 
+# Copy user-facing documentation for the in-app Help modal
+COPY user_docs/ ./user_docs/
+
 # Copy configuration files
 COPY docker/2-tiers/nginx.conf /etc/nginx/conf.d/default.conf
 RUN rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default 2>/dev/null || true

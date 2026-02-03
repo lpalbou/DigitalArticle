@@ -5,6 +5,56 @@ All notable changes to the Digital Article project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **LLM file context is now schema-first for text-like files**
+  - `.txt/.md/.json/.yaml/.yml` are no longer injected as full raw content by default.
+  - Instead, the backend sends a **structured overview** (identity + encoding/newline hints + structure + deterministic sample windows).
+  - Compaction is explicit per ADR 0003 via `#COMPACTION_NOTICE:` and INFO logs.
+  - Implementation: `backend/app/services/file_context_preview.py` + prompt rendering updates in `backend/app/services/llm_service.py`.
+- **CSV/TSV previews are more robust for larger files**
+  - Preview generation avoids full reads above a size threshold and uses a head+tail strategy for better coverage.
+  - The existing contract remains: columns + semantic column stats + sample rows.
+- **Logic correction is now evidence-grounded and persona-aware**
+  - Logic correction prompts now include per-issue evidence (`evidence_code`, `evidence_output`) plus a compact execution artifact summary (stdout + table summaries).
+  - Persona REVIEW guidance is injected into the correction request to enforce best practices.
+  - Optional bibliography (if present in notebook metadata) is included as reference material with explicit compaction.
+  - Implementation: `backend/app/services/logic_correction_context_builder.py` + enhanced evidence parsing in `backend/app/services/logic_validation_service.py`.
+- **Logic Validation is now correctness-first (truthful by design)**
+  - The validator **FAILs only on evidence-backed HIGH blockers** (plain wrong answers / explicit prompt violations).
+  - MEDIUM/LOW findings are treated as **non-blocking notes** and are discouraged unless the user explicitly asked for them.
+  - Heuristic checks follow the same contract: only HIGH severity triggers FAIL.
+- **Reduced process-wide working directory side effects**
+  - `DataManagerClean` no longer calls `os.chdir()` during initialization; the working directory is set at execution time by `ExecutionService`.
+- **Frontend upload UX aligned with compact previews**
+  - Removed client-side “large file token estimation” modal (it was based on the old behavior of sending full text files to the LLM).
+- **Personas are more SOTA-aligned and review-capable**
+  - Added `review`-scope guidance to all core system personas so best practices can be enforced during review/logic correction (Loop B).
+  - Updated persona guidance to incorporate missing SOTA elements (e.g., clinical estimands thinking; RWD doubly-robust framing; genomics QC/batch-effect expectations; imaging FAIR/model-card expectations; pharmacometrics uncertainty emphasis).
+  - Enabled the `reviewer` persona as a normal selectable persona (still used by `ReviewService` as the default template source).
+- **Logic correction now includes evidence-backed MEDIUM issues when a HIGH correction is triggered**
+  - Prevents “wasted” correction attempts where a spurious HIGH finding blocks the real prompt-aligned MEDIUM fix.
+  - Implementation: `backend/app/services/logic_issue_selection.py` + integration in `backend/app/services/notebook_service.py`.
+
+### Fixed
+- **Local installs more reliable**
+  - Moved `tellurium` to an optional backend extra (`backend[modeling]`) to avoid pip resolver `ResolutionTooDeep` failures on some platforms.
+  - Documentation now clearly states how to install Tellurium when needed (`python -m pip install -e "backend[modeling]"`).
+  - Fixed a remaining `backend[modeling]` resolver trap by:
+    - aligning the backend NumPy pin to `2.2.x` (required by `libroadrunner` wheels), and
+    - excluding AbstractCore’s optional `embeddings` extra (it pins `numpy<2.0` and makes the environment unsatisfiable).
+
+### Added
+- **Pytest coverage for file context previews**
+  - New tests validate structured overviews for text-like files and preserved CSV preview contract.
+- **In-app Help & Contact**
+  - Added a visible Help icon in the top navbar that opens a Help modal.
+  - Help modal provides:
+    - searchable, user-facing documentation (curated `user_docs/`)
+    - optional overview PDF tab (served when `untracked/digital-article.pdf` is present)
+    - Contact tab with an email button (configured via `DA_CONTACT_EMAIL`, default: `lpalbou@gmail.com`)
+
 ## [0.3.14] - 2026-02-01
 
 ### Fixed
@@ -24,10 +74,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed “black square” glyphs in PDFs by converting common Unicode punctuation/superscripts (e.g., `10¹¹`, en-dash, rho) to ASCII-safe equivalents during PDF text cleaning.
 - **Executing cell highlight no longer pulsing**
   - Restored the slow `animate-pulse` emphasis for currently executing cells to make the active cell obvious during long runs.
+- **Logic validation false-positives around Plotly rendering + compaction**
+  - Validator prompt now reports both `STATIC_PLOTS GENERATED` and `INTERACTIVE_PLOTS GENERATED` (Plotly) so it doesn't incorrectly flag “plot not rendered” when interactive plots were produced.
+  - Added an explicit rule that `#COMPACTION_NOTICE` means “middle omitted for context” (do not infer “code truncated” from compaction markers).
+- **“No auto-fix” execution mode now truly disables automatic rewrites**
+  - Runtime LLM auto-retry (Loop A) now respects the per-request `autofix` flag, matching the UI intent for “execute current code (no auto-fix)”.
+- **Fresh prompt-cell “Run” now enables auto-fix by default**
+  - Previously, new prompt cells were executed with `autofix=false`, unintentionally disabling runtime retries/corrections and causing early failures without retry.
+  - “Execute current cell code (no auto-fix)” remains available via the Re-run dropdown for debugging.
+- **Missing dependency errors now show an actionable hint**
+  - `ModuleNotFoundError` now includes a hint to install the missing package (e.g. `pip install lifelines`) or install backend deps (`pip install -e backend`).
 
 ### Added
 - **Notebook asset numbering regression test**
   - Added pytest coverage to ensure numbering is sequential across the notebook, robust to per-cell label resets, and resilient to legacy plot formats.
+- **Perfect observability: persistent LLM and execution traces (ADR 0005)**
+  - New `TraceStore` service persists traces to append-only JSONL files (`{workspace_root}/traces/traces.jsonl`) for audit/compliance.
+  - Trace schema: `flow_id` → `task_id` → `step_id` hierarchy with parent linking.
+  - Secret redaction (API keys, Bearer tokens, passwords) applied before storage.
+  - Truncation with explicit `#TRUNCATION_NOTICE` per ADR 0003.
+  - REST API for querying traces: `/api/traces/query`, `/api/traces/flow/{flow_id}`, etc.
+  - Instrumented `LLMService.agenerate_code_from_prompt()` and `NotebookService.execute_cell()` to emit traces.
+  - 19 new tests for trace persistence, redaction, and querying.
+  - **Note**: Per-cell trace view (Execution Details modal) remains the primary UI; TraceStore provides background audit persistence.
+- **Logic self-correction loop (ADR 0004)**
+  - New `LogicValidationService` validates that successfully executed code actually answers the user's prompt.
+  - Hybrid approach: fast heuristic checks + LLM-as-judge for semantic validation.
+  - Bounded correction loop (max 2 attempts) distinct from execution retry loop.
+  - **Severity categorization**: Issues tagged as HIGH/MEDIUM/LOW.
+    - HIGH: MUST fix (eligible to trigger correction, bounded)
+    - MEDIUM/LOW: policy-driven (can be corrected early if enabled)
+  - Heuristics catch: missing plots/tables, print() vs display(), missing p-values in statistical tests.
+  - LLM validation checks: wrong statistical test, assumption violations, incorrect methodology.
+  - Validation results stored in `cell.metadata.logic_validation` for transparency.
+  - **Always visible in traces**: Logic Validation step now appears in Execution Details with proper labeling.
+  - **Settings**:
+    - `execution.logic_validation_enabled` (default: true)
+    - `execution.max_logic_corrections` (default: 2)
+    - `execution.medium_retry_max_corrections` (default: 0)
+    - `execution.low_retry_max_corrections` (default: 0)
+  - New step types: `LLM_LOGIC_VALIDATION`, `LLM_LOGIC_CORRECTION` for trace visibility.
+  - Documentation: `docs/dive_ins/logic_self_correction.md` with full flow diagrams.
+  - Fixed: logic correction path now executes correctly (previous unpacking bug prevented corrections).
+  - Fixed: if a logic correction produces non-executable code, the system re-enters the runtime auto-fix loop (Loop A) to restore executability.
+  - Added: explicit LLM validation evidence requirement + prompt compaction markers (`#COMPACTION_NOTICE`) to avoid silent truncation (ADR 0003).
+  - Added: UI option to execute current code **with auto-fix** (no regeneration), enabling “re-run logic correction” without regenerating a cell.
+  - 10+ new tests for logic validation (including severity parsing).
 
 ### Changed
 - **GitHub docs: clearer “trust model” + concrete example output**

@@ -63,13 +63,13 @@ Endpoints:
 
 Current default behavior: if a notebook has no personas set, the API returns a default base persona of `clinical` (see [`backend/app/api/personas.py`](../../backend/app/api/personas.py)).
 
-## Reviewer persona is “internal”
+## Reviewer persona
 
 The review system loads a persona with slug `reviewer` from:
 
 - [`data/personas/system/reviewer.json`](../../data/personas/system/reviewer.json)
 
-That persona is currently marked `is_active: false` (so it is hidden from normal persona listing by default), but `ReviewService` loads it directly by slug.
+That persona is a normal system persona (now **active/visible** in the UI), and `ReviewService` also loads it directly by slug.
 
 ## Related dive-ins
 

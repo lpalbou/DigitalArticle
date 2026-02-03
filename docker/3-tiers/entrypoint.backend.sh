@@ -14,6 +14,7 @@ echo "========================================"
 LLM_PROVIDER="${LLM_PROVIDER:-ollama}"
 LLM_MODEL="${LLM_MODEL:-gemma3n:e2b}"
 OLLAMA_URL="${OLLAMA_BASE_URL:-http://ollama:11434}"
+DA_CONTACT_EMAIL="${DA_CONTACT_EMAIL:-lpalbou@gmail.com}"
 
 # ========================================
 # 2. VERIFY DIRECTORIES
@@ -78,6 +79,7 @@ echo "  Notebooks:       /app/notebooks (volume)"
 echo "  Data:            /app/data (volume)"
 echo "  Logs:            /app/logs (volume)"
 echo "  CORS:            ${CORS_ORIGINS:-*}"
+echo "  Contact:         ${DA_CONTACT_EMAIL}"
 echo "=================================================="
 echo ""
 

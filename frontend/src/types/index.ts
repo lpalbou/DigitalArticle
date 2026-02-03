@@ -323,3 +323,93 @@ export interface ChatResponse {
   context_used: string[]  // Cell IDs or data sources referenced
   timestamp: string
 }
+
+// Trace types for observability (ADR 0005)
+export enum TraceLevel {
+  FLOW = 'flow',
+  TASK = 'task',
+  STEP = 'step'
+}
+
+export enum TraceStatus {
+  STARTED = 'started',
+  SUCCESS = 'success',
+  ERROR = 'error',
+  CANCELLED = 'cancelled'
+}
+
+export enum StepType {
+  LLM_CODE_GENERATION = 'llm_code_generation',
+  LLM_CODE_FIX = 'llm_code_fix',
+  LLM_METHODOLOGY = 'llm_methodology',
+  LLM_REVIEW = 'llm_review',
+  LLM_CHAT = 'llm_chat',
+  LLM_SEMANTIC_EXTRACTION = 'llm_semantic_extraction',
+  LLM_ERROR_ANALYSIS = 'llm_error_analysis',
+  LLM_LOGIC_VALIDATION = 'llm_logic_validation',
+  LLM_LOGIC_CORRECTION = 'llm_logic_correction',
+  CODE_EXECUTION = 'code_execution',
+  CODE_LINT = 'code_lint',
+  CODE_AUTOFIX = 'code_autofix',
+  FILE_UPLOAD = 'file_upload',
+  FILE_PREVIEW = 'file_preview',
+  EXPORT_PDF = 'export_pdf',
+  EXPORT_SEMANTIC = 'export_semantic',
+  MODEL_DOWNLOAD = 'model_download',
+  RETRY = 'retry',
+  LOGIC_CORRECTION = 'logic_correction'
+}
+
+export interface TraceEvent {
+  step_id: string
+  flow_id: string
+  task_id?: string
+  parent_step_id?: string
+  level: TraceLevel
+  step_type: StepType
+  status: TraceStatus
+  started_at: string
+  ended_at?: string
+  duration_ms?: number
+  notebook_id?: string
+  cell_id?: string
+  user_id?: string
+  llm_provider?: string
+  llm_model?: string
+  llm_prompt?: string
+  llm_system_prompt?: string
+  llm_response?: string
+  llm_input_tokens?: number
+  llm_output_tokens?: number
+  llm_total_tokens?: number
+  llm_generation_time_ms?: number
+  llm_temperature?: number
+  llm_seed?: number
+  exec_code?: string
+  exec_stdout?: string
+  exec_stderr?: string
+  exec_error?: string
+  exec_error_type?: string
+  metadata?: Record<string, any>
+  error_message?: string
+  error_type?: string
+}
+
+export interface FlowSummary {
+  flow_id: string
+  started_at: string
+  ended_at?: string
+  status: TraceStatus
+  notebook_id?: string
+  cell_id?: string
+  step_count: number
+  step_types: string[]
+  total_tokens?: number
+  total_duration_ms?: number
+}
+
+export interface TraceQueryResponse {
+  traces: TraceEvent[]
+  count: number
+  has_more: boolean
+}

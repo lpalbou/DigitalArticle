@@ -12,7 +12,7 @@ import traceback
 import logging
 import os
 
-from .api import cells, notebooks, llm, files, system, ai_code_fix, chat, settings, models, personas, review
+from .api import cells, notebooks, llm, files, system, ai_code_fix, chat, settings, models, personas, review, traces, help
 from ._version import __version__
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,8 @@ app.include_router(settings.router, prefix="/api", tags=["settings"])
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(personas.router)  # Already has /api/personas prefix
 app.include_router(review.router)  # Already has /api/review prefix
+app.include_router(traces.router)  # Already has /api/traces prefix (ADR 0005: observability)
+app.include_router(help.router)  # Already has /api/help prefix
 
 @app.get("/")
 async def root():

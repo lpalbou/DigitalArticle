@@ -249,10 +249,16 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
         return 'Code Generation'
       case 'code_fix':
         return 'Code Fix / Retry'
+      case 'logic_correction':
+      case 'llm_logic_correction':
+        return 'Logic Correction'
       case 'methodology_generation':
         return 'Methodology Generation'
       case 'article_review':
         return 'Article Review'
+      case 'llm_logic_validation':
+      case 'heuristic_logic_validation':
+        return 'Logic Validation'
       default:
         return stepType
     }
@@ -264,23 +270,43 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
         return 'text-blue-600 bg-blue-50'
       case 'code_fix':
         return 'text-yellow-600 bg-yellow-50'
+      case 'logic_correction':
+      case 'llm_logic_correction':
+        return 'text-orange-600 bg-orange-50'
       case 'methodology_generation':
         return 'text-purple-600 bg-purple-50'
       case 'article_review':
         return 'text-green-600 bg-green-50'
+      case 'llm_logic_validation':
+      case 'heuristic_logic_validation':
+        return 'text-cyan-600 bg-cyan-50'
       default:
         return 'text-gray-600 bg-gray-50'
     }
   }
 
   const getSuccessIndicator = (trace: LLMTrace): { color: string, label: string } => {
+    const stepType = (trace as any).step_type || trace.metadata?.step_type
+    const status = (trace as any).status
+    
+    // Logic validation has special status handling
+    if (stepType === 'llm_logic_validation' || stepType === 'heuristic_logic_validation') {
+      if (status === 'pass') {
+        return { color: 'text-green-600', label: '✓ Pass' }
+      } else if (status === 'fail') {
+        return { color: 'text-amber-600', label: '⚠ Issues Found' }
+      } else if (status === 'uncertain') {
+        return { color: 'text-gray-500', label: '? Uncertain' }
+      }
+    }
+    
     // Check for explicit error status (from review service error traces)
-    if ((trace as any).status === 'error') {
+    if (status === 'error') {
       return { color: 'text-red-600', label: '✗ Error' }
     }
 
     // Check for explicit success status
-    if ((trace as any).status === 'success') {
+    if (status === 'success') {
       return { color: 'text-green-600', label: '✓ Success' }
     }
 
@@ -517,12 +543,14 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
                     {traces.map((trace, index) => {
                       const isExpanded = expandedTraces.has(trace.trace_id)
                       const successInfo = getSuccessIndicator(trace)
-                      const stepType = trace.metadata?.step_type || 'unknown'
-                      const attemptNumber = trace.metadata?.attempt_number || index + 1
+                      // Check both root-level step_type (logic validation traces) and metadata.step_type (legacy traces)
+                      const stepType = (trace as any).step_type || trace.metadata?.step_type || 'unknown'
+                      const attemptNumber = (trace as any).attempt_number || trace.metadata?.attempt_number || index + 1
                       const inputTokens = trace.response?.usage?.input_tokens || trace.response?.usage?.prompt_tokens || 0
                       const outputTokens = trace.response?.usage?.output_tokens || trace.response?.usage?.completion_tokens || 0
                       const totalTraceTokens = trace.response?.usage?.total_tokens || 0
-                      const genTime = trace.response?.generation_time_ms || 0
+                      // Backward-compat: older custom traces stored timing at root-level as duration_ms
+                      const genTime = trace.response?.generation_time_ms || (trace as any).duration_ms || 0
 
                       return (
                         <div key={trace.trace_id} className="border border-gray-200 rounded-lg overflow-hidden">
@@ -645,7 +673,8 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation()
-                                          copyToClipboard(trace.prompt, `${trace.trace_id}-prompt`)
+                                          const promptText = trace.prompt || (trace as any).llm_prompt || ''
+                                          copyToClipboard(promptText, `${trace.trace_id}-prompt`)
                                         }}
                                         className="text-gray-400 hover:text-gray-600 flex items-center space-x-1"
                                       >
@@ -663,7 +692,7 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
                                       </button>
                                     </div>
                                     <pre className="text-xs bg-gray-50 p-3 rounded border border-gray-200 overflow-x-auto max-h-64 whitespace-pre-wrap">
-                                      {trace.prompt}
+                                      {trace.prompt || (trace as any).llm_prompt || ''}
                                     </pre>
                                   </div>
                                 )}
@@ -707,7 +736,8 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation()
-                                          copyToClipboard(trace.response?.content || '', `${trace.trace_id}-response`)
+                                          const responseText = trace.response?.content || (trace as any).llm_response || ''
+                                          copyToClipboard(responseText, `${trace.trace_id}-response`)
                                         }}
                                         className="text-gray-400 hover:text-gray-600 flex items-center space-x-1"
                                       >
@@ -725,7 +755,7 @@ const ExecutionDetailsModal: React.FC<ExecutionDetailsModalProps> = ({
                                       </button>
                                     </div>
                                     <pre className="text-xs bg-gray-50 p-3 rounded border border-gray-200 overflow-x-auto max-h-64 whitespace-pre-wrap">
-                                      {trace.response?.content}
+                                      {trace.response?.content || (trace as any).llm_response || ''}
                                     </pre>
                                   </div>
                                 )}

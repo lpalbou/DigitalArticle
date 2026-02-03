@@ -24,14 +24,21 @@ dependencies = [
     "python-multipart>=0.0.9",  # Required for file uploads
     "pyyaml>=6.0",  # YAML file parsing
 
-    # LLM Integration - all providers except MLX (Apple Silicon only)
-    # Includes: openai, anthropic, ollama, lmstudio, huggingface, embeddings
-    # Note: HuggingFace includes torch (~2GB), image will be larger
-    "abstractcore[all-providers-non-mlx]>=2.6.9",  # Requires 2.6.0+ for download_model API, 2.6.2 for base url, 2.6.9 for async trace fix
+    # LLM Integration (providers; intentionally excludes AbstractCore "embeddings" extra)
+    #
+    # Rationale:
+    # - Tellurium's SBML/QSP stack (libRoadRunner) requires NumPy ~= 2.2 on cp312.
+    # - AbstractCore's "embeddings" extra currently pins NumPy < 2.0, which makes `backend[modeling]`
+    #   unsatisfiable and triggers pip resolver backtracking explosions.
+    #
+    # Note: HuggingFace includes torch (~2GB), image will be larger.
+    "abstractcore[anthropic,huggingface,lmstudio,ollama,openai]>=2.6.9",  # Requires 2.6.0+ for download_model API, 2.6.2 for base url, 2.6.9 for async trace fix
 
     # Data Processing
     "pandas==2.3.3",
-    "numpy==1.26.4",
+    # NOTE: Tellurium's SBML/QSP stack (libRoadRunner) requires NumPy ~= 2.2 on cp312 builds.
+    # Pinning here keeps `backend[modeling]` installable and avoids pip resolver backtracking explosions.
+    "numpy==2.2.0",
     "openpyxl==3.1.5",
     "h5py==3.15.1",
 
@@ -48,7 +55,6 @@ dependencies = [
 
     # Modeling & Simulation (PK/PD)
     "lmfit>=1.3.0",      # Non-linear curve fitting for PK parameter estimation
-    "tellurium>=2.2.0",  # QSP/SBML modeling with Antimony
     "lifelines>=0.28.0", # Survival analysis (Kaplan-Meier curves)
 
     # Clinical Data Analysis
@@ -66,6 +72,16 @@ analysis = [
     "dash",
     "statsmodels",
     "networkx",
+]
+
+# Optional: QSP / SBML modeling stack.
+#
+# Motivation:
+# - `tellurium` is heavy and can trigger very deep pip resolver backtracking on some platforms.
+# - Most Digital Article workflows do not require SBML/QSP modeling.
+# - Keeping it optional makes `pip install -e backend` reliable while preserving the capability.
+modeling = [
+    "tellurium>=2.2.0",
 ]
 
 [tool.setuptools]

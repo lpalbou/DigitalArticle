@@ -21,14 +21,27 @@ cd digitalarticle
 python -m venv .venv
 source .venv/bin/activate  # macOS/Linux
 
-# Install Python deps + CLI tools (da-backend, da-frontend) from pyproject.toml
-pip install -e ".[dev]"
+# IMPORTANT (monorepo): install BOTH packages.
+# - Root (`.`) installs the CLI tools (`da-backend`, `da-frontend`)
+# - `backend/` installs the backend service dependencies (e.g. `lifelines` for survival analysis)
+python -m pip install -e ".[dev]" -e backend
+# If you don't want dev tooling:
+# python -m pip install -e . -e backend
 
 # Install frontend deps
 cd frontend
 npm install
 cd ..
 ```
+
+**Optional (heavy): Tellurium (QSP / SBML modeling)**  
+Install Tellurium only when you need SBML/QSP simulation workflows (e.g., the *Modeling & Simulation* persona):
+
+```bash
+python -m pip install -e "backend[modeling]"
+```
+
+Note: Tellurium’s solver stack (`libRoadRunner`) requires **NumPy ~= 2.2** on Python 3.12 wheels, so this may upgrade NumPy in your environment.
 
 ### 2) Run locally
 

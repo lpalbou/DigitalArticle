@@ -33,8 +33,8 @@ The review system uses the **system persona** `reviewer`:
 
 Important nuance:
 
-- In `reviewer.json`, `is_active` is `false`. That means it is hidden from normal persona listing unless `include_inactive=true`.
-- `ReviewService` still loads it directly by slug (it does not filter by `is_active`).
+- The `reviewer` persona is active/visible in normal persona listing.
+- `ReviewService` also loads it directly by slug (it does not filter by `is_active`).
 
 ## Review modes
 

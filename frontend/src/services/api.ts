@@ -377,4 +377,98 @@ export const getCurrentUser = async (): Promise<string> => {
   }
 }
 
+// Trace API for observability (ADR 0005)
+import { FlowSummary, TraceQueryResponse, StepType } from '../types'
+
+export const traceAPI = {
+  // Query traces with filters
+  query: async (params: {
+    flow_id?: string
+    notebook_id?: string
+    cell_id?: string
+    step_type?: StepType
+    since_hours?: number
+    limit?: number
+  }): Promise<TraceQueryResponse> => {
+    const response = await api.get('/traces/query', { params })
+    return response.data
+  },
+
+  // Get all events for a specific flow
+  getFlow: async (flowId: string): Promise<TraceQueryResponse> => {
+    const response = await api.get(`/traces/flow/${flowId}`)
+    return response.data
+  },
+
+  // List recent flows with summary information
+  listFlows: async (params: {
+    notebook_id?: string
+    since_hours?: number
+    limit?: number
+  }): Promise<FlowSummary[]> => {
+    const response = await api.get('/traces/flows', { params })
+    return response.data
+  },
+
+  // Get traces for a specific cell
+  getCellTraces: async (
+    notebookId: string,
+    cellId: string,
+    params?: { since_hours?: number; limit?: number }
+  ): Promise<TraceQueryResponse> => {
+    const response = await api.get(`/traces/cell/${notebookId}/${cellId}`, { params })
+    return response.data
+  },
+
+  // Cleanup old traces
+  cleanup: async (retentionDays: number = 30): Promise<{ files_removed: number }> => {
+    const response = await api.delete('/traces/cleanup', { params: { retention_days: retentionDays } })
+    return response.data
+  }
+}
+
+// Help / Docs API (in-app documentation + contact)
+export interface HelpDocIndexEntry {
+  doc_id: string
+  title: string
+}
+
+export interface HelpInfoResponse {
+  contact_email: string
+  pdf_available: boolean
+  pdf_url: string
+  docs: HelpDocIndexEntry[]
+}
+
+export interface HelpDocContentResponse {
+  doc_id: string
+  title: string
+  content: string
+}
+
+export interface HelpSearchHit {
+  doc_id: string
+  title: string
+  snippet: string
+}
+
+export const helpAPI = {
+  getInfo: async (): Promise<HelpInfoResponse> => {
+    const response: AxiosResponse<HelpInfoResponse> = await api.get('/help/info')
+    return response.data
+  },
+
+  getDoc: async (docId: string): Promise<HelpDocContentResponse> => {
+    const response: AxiosResponse<HelpDocContentResponse> = await api.get(`/help/docs/${docId}`)
+    return response.data
+  },
+
+  search: async (query: string, limit: number = 20): Promise<HelpSearchHit[]> => {
+    const response: AxiosResponse<HelpSearchHit[]> = await api.get('/help/search', {
+      params: { q: query, limit }
+    })
+    return response.data
+  }
+}
+
 export default api

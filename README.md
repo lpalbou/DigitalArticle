@@ -52,7 +52,9 @@ flowchart LR
 
 - **Natural Language Analysis**: Write prompts like "create a heatmap of gene correlations" instead of Python code
 - **Intelligent Code Generation**: LLM-powered code generation using AbstractCore (supports LMStudio, Ollama, OpenAI, and more)
-- **Auto-Retry Error Fixing**: System automatically debugs and fixes generated code (up to 5 attempts)
+- **Dual Self-Correction Loops** (what makes us different):
+  - **Syntax/Runtime fixing**: Automatically debugs and fixes execution errors (up to 5 attempts)
+  - **Logic/Semantic fixing**: Validates that code *actually answers your question* and fixes domain errors (e.g., wrong statistical test, missing assumptions) — see [Logic Self-Correction](docs/dive_ins/logic_self_correction.md)
 - **Scientific Methodology Generation**: Automatically creates article-style explanations of your analysis
 - **Rich Output Capture**: Matplotlib plots, Plotly interactive charts, Pandas tables, and text output
 - **Publication-Ready PDF Export**: Generate scientific article PDFs with methodology, results, and optional code
@@ -99,13 +101,29 @@ cd digitalarticle
 # Set up Python environment
 python -m venv .venv
 source .venv/bin/activate  # On macOS/Linux
-pip install -e .  # Installs from pyproject.toml
+
+# IMPORTANT (monorepo): install BOTH packages.
+# - Root (`.`) installs the CLI tools (`da-backend`, `da-frontend`)
+# - `backend/` installs the backend service dependencies (e.g. `lifelines` for survival analysis)
+python -m pip install -e ".[dev]" -e backend
 
 # Set up frontend
 cd frontend
 npm install
 cd ..
 ```
+
+#### Optional: Tellurium (QSP / SBML modeling)
+
+Tellurium is an **optional** backend dependency used for **SBML/QSP** (mechanistic ODE) modeling workflows.
+
+Install it only when you need it:
+
+```bash
+python -m pip install -e "backend[modeling]"
+```
+
+Note: Tellurium’s solver stack (`libRoadRunner`) requires **NumPy ~= 2.2** on Python 3.12 wheels, so this may upgrade NumPy in your environment.
 
 ### Start the Application (Local)
 
@@ -440,6 +458,7 @@ If you use Digital Article in your research, please cite:
 - **Issues**: [GitHub Issues](https://github.com/lpalbou/digitalarticle/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/lpalbou/digitalarticle/discussions)
 - **Email**: lpalbou@gmail.com
+- **In-app contact email (deployments)**: set `DA_CONTACT_EMAIL` to control the email shown in **Help → Contact** (default: `lpalbou@gmail.com`).
 
 ---
 

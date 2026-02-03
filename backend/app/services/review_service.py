@@ -5,6 +5,7 @@ Orchestrates scientific review of cells and articles using Reviewer persona temp
 """
 
 import logging
+import json
 from datetime import datetime
 from typing import Dict, List, Optional, Any, AsyncIterator
 
@@ -740,6 +741,24 @@ EXAMPLE OF CORRECT FORMAT:
                         elif isinstance(preview, dict):
                             if preview.get('sample_data'):
                                 file_context.append(f"Sample data (first rows):\n{preview.get('sample_data')}")
+                            elif preview.get('overview'):
+                                # New format (ADR 0003): structured overview + deterministic samples
+                                overview = preview.get('overview', {})
+                                structure = overview.get('structure')
+                                if structure is not None:
+                                    try:
+                                        struct_json = json.dumps(structure, indent=2, ensure_ascii=False, default=str)
+                                        if len(struct_json) > 1500:
+                                            struct_json = struct_json[:1500] + "\n#COMPACTION_NOTICE: structure truncated for review readability.\n"
+                                        file_context.append(f"Structure overview:\n{struct_json}")
+                                    except Exception:
+                                        file_context.append(f"Structure overview:\n{str(structure)[:1500]}")
+                                samples = overview.get('samples', [])
+                                if isinstance(samples, list) and samples:
+                                    # Show only the first sample window to keep review context compact.
+                                    s0 = samples[0] if isinstance(samples[0], dict) else None
+                                    if s0 and s0.get('text'):
+                                        file_context.append(f"Sample (head window):\n{s0.get('text')[:1500]}")
                             elif preview.get('content'):
                                 file_context.append(f"Content:\n{preview.get('content')[:2000]}")
                 

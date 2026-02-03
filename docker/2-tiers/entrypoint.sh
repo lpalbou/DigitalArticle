@@ -15,6 +15,7 @@ export LLM_MODEL="${LLM_MODEL:-}"
 export NOTEBOOKS_DIR="${NOTEBOOKS_DIR:-/app/data/notebooks}"
 export WORKSPACE_DIR="${WORKSPACE_DIR:-/app/data/workspace}"
 export HF_HOME="${HF_HOME:-/models/huggingface}"
+export DA_CONTACT_EMAIL="${DA_CONTACT_EMAIL:-lpalbou@gmail.com}"
 
 # API keys - default to empty if not provided
 export OPENAI_API_KEY="${OPENAI_API_KEY:-}"

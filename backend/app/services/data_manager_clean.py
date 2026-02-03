@@ -15,34 +15,22 @@ import logging
 from .h5_service import h5_processor
 from .file_types import classify_file_type
 from .upload_service import FileUploadService, UploadLimits, UploadError
+from .file_context_preview import FileContextPreviewBuilder
 
-# Token estimation for large file warning
-try:
-    from abstractcore.utils.token_utils import estimate_tokens
-    TOKEN_ESTIMATION_AVAILABLE = True
-except ImportError:
-    TOKEN_ESTIMATION_AVAILABLE = False
-    def estimate_tokens(text: str, model: str = None) -> int:
-        """Fallback: ~4 chars per token estimate."""
-        return len(text) // 4 if text else 0
-
-# Large file threshold (tokens)
-LARGE_FILE_TOKEN_THRESHOLD = 25000
-
-# Optional YAML support
-try:
-    import yaml
-    YAML_AVAILABLE = True
-except ImportError:
-    YAML_AVAILABLE = False
-    yaml = None
+# NOTE: Large-file logic for LLM context lives in `FileContextPreviewBuilder` (ADR 0003 compaction).
 
 logger = logging.getLogger(__name__)
 
 class DataManager:
     """Manages data files with clean notebook-specific directory structure."""
 
-    def __init__(self, notebook_id: Optional[str] = None, workspace_root: Optional[str] = None):
+    def __init__(
+        self,
+        notebook_id: Optional[str] = None,
+        workspace_root: Optional[str] = None,
+        *,
+        preview_builder: Optional[FileContextPreviewBuilder] = None,
+    ):
         """
         Initialize data manager with structure: backend/notebook_workspace/{notebook_id}/data/
 
@@ -76,13 +64,18 @@ class DataManager:
         self.notebook_dir.mkdir(exist_ok=True)
         self.data_dir.mkdir(exist_ok=True)
 
-        # Set working directory to notebook_dir so 'data/file.csv' works
-        os.chdir(str(self.notebook_dir))
+        # IMPORTANT:
+        # Do NOT change the process-wide current working directory here.
+        # - Each notebook already has its own workspace directory (`{workspace_root}/{notebook_id}/`).
+        # - ExecutionService sets the working directory at execution time (per notebook) so `data/filename.ext` works.
+        # Avoiding `os.chdir()` here prevents surprising global side effects when we merely list/preview files.
 
         # Upload helper (streaming-safe, path-safe)
         # NOTE: We intentionally don't enforce a max upload size here by default; deployments can
         # enforce request limits at the reverse proxy / ASGI server layer if needed.
         self._upload_service = FileUploadService(self.data_dir, limits=UploadLimits(max_upload_bytes=None))
+        # File previews for LLM context (compact, schema-first, explicit compaction).
+        self._preview_builder = preview_builder or FileContextPreviewBuilder()
 
         logger.info(f"✅ Clean Data Manager initialized:")
         logger.info(f"   Workspace Root: {self.workspace_root}")
@@ -296,126 +289,36 @@ class DataManager:
                 # Add preview for different file types
                 try:
                     if file_path.suffix == '.csv':
-                        df_full = pd.read_csv(file_path)
-                        # Check if this is a data dictionary - if so, send ALL rows
-                        is_dictionary = self._is_data_dictionary(file_path.name, df_full)
-                        if is_dictionary:
-                            df_sample = df_full.replace({np.nan: None, np.inf: None, -np.inf: None})
-                        else:
-                            # Get 20 sample rows with NaN/Infinity cleaned for JSON compatibility
-                            df_sample = df_full.head(20).replace({np.nan: None, np.inf: None, -np.inf: None})
-                        # Clean sample data records
-                        sample_records = []
-                        for record in df_sample.to_dict('records'):
-                            clean_record = {str(k): (None if pd.isna(v) else v) for k, v in record.items()}
-                            sample_records.append(clean_record)
-                        file_info['preview'] = {
-                            'rows': len(df_full),
-                            'columns': [str(c) for c in df_full.columns.tolist()],  # No truncation
-                            'shape': [len(df_full), len(df_full.columns)],
-                            'column_stats': self._get_column_stats(df_full),  # Rich column analysis
-                            'sample_data': sample_records,  # All rows for dictionaries, 20 for others
-                            'is_dictionary': is_dictionary  # Flag for LLM context
-                        }
+                        file_info['preview'] = self._preview_builder.build_tabular_preview(
+                            file_path,
+                            sep=",",
+                            file_name=file_path.name,
+                            get_column_stats=self._get_column_stats,
+                            is_data_dictionary=self._is_data_dictionary,
+                        )
                     elif file_path.suffix == '.tsv':
-                        df_full = pd.read_csv(file_path, sep='\t')
-                        # Check if this is a data dictionary - if so, send ALL rows
-                        is_dictionary = self._is_data_dictionary(file_path.name, df_full)
-                        if is_dictionary:
-                            df_sample = df_full.replace({np.nan: None, np.inf: None, -np.inf: None})
-                        else:
-                            # Get 20 sample rows with NaN/Infinity cleaned for JSON compatibility
-                            df_sample = df_full.head(20).replace({np.nan: None, np.inf: None, -np.inf: None})
-                        # Clean sample data records
-                        sample_records = []
-                        for record in df_sample.to_dict('records'):
-                            clean_record = {str(k): (None if pd.isna(v) else v) for k, v in record.items()}
-                            sample_records.append(clean_record)
-                        file_info['preview'] = {
-                            'rows': len(df_full),
-                            'columns': [str(c) for c in df_full.columns.tolist()],  # No truncation
-                            'shape': [len(df_full), len(df_full.columns)],
-                            'column_stats': self._get_column_stats(df_full),  # Rich column analysis
-                            'sample_data': sample_records,  # All rows for dictionaries, 20 for others
-                            'is_dictionary': is_dictionary  # Flag for LLM context
-                        }
+                        file_info['preview'] = self._preview_builder.build_tabular_preview(
+                            file_path,
+                            sep="\t",
+                            file_name=file_path.name,
+                            get_column_stats=self._get_column_stats,
+                            is_data_dictionary=self._is_data_dictionary,
+                        )
                     elif file_path.suffix == '.md':
-                        # Markdown files: send FULL content to LLM
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            full_content = f.read()
-                        
-                        # Estimate tokens for large file warning
-                        token_count = estimate_tokens(full_content)
-                        is_large = token_count > LARGE_FILE_TOKEN_THRESHOLD
-                        
-                        file_info['preview'] = {
-                            'file_type': 'markdown',
-                            'full_content': full_content,  # Send ALL content
-                            'line_count': full_content.count('\n') + 1,
-                            'char_count': len(full_content),
-                            'estimated_tokens': token_count,
-                            'is_large_file': is_large
-                        }
-                        # Also add to file_info for frontend warning
-                        file_info['estimated_tokens'] = token_count
-                        file_info['is_large_file'] = is_large
-                        
-                    elif file_path.suffix in ['.yaml', '.yml'] and YAML_AVAILABLE:
-                        # YAML files: send FULL content to LLM
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            full_content = f.read()
-                        
-                        # Estimate tokens for large file warning
-                        token_count = estimate_tokens(full_content)
-                        is_large = token_count > LARGE_FILE_TOKEN_THRESHOLD
-                        
-                        # Also parse for structure info
-                        yaml_data = yaml.safe_load(full_content)
-                        
-                        file_info['preview'] = {
-                            'file_type': 'yaml',
-                            'full_content': full_content,  # Send ALL content
-                            'structure_type': 'array' if isinstance(yaml_data, list) else 'object' if isinstance(yaml_data, dict) else type(yaml_data).__name__,
-                            'line_count': full_content.count('\n') + 1,
-                            'char_count': len(full_content),
-                            'estimated_tokens': token_count,
-                            'is_large_file': is_large
-                        }
-                        file_info['estimated_tokens'] = token_count
-                        file_info['is_large_file'] = is_large
-                        
+                        preview = self._preview_builder.build_text_like_preview(file_path, file_kind="markdown")
+                        file_info['preview'] = preview
+                        file_info['estimated_tokens'] = preview.get('estimated_tokens', 0)
+                        file_info['is_large_file'] = preview.get('is_large_file', False)
+                    elif file_path.suffix in ['.yaml', '.yml']:
+                        preview = self._preview_builder.build_text_like_preview(file_path, file_kind="yaml")
+                        file_info['preview'] = preview
+                        file_info['estimated_tokens'] = preview.get('estimated_tokens', 0)
+                        file_info['is_large_file'] = preview.get('is_large_file', False)
                     elif file_path.suffix == '.json':
-                        # JSON files: send MINIFIED to LLM (fewer tokens), keep beautified for display
-                        import json
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            full_content = f.read()
-
-                        # Parse JSON
-                        json_data = json.loads(full_content)
-                        
-                        # Create minified version for LLM (no whitespace = fewer tokens)
-                        minified_content = json.dumps(json_data, separators=(',', ':'), ensure_ascii=False)
-                        
-                        # Create beautified version for display
-                        beautified_content = json.dumps(json_data, indent=2, ensure_ascii=False)
-                        
-                        # Estimate tokens on MINIFIED version (what LLM actually receives)
-                        token_count = estimate_tokens(minified_content)
-                        is_large = token_count > LARGE_FILE_TOKEN_THRESHOLD
-
-                        file_info['preview'] = {
-                            'file_type': 'json',
-                            'full_content': minified_content,  # Minified for LLM
-                            'display_content': beautified_content,  # Beautified for file viewer
-                            'structure_type': 'array' if isinstance(json_data, list) else 'object' if isinstance(json_data, dict) else type(json_data).__name__,
-                            'line_count': beautified_content.count('\n') + 1,  # Line count of beautified
-                            'char_count': len(minified_content),  # Char count of minified
-                            'char_count_beautified': len(beautified_content),
-                            'estimated_tokens': token_count,
-                            'is_large_file': is_large
-                        }
-                        file_info['estimated_tokens'] = token_count
-                        file_info['is_large_file'] = is_large
+                        preview = self._preview_builder.build_text_like_preview(file_path, file_kind="json")
+                        file_info['preview'] = preview
+                        file_info['estimated_tokens'] = preview.get('estimated_tokens', 0)
+                        file_info['is_large_file'] = preview.get('is_large_file', False)
                     elif file_path.suffix in ['.xlsx', '.xls']:
                         # Full Excel file info with all sheets, columns, dtypes, and sample data
                         import openpyxl
@@ -468,24 +371,10 @@ class DataManager:
                                     'error': str(sheet_error)
                                 })
                     elif file_path.suffix == '.txt':
-                        # Text files: send FULL content to LLM
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            full_content = f.read()
-                        
-                        # Estimate tokens for large file warning
-                        token_count = estimate_tokens(full_content)
-                        is_large = token_count > LARGE_FILE_TOKEN_THRESHOLD
-                        
-                        file_info['preview'] = {
-                            'file_type': 'text',
-                            'full_content': full_content,  # Send ALL content
-                            'line_count': full_content.count('\n') + 1,
-                            'char_count': len(full_content),
-                            'estimated_tokens': token_count,
-                            'is_large_file': is_large
-                        }
-                        file_info['estimated_tokens'] = token_count
-                        file_info['is_large_file'] = is_large
+                        preview = self._preview_builder.build_text_like_preview(file_path, file_kind="text")
+                        file_info['preview'] = preview
+                        file_info['estimated_tokens'] = preview.get('estimated_tokens', 0)
+                        file_info['is_large_file'] = preview.get('is_large_file', False)
                     elif is_h5_file:
                         # H5/HDF5/H5AD file processing
                         h5_metadata = h5_processor.process_file(file_path)
@@ -499,26 +388,6 @@ class DataManager:
                 
         return sorted(files_info, key=lambda x: x['name'])
     
-    def _analyze_json_schema(self, data: Any, max_depth: int = 2, current_depth: int = 0) -> Dict[str, Any]:
-        """Analyze JSON data structure to provide schema information."""
-        if current_depth >= max_depth:
-            return {'type': type(data).__name__, 'truncated': True}
-        
-        if isinstance(data, dict):
-            schema = {'type': 'object', 'properties': {}}
-            for key, value in list(data.items())[:10]:  # Limit to first 10 properties
-                schema['properties'][key] = self._analyze_json_schema(value, max_depth, current_depth + 1)
-            if len(data) > 10:
-                schema['additional_properties'] = f"... and {len(data) - 10} more"
-            return schema
-        elif isinstance(data, list):
-            if len(data) == 0:
-                return {'type': 'array', 'items': 'unknown', 'length': 0}
-            # Analyze first item to understand array structure
-            item_schema = self._analyze_json_schema(data[0], max_depth, current_depth + 1)
-            return {'type': 'array', 'items': item_schema, 'length': len(data)}
-        else:
-            return {'type': type(data).__name__, 'example': str(data)[:50]}
     
     def get_execution_context(self) -> Dict[str, Any]:
         """Get context for LLM code generation."""

@@ -34,10 +34,15 @@ The `workspace_root` comes from:
 `list_available_files()` and `get_execution_context()` implement a **general-purpose preview strategy**:
 
 - Tabular data (CSV/TSV/Parquet/Excel): sample rows + inferred column semantics + basic stats
-- Text/JSON/YAML/Markdown: full content for small files (or truncated previews when large)
+- Text/JSON/YAML/Markdown: **structured overview + deterministic sample windows** (full content only for very small files)
 - H5/HDF5: metadata view via [`backend/app/services/h5_service.py`](../../backend/app/services/h5_service.py)
 - Images (PNG/JPG/TIFF): listed in context; previewed in the UI via the file content endpoint (base64)
 - Medical imaging (DICOM/NIfTI): listed in context; **download-only** in the UI (no inline preview yet)
+
+Preview implementation detail:
+- `DataManagerClean.list_available_files()` delegates schema/sampling logic to
+  [`backend/app/services/file_context_preview.py`](../../backend/app/services/file_context_preview.py).
+- Compaction is **explicit** per ADR 0003 (`#COMPACTION_NOTICE:` + INFO log) to avoid silent correctness loss.
 
 This is intentionally designed to give the LLM “enough to act” while remaining robust across diverse data types.
 

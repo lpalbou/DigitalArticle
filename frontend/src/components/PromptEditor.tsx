@@ -115,12 +115,20 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
       e.preventDefault()
-      if (cell.cell_type === CellType.PROMPT || cell.cell_type === CellType.CODE) {
+      if (cell.cell_type === CellType.PROMPT) {
+        // For prompt cells, "execute" implies generation+execution. Default to enabling auto-fix
+        // so runtime retries and logic correction can run (users can explicitly choose no-autofix via dropdown).
+        handleSave()
+        onExecuteCell(cell.id, 'execute', { autofix: true })
+        return
+      }
+      if (cell.cell_type === CellType.CODE) {
+        // For code cells, keep the default behavior (no implicit rewrites).
         handleSave()
         onExecuteCell(cell.id, 'execute')
-      } else {
-        handleSave()
+        return
       }
+      handleSave()
     } else if (e.key === 'Escape') {
       handleCancel()
     }
@@ -387,7 +395,9 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               {/* Show simple Run button for fresh cells */}
               {(!cell.code && !cell.scientific_explanation) ? (
                 <button
-                  onClick={() => onExecuteCell(cell.id, 'execute')}
+                  // Fresh PROMPT cells should default to allowing auto-fix so execution retries work.
+                  // (Otherwise we silently disable the core robustness loop.)
+                  onClick={() => onExecuteCell(cell.id, 'execute', { autofix: true })}
                   disabled={isExecuting}
                   className="btn btn-primary flex items-center space-x-2 text-sm px-4 py-2 font-medium"
                   title="Execute Cell (Shift+Enter or Ctrl+Enter)"
@@ -408,6 +418,14 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
                     } else {
                       console.log('🔄 Falling back to onExecuteCell (no autofix)')
                       onExecuteCell(cell.id, 'execute', { autofix: false })
+                    }
+                  }}
+                  onExecuteCodeWithAutofix={() => {
+                    // Execute current code WITHOUT regenerating, but allow auto-fix (runtime + logic) if enabled in settings.
+                    if (onDirectExecuteCell) {
+                      onDirectExecuteCell(cell.id, 'execute', { autofix: true })
+                    } else {
+                      onExecuteCell(cell.id, 'execute', { autofix: true })
                     }
                   }}
                   onExecuteAllFromHere={onExecuteAllFromHere ? () => {

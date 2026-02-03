@@ -114,28 +114,26 @@ class PersonaSelection(BaseModel):
 
 **Location**: [`data/personas/system/*.json`](../data/personas/system)
 
-**Currently Active**:
+**System personas (current)**:
 1. **Generic Data Analyst** (`generic.json`)
    - Category: base
    - Priority: 100
    - General-purpose data analysis
-   - Libraries: pandas, numpy, matplotlib, seaborn
 
 2. **Clinical Data Scientist** (`clinical.json`)
    - Category: base
    - Priority: 50
    - Clinical trials, CDISC standards, regulatory compliance
-   - Libraries: pandas, lifelines, statsmodels, tableone
 
-**Internal / not user-selectable by default**:
 3. **Scientific Reviewer** (`reviewer.json`)
-   - Marked `is_active: false` (hidden from normal persona listing unless `include_inactive=true`)
-   - Still used by the **Review system** as a source of prompt templates ([`backend/app/services/review_service.py`](../backend/app/services/review_service.py))
+   - Category: base
+   - Used by the **Review system** as a source of prompt templates ([`backend/app/services/review_service.py`](../backend/app/services/review_service.py))
+   - Also selectable in the persona UI
 
-**Planned (Phase 2)**:
-4. Real-World Data (RWD)
-5. Genomics (bulk RNA-seq, single-cell, spatial, etc.)
-6. Medical Imaging (CT, MRI, PET scans)
+4. **Real-World Data Expert** (`rwd.json`) — Category: domain
+5. **Genomics Data Scientist** (`genomics.json`) — Category: domain
+6. **Medical Imaging Analyst** (`medical-imaging.json`) — Category: domain
+7. **Modeling & Simulation Scientist** (`modeling-simulation.json`) — Category: domain
 
 ### Services
 
@@ -243,10 +241,9 @@ def _build_execution_context(self, notebook: Notebook, current_cell: Cell) -> Di
 ### UI Components
 
 **PersonaTab** ([`frontend/src/components/PersonaTab.tsx`](../frontend/src/components/PersonaTab.tsx)):
-- Simplified UI - single radio select
-- Removed: domain personas, role modifiers (overcomplicated)
-- Shows: Base personas + custom personas
-- Selection stored in `notebook.metadata['personas']['base_persona']`
+- Supports selecting **one base persona** plus **multiple domain personas** (and an optional role modifier when enabled)
+- Shows: Base personas + domain personas + custom personas (if any)
+- Selection stored in `notebook.metadata['personas']` as a `PersonaSelection` (base_persona/domain_personas/role_modifier)
 
 **PersonaCard** ([`frontend/src/components/PersonaCard.tsx`](../frontend/src/components/PersonaCard.tsx)):
 - Visual card with icon, name, description
@@ -514,20 +511,19 @@ class ReviewService:
 
 ### Issue: Reviewer shows in persona list
 
-**Cause**: `is_active: true` in reviewer.json
-**Solution**: Set `is_active: false` in reviewer.json
-**Verification**: Only Generic and Clinical show in UI
+**Cause**: `reviewer.json` is marked `is_active: true`
+**Resolution**: This is now expected (the reviewer is a normal selectable persona). If you want it hidden, set `is_active: false`.
 
 ### Issue: Can't select multiple personas
 
-**Not a bug**: By design, only one persona per notebook
-**Rationale**: Simpler, cleaner architecture per user feedback
+**Not a bug**: You can select **one base persona**, plus **multiple domain personas** (and optionally a role modifier).
+**Rationale**: Domain personas layer best practices and expertise on top of the base persona.
 
 ## Deployment Checklist
 
 - [ ] Backend restarted with new PersonaService code
 - [ ] Persona JSON files in [`data/personas/system/`](../data/personas/system)
-- [ ] Reviewer persona set to `is_active: false`
+- [ ] Reviewer persona visibility matches intended UX (`is_active` in `reviewer.json`)
 - [ ] Frontend rebuilt with updated components
 - [ ] API endpoint `/api/personas` returns personas
 - [ ] Settings modal shows 4 tabs

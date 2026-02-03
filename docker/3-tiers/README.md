@@ -42,6 +42,12 @@ docker compose up --build
 
 Access the application at `http://localhost`.
 
+## Support contact (optional)
+
+The app shows a contact email under **Help → Contact**.
+
+- Set `DA_CONTACT_EMAIL` (default: `lpalbou@gmail.com`) in your environment or `.env` used by `docker compose`.
+
 ### 3. GPU Support (Optional)
 
 To enable GPU support for Ollama in the 3-tier setup, uncomment the GPU section in `docker-compose.yml`:

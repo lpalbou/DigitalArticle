@@ -14,6 +14,7 @@ from ..services.user_settings_service import (
     UserSettings,
     LLMSettings,
     ReproducibilitySettings,
+    ExecutionSettings,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,10 +37,19 @@ class ReproducibilitySettingsUpdate(BaseModel):
     code_seed: Optional[int] = None
 
 
+class ExecutionSettingsUpdate(BaseModel):
+    """Request model for updating execution settings."""
+    logic_validation_enabled: Optional[bool] = None
+    max_logic_corrections: Optional[int] = Field(default=None, ge=0, le=5)
+    medium_retry_max_corrections: Optional[int] = Field(default=None, ge=0, le=5)
+    low_retry_max_corrections: Optional[int] = Field(default=None, ge=0, le=5)
+
+
 class SettingsUpdateRequest(BaseModel):
     """Request model for updating user settings."""
     llm: Optional[LLMSettingsUpdate] = None
     reproducibility: Optional[ReproducibilitySettingsUpdate] = None
+    execution: Optional[ExecutionSettingsUpdate] = None
 
 
 class ApiKeyUpdateRequest(BaseModel):
@@ -52,6 +62,7 @@ class SettingsResponse(BaseModel):
     """Response model for settings (with masked API keys)."""
     llm: Dict[str, Any]
     reproducibility: Dict[str, Any]
+    execution: Dict[str, Any]
     version: int
 
 
@@ -109,6 +120,19 @@ async def update_settings(request: SettingsUpdateRequest):
                 repro_updates['code_seed'] = request.reproducibility.code_seed
             if repro_updates:
                 updates['reproducibility'] = repro_updates
+        
+        if request.execution:
+            exec_updates = {}
+            if request.execution.logic_validation_enabled is not None:
+                exec_updates['logic_validation_enabled'] = request.execution.logic_validation_enabled
+            if request.execution.max_logic_corrections is not None:
+                exec_updates['max_logic_corrections'] = request.execution.max_logic_corrections
+            if request.execution.medium_retry_max_corrections is not None:
+                exec_updates['medium_retry_max_corrections'] = request.execution.medium_retry_max_corrections
+            if request.execution.low_retry_max_corrections is not None:
+                exec_updates['low_retry_max_corrections'] = request.execution.low_retry_max_corrections
+            if exec_updates:
+                updates['execution'] = exec_updates
         
         if updates:
             service.update_settings(updates)

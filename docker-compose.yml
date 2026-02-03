@@ -69,6 +69,8 @@ services:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - CORS_ORIGINS=*  # Allow all origins (dev/testing). For production, set to specific domain
+      # Help / Support contact (shown in Help → Contact)
+      - DA_CONTACT_EMAIL=${DA_CONTACT_EMAIL:-lpalbou@gmail.com}
     # depends_on removed - backend can start without Ollama for testing
     # Backend will log LLM errors if Ollama not available (graceful degradation)
     restart: unless-stopped

@@ -29,6 +29,11 @@ from .semantic_profile_service import SemanticProfileService
 from .review_service import ReviewService
 from .execution_phase_tracker import CellExecutionPhaseTracker
 from .notebook_asset_numbering_service import NotebookAssetNumberingService
+from .trace_store import get_trace_store
+from ..models.trace import StepType, TraceStatus
+from .logic_validation_service import LogicValidationService, LogicValidationResult, IssueSeverity
+from .logic_issue_selection import LogicIssueSelector
+from .logic_correction_context_builder import LogicCorrectionContextBuilder, LogicCorrectionInputs
 
 logger = logging.getLogger(__name__)
 
@@ -224,7 +229,19 @@ class NotebookService:
         try:
             # Add basic notebook info
             context['notebook_title'] = notebook.title
+            context['notebook_description'] = notebook.description
+            context['notebook_tags'] = notebook.tags
             context['cell_type'] = current_cell.cell_type.value
+
+            # Optional: bibliography / reference material (if user provided one).
+            # This is intended to inform best practices (not as a mandatory requirement).
+            bibliography = (
+                notebook.metadata.get("bibliography")
+                or notebook.metadata.get("references")
+                or notebook.metadata.get("citations")
+            )
+            if bibliography:
+                context["bibliography"] = bibliography
 
             # Add IDs for token tracking (AbstractCore integration)
             context['notebook_id'] = str(notebook.id)
@@ -966,6 +983,20 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             logger.error(f"Cell {request.cell_id} not found")
             return None
         
+        # Start flow-level trace for this cell execution (ADR 0005: perfect observability)
+        trace_store = get_trace_store()
+        flow_id = trace_store.start_flow(
+            notebook_id=str(notebook.id),
+            cell_id=str(cell.id),
+            step_type=StepType.CODE_EXECUTION,
+            metadata={
+                "cell_type": cell.cell_type.value if cell.cell_type else None,
+                "force_regenerate": request.force_regenerate,
+                "clean_rerun": request.clean_rerun,
+            },
+        )
+        execution_start_time = datetime.now()
+        
         try:
             # Mark cell as executing
             cell.is_executing = True
@@ -1162,7 +1193,11 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 # Expose for UI polling
                 cell.metadata.setdefault("execution", {})
                 cell.metadata["execution"]["max_retries"] = max_retries
+                # Respect per-request autofix: if disabled, do not enter the LLM auto-retry loop.
+                # This matches the UI intent for "execute current code (no auto-fix)" and
+                # is critical for trust/debuggability.
                 should_auto_retry = (
+                    request.autofix and
                     result.status == ExecutionStatus.ERROR and
                     (cell.cell_type == CellType.PROMPT or
                      (cell.cell_type in (CellType.CODE, CellType.METHODOLOGY) and cell.prompt)) and
@@ -1176,87 +1211,76 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 original_generated_code = cell.code
 
                 # Auto-retry loop with up to max_retries attempts
-                while should_auto_retry:
-                    # Set retry status
-                    cell.is_retrying = True
-                    cell.retry_count += 1
-                    phase_tracker.set_phase(
-                        "auto_retry",
-                        f"Auto-fixing execution error (attempt {cell.retry_count}/{max_retries})…",
-                        retry_count=cell.retry_count,
-                        max_retries=max_retries,
-                    )
-
-                    logger.info(f"🔄 EXECUTION FAILED - Attempting auto-retry #{cell.retry_count}/{max_retries} with LLM for cell {cell.id}")
-                    logger.info(f"🔄 Error: {result.error_message}")
-                    print(f"🔄 AUTO-RETRY #{cell.retry_count}/{max_retries}: Attempting to fix execution error for cell {cell.id}")
-
-                    try:
-                        # Build context for LLM including the error
-                        context = self._build_execution_context(notebook, cell, rerun_comment=rerun_comment)
-
-                        # Create error context for the LLM
-                        error_context = {
-                            **context,
-                            'previous_code': original_generated_code,  # Use original code for context
-                            'error_message': result.error_message,
-                            'error_type': result.error_type,
-                            'traceback': result.traceback,
-                            'stderr': result.stderr
-                        }
-
-                        # Ask LLM to fix the code with enhanced error analysis from ErrorAnalyzer
-                        logger.info(f"🔄 Asking LLM to fix the failed code (attempt #{cell.retry_count})...")
-                        print(f"🔄 AUTO-RETRY #{cell.retry_count}: Analyzing error and generating corrected code...")
+                try:
+                    while should_auto_retry:
+                        # Set retry status
+                        cell.is_retrying = True
+                        cell.retry_count += 1
                         phase_tracker.set_phase(
-                            "auto_retry_llm_fix",
-                            f"Fixing code (attempt {cell.retry_count}/{max_retries})…",
+                            "auto_retry",
+                            f"Auto-fixing execution error (attempt {cell.retry_count}/{max_retries})…",
                             retry_count=cell.retry_count,
                             max_retries=max_retries,
                         )
 
-                        # Use suggest_improvements with enhanced error context and tracing
-                        # This will automatically use ErrorAnalyzer to provide domain-specific guidance
+                        logger.info(
+                            f"🔄 EXECUTION FAILED - Attempting auto-retry #{cell.retry_count}/{max_retries} with LLM for cell {cell.id}"
+                        )
+                        logger.info(f"🔄 Error: {result.error_message}")
+                        print(
+                            f"🔄 AUTO-RETRY #{cell.retry_count}/{max_retries}: Attempting to fix execution error for cell {cell.id}"
+                        )
+
                         try:
                             # Build full context for retry (includes available variables, DataFrames, previous cells)
-                            retry_context = self._build_execution_context(notebook, cell, rerun_comment=rerun_comment)
+                            retry_context = self._build_execution_context(
+                                notebook, cell, rerun_comment=rerun_comment
+                            )
 
                             fixed_code, trace_id, full_trace = await self.llm_service.asuggest_improvements(
                                 prompt=cell.prompt,
-                                code=original_generated_code,  # CRITICAL: Always use original code, not mutated version
+                                code=original_generated_code,  # CRITICAL: always use original code
                                 error_message=result.error_message,
                                 error_type=result.error_type,
                                 traceback=result.traceback,
-                                step_type='code_fix',
+                                step_type="code_fix",
                                 attempt_number=cell.retry_count + 1,
-                                context=retry_context  # Pass full context including available variables
+                                context=retry_context,
                             )
 
                             # Store trace_id for backward compatibility
                             if trace_id:
-                                if 'trace_ids' not in cell.metadata:
-                                    cell.metadata['trace_ids'] = []
-                                cell.metadata['trace_ids'].append(trace_id)
+                                if "trace_ids" not in cell.metadata:
+                                    cell.metadata["trace_ids"] = []
+                                cell.metadata["trace_ids"].append(trace_id)
                                 logger.info(f"📝 Stored retry trace_id: {trace_id}")
 
                             # Store full trace for persistent observability
                             if full_trace:
                                 cell.llm_traces.append(full_trace)
-                                logger.info(f"✅ Stored full trace for code fix attempt #{cell.retry_count + 1}")
+                                logger.info(
+                                    f"✅ Stored full trace for code fix attempt #{cell.retry_count + 1}"
+                                )
 
                         except Exception as llm_error:
-                            logger.error(f"🔄 LLM service failed during retry #{cell.retry_count}: {llm_error}")
-                            print(f"🔄 LLM ERROR: LLM service failed on retry #{cell.retry_count}: {llm_error}")
+                            logger.error(
+                                f"🔄 LLM service failed during retry #{cell.retry_count}: {llm_error}"
+                            )
+                            print(
+                                f"🔄 LLM ERROR: LLM service failed on retry #{cell.retry_count}: {llm_error}"
+                            )
                             # Try basic error-specific fixes when LLM fails
-                            fixed_code = self._apply_basic_error_fixes(original_generated_code, result.error_message, result.error_type)
+                            fixed_code = self._apply_basic_error_fixes(
+                                original_generated_code, result.error_message, result.error_type
+                            )
 
                         if fixed_code and fixed_code != original_generated_code:
                             logger.info(f"🔄 LLM provided fixed code ({len(fixed_code)} chars)")
-                            print(f"🔄 UPDATED: LLM provided corrected code for retry #{cell.retry_count}")
+                            print(
+                                f"🔄 UPDATED: LLM provided corrected code for retry #{cell.retry_count}"
+                            )
 
                             # Try executing the fixed code (but don't update cell.code yet!)
-                            logger.info("🔄 Executing fixed code...")
-                            print(f"🔄 EXECUTING: Testing corrected code...")
                             phase_tracker.set_phase(
                                 "auto_retry_execute_fix",
                                 f"Auto-fix attempt {cell.retry_count}/{max_retries}: executing corrected code…",
@@ -1281,27 +1305,39 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                                 )
                                 cell.code = effective_code
                                 cell.updated_at = datetime.now()
-                                logger.info(f"🔄 ✅ Auto-retry #{cell.retry_count} successful! Fixed code executed successfully")
-                                print(f"🔄 SUCCESS: Auto-retry #{cell.retry_count} fixed the error for cell {cell.id}")
+                                logger.info(
+                                    f"🔄 ✅ Auto-retry #{cell.retry_count} successful! Fixed code executed successfully"
+                                )
+                                print(
+                                    f"🔄 SUCCESS: Auto-retry #{cell.retry_count} fixed the error for cell {cell.id}"
+                                )
                                 result = retry_result
                                 cell.execution_count += 1
-                                cell.is_retrying = False  # Clear retry status on success
                                 break  # Exit retry loop on success
                             else:
-                                logger.warning(f"🔄 ❌ Auto-retry #{cell.retry_count} failed: {retry_result.error_message}")
-                                print(f"🔄 RETRY #{cell.retry_count} FAILED: {retry_result.error_message}")
+                                logger.warning(
+                                    f"🔄 ❌ Auto-retry #{cell.retry_count} failed: {retry_result.error_message}"
+                                )
+                                print(
+                                    f"🔄 RETRY #{cell.retry_count} FAILED: {retry_result.error_message}"
+                                )
                                 result = retry_result  # Update result for next iteration
                         else:
-                            logger.warning(f"🔄 LLM did not provide different code for retry #{cell.retry_count}")
-                            print(f"🔄 NO CHANGE: LLM provided same code on retry #{cell.retry_count}")
-                            # When LLM provides same code, we should still continue retrying
-                            # The error persists, so we keep the current result
-                        
+                            logger.warning(
+                                f"🔄 LLM did not provide different code for retry #{cell.retry_count}"
+                            )
+                            print(
+                                f"🔄 NO CHANGE: LLM provided same code on retry #{cell.retry_count}"
+                            )
+
                         # Check if we should continue retrying
                         if cell.retry_count >= max_retries:
-                            logger.warning(f"🔄 All {max_retries} retries exhausted for cell {cell.id}")
-                            print(f"🔄 EXHAUSTED: All {max_retries} auto-retry attempts failed for cell {cell.id}")
-                            cell.is_retrying = False  # Clear retry status
+                            logger.warning(
+                                f"🔄 All {max_retries} retries exhausted for cell {cell.id}"
+                            )
+                            print(
+                                f"🔄 EXHAUSTED: All {max_retries} auto-retry attempts failed for cell {cell.id}"
+                            )
                             phase_tracker.set_phase(
                                 "auto_retry_exhausted",
                                 f"Auto-fix exhausted ({max_retries}/{max_retries}).",
@@ -1309,23 +1345,16 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                                 max_retries=max_retries,
                             )
                             break
-                        
+
                         # Update should_auto_retry for next iteration
                         should_auto_retry = (
-                            result.status == ExecutionStatus.ERROR and 
-                            cell.retry_count < max_retries
+                            result.status == ExecutionStatus.ERROR
+                            and cell.retry_count < max_retries
                         )
-                            
-                    except Exception as retry_error:
-                        logger.error(f"🔄 Auto-retry #{cell.retry_count} mechanism failed: {retry_error}")
-                        print(f"🔄 ERROR: Auto-retry #{cell.retry_count} mechanism failed: {retry_error}")
-                        
-                        if cell.retry_count >= max_retries:
-                            cell.is_retrying = False  # Clear retry status on exception
-                            break
-                        
-                        # Continue to next retry attempt
-                        should_auto_retry = (cell.retry_count < max_retries)
+
+                finally:
+                    # Hard guarantee for UI correctness: never leave the cell stuck in "retrying".
+                    cell.is_retrying = False
 
             # Update cell with result
             cell.last_result = result
@@ -1339,6 +1368,416 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 self.asset_numbering_service.renumber_in_place(notebook)
             except Exception as numbering_err:
                 logger.warning(f"⚠️ Failed to renumber notebook assets post-execution: {numbering_err}")
+
+            # =========================================================================
+            # LOGIC SELF-CORRECTION LOOP (ADR 0004)
+            # After code executes successfully, check if it actually answers the prompt.
+            # This is distinct from the execution retry loop (which fixes runtime errors).
+            # =========================================================================
+            
+            # Check if logic validation is enabled in user settings
+            from .user_settings_service import get_user_settings_service
+            user_settings = get_user_settings_service().get_settings()
+            logic_validation_enabled = user_settings.execution.logic_validation_enabled
+            max_logic_corrections = user_settings.execution.max_logic_corrections
+            medium_retry_max_corrections = user_settings.execution.medium_retry_max_corrections
+            low_retry_max_corrections = user_settings.execution.low_retry_max_corrections
+            
+            if (logic_validation_enabled and
+                result.status == ExecutionStatus.SUCCESS and 
+                cell.prompt and cell.code and
+                cell.cell_type in (CellType.PROMPT, CellType.CODE)):
+                
+                cell.metadata.setdefault("execution", {})
+                cell.metadata["execution"]["logic_validation_enabled"] = True
+                cell.metadata["execution"]["max_logic_corrections"] = max_logic_corrections
+                cell.metadata["execution"]["medium_retry_max_corrections"] = medium_retry_max_corrections
+                cell.metadata["execution"]["low_retry_max_corrections"] = low_retry_max_corrections
+                
+                try:
+                    logic_validator = LogicValidationService(self.llm_service)
+                    
+                    # Validation cycles = 1 (initial validation) + number of corrections attempted.
+                    # Even when max_logic_corrections == 0, we still perform exactly 1 validation pass.
+                    logic_correction_count = 0  # Number of corrections actually attempted
+                    max_validation_cycles = max_logic_corrections + 1
+
+                    for validation_attempt in range(1, max_validation_cycles + 1):
+                        phase_tracker.set_phase(
+                            "logic_validation",
+                            f"Validating analysis correctness (cycle {validation_attempt}/{max_validation_cycles})…",
+                            validation_attempt=validation_attempt,
+                            max_validation_cycles=max_validation_cycles,
+                            logic_correction_count=logic_correction_count,
+                            max_logic_corrections=max_logic_corrections,
+                        )
+                        
+                        # Get persona combination for domain-specific validation
+                        persona_combination = context.get('persona_combination') if context else None
+                        
+                        # Validate the result
+                        validation_report = await logic_validator.validate(
+                            prompt=cell.prompt,
+                            code=cell.code,
+                            result=result,
+                            persona_combination=persona_combination,
+                            context=context,
+                        )
+                        
+                        # Store validation result in metadata
+                        cell.metadata.setdefault("logic_validation", [])
+                        validation_entry = {
+                            "cycle": validation_attempt,
+                            "result": validation_report.result.value,
+                            "issues": validation_report.issues,
+                            "suggestions": validation_report.suggestions,
+                            "confidence": validation_report.confidence,
+                            "validation_type": validation_report.validation_type,
+                            "duration_ms": validation_report.duration_ms,
+                            "categorized_issues": [
+                                {
+                                    "issue": ci.issue,
+                                    "severity": ci.severity.value,
+                                    "suggestion": ci.suggestion,
+                                    "evidence_code": ci.evidence_code,
+                                    "evidence_output": ci.evidence_output,
+                                }
+                                for ci in validation_report.categorized_issues
+                            ],
+                        }
+                        cell.metadata["logic_validation"].append(validation_entry)
+                        
+                        # ALWAYS emit a trace for logic validation (visible in Execution Details)
+                        # Count issues by severity
+                        high_issues = validation_report.get_issues_by_severity(IssueSeverity.HIGH)
+                        medium_issues = validation_report.get_issues_by_severity(IssueSeverity.MEDIUM)
+                        low_issues = validation_report.get_issues_by_severity(IssueSeverity.LOW)
+                        
+                        categorized_metadata = validation_entry["categorized_issues"]
+                        
+                        # Emit a trace shaped like our standard LLM trace objects so the UI
+                        # can display Prompt/Response/Parameters and token/time metrics.
+                        validation_trace_id = str(uuid.uuid4())
+                        validation_step_type = (
+                            StepType.LLM_LOGIC_VALIDATION.value
+                            if validation_report.validation_type == "llm"
+                            else "heuristic_logic_validation"
+                        )
+
+                        system_prompt_for_ui = validation_report.llm_system_prompt or ""
+                        user_prompt_for_ui = validation_report.llm_user_prompt or ""
+                        response_content_for_ui = validation_report.llm_response or ""
+                        response_usage_for_ui = validation_report.llm_usage or None
+                        parameters_for_ui = validation_report.llm_parameters or {}
+
+                        validation_trace = {
+                            # Standard trace fields (used by existing UI)
+                            "trace_id": validation_trace_id,
+                            "timestamp": datetime.now().isoformat(),
+                            "provider": self.llm_service.provider if validation_report.validation_type == "llm" else None,
+                            "model": self.llm_service.model if validation_report.validation_type == "llm" else None,
+                            "system_prompt": system_prompt_for_ui,
+                            "prompt": user_prompt_for_ui,
+                            "messages": None,
+                            "tools": None,
+                            "parameters": parameters_for_ui,
+                            "response": {
+                                "content": response_content_for_ui,
+                                "raw_response": None,
+                                "tool_calls": None,
+                                "finish_reason": None,
+                                "usage": response_usage_for_ui,
+                                "generation_time_ms": validation_report.duration_ms,
+                            },
+                            # Extra fields for logic validation UX
+                            "step_type": validation_step_type,
+                            "step_name": "Logic Validation",
+                            "status": (
+                                "pass"
+                                if validation_report.result == LogicValidationResult.PASS
+                                else ("fail" if validation_report.result == LogicValidationResult.FAIL else "uncertain")
+                            ),
+                            "duration_ms": validation_report.duration_ms,
+                            "attempt_number": validation_attempt,
+                            # Keep combined prompt for deep debugging/export
+                            "llm_prompt": validation_report.llm_prompt,
+                            "llm_response": validation_report.llm_response,
+                            "metadata": {
+                                # Keep compatibility with legacy UI expectations
+                                "step_type": "logic_validation",
+                                "attempt_number": validation_attempt,
+                                "result": validation_report.result.value,
+                                "issues": validation_report.issues,
+                                "suggestions": validation_report.suggestions,
+                                "categorized_issues": categorized_metadata,
+                                "issue_counts": {
+                                    "high": len(high_issues),
+                                    "medium": len(medium_issues),
+                                    "low": len(low_issues),
+                                },
+                                "confidence": validation_report.confidence,
+                                "validation_type": validation_report.validation_type,
+                            },
+                        }
+                        cell.llm_traces.append(validation_trace)
+                        logger.info(f"📝 Stored Logic Validation trace (result={validation_report.result.value}, "
+                                   f"HIGH={len(high_issues)}, MEDIUM={len(medium_issues)}, LOW={len(low_issues)})")
+                        
+                        if validation_report.result == LogicValidationResult.PASS:
+                            logger.info(f"✅ Logic validation PASSED (confidence: {validation_report.confidence:.2f})")
+                            break
+                        elif validation_report.result == LogicValidationResult.UNCERTAIN:
+                            logger.warning(f"⚠️ Logic validation UNCERTAIN: {validation_report.issues}")
+                            break  # Don't retry on uncertainty
+                        else:
+                            # FAIL: Decide whether to attempt correction based on severity policy.
+                            selector = LogicIssueSelector()
+                            selection = selector.select(validation_report)
+                            severity_to_fix = selection.severity_to_fix
+                            issues_to_fix = selection.issues_to_fix
+
+                            if severity_to_fix == IssueSeverity.HIGH:
+                                allowed_corrections_for_severity = max_logic_corrections  # MUST retry (bounded by global)
+                            elif severity_to_fix == IssueSeverity.MEDIUM:
+                                allowed_corrections_for_severity = min(max_logic_corrections, medium_retry_max_corrections)
+                            elif severity_to_fix == IssueSeverity.LOW:
+                                allowed_corrections_for_severity = min(max_logic_corrections, low_retry_max_corrections)
+                            else:
+                                allowed_corrections_for_severity = 0
+
+                            if not issues_to_fix:
+                                logger.info("⚠️ Logic validation FAIL but no categorized issues; skipping correction.")
+                                cell.metadata["execution"]["logic_issues_not_corrected"] = {
+                                    "reason": "No categorized issues returned by validator",
+                                    "raw_issues": validation_report.issues,
+                                }
+                                break
+
+                            # Respect per-request control: when autofix is disabled, we only validate (no automatic edits).
+                            # This enables a "validate-only" run for users who want to inspect issues without changing code.
+                            if not request.autofix:
+                                logger.info(
+                                    f"⚠️ Logic issues found (severity={severity_to_fix.value}) but autofix is disabled for this run. "
+                                    "Skipping correction."
+                                )
+                                cell.metadata["execution"]["logic_issues_not_corrected"] = {
+                                    "reason": "autofix disabled",
+                                    "severity": severity_to_fix.value,
+                                    "issues": [ci.issue for ci in issues_to_fix],
+                                }
+                                break
+
+                            # Respect policy: only retry this severity while logic_correction_count < allowed threshold.
+                            if allowed_corrections_for_severity <= 0 or logic_correction_count >= allowed_corrections_for_severity:
+                                logger.info(
+                                    f"⚠️ Logic issues found (severity={severity_to_fix.value}) but policy forbids correction "
+                                    f"(corrections_done={logic_correction_count}, allowed={allowed_corrections_for_severity})."
+                                )
+                                cell.metadata["execution"]["logic_issues_not_corrected"] = {
+                                    "reason": "Policy threshold reached",
+                                    "severity": severity_to_fix.value if severity_to_fix else "unknown",
+                                    "allowed_corrections_for_severity": allowed_corrections_for_severity,
+                                    "corrections_done": logic_correction_count,
+                                    "issues": [ci.issue for ci in issues_to_fix],
+                                }
+                                break
+
+                            if logic_correction_count >= max_logic_corrections:
+                                # Hard cap (safety)
+                                logger.warning(f"🔄 Logic correction exhausted ({max_logic_corrections} attempts)")
+                                cell.metadata["execution"]["logic_issues_unresolved"] = [ci.issue for ci in issues_to_fix]
+                                break
+
+                            # Attempt correction
+                            logic_correction_count += 1
+                            cell.metadata["execution"]["logic_correction_count"] = logic_correction_count
+                            cell.metadata["execution"]["logic_correction_severity"] = severity_to_fix.value
+
+                            logger.info(
+                                f"🔄 Logic validation FAILED (severity={severity_to_fix.value}) → correction attempt "
+                                f"{logic_correction_count}/{max_logic_corrections}"
+                            )
+                            logger.info(f"   To fix: {[ci.issue for ci in issues_to_fix]}")
+
+                            # Ask LLM to fix based on validation feedback (keep scope tight; minimal diffs).
+                            phase_tracker.set_phase(
+                                "logic_correction",
+                                f"Correcting analysis ({severity_to_fix.value}, attempt {logic_correction_count}/{max_logic_corrections})…",
+                                logic_correction_count=logic_correction_count,
+                                max_logic_corrections=max_logic_corrections,
+                            )
+                            
+                            try:
+                                # Build a compact, evidence-grounded delta request for correction.
+                                prev_cells = (context or {}).get("previous_cells") or []
+                                prev_brief_lines: List[str] = []
+                                if isinstance(prev_cells, list) and prev_cells:
+                                    # Show only the most recent few prompts for article alignment (avoid huge token cost).
+                                    for pc in prev_cells[-5:]:
+                                        if not isinstance(pc, dict):
+                                            continue
+                                        pc_type = pc.get("type") or "cell"
+                                        pc_ok = pc.get("success")
+                                        ok_mark = "✓" if pc_ok else ("✗" if pc_ok is False else "?")
+                                        pc_prompt = (pc.get("prompt") or "").strip()
+                                        if pc_prompt:
+                                            pc_prompt = (pc_prompt[:200] + "…") if len(pc_prompt) > 200 else pc_prompt
+                                            prev_brief_lines.append(f"- ({pc_type} {ok_mark}) {pc_prompt}")
+                                        else:
+                                            prev_brief_lines.append(f"- ({pc_type} {ok_mark}) (no prompt)")
+
+                                # Optional bibliography/references, if the notebook has one.
+                                bibliography = (
+                                    notebook.metadata.get("bibliography")
+                                    or notebook.metadata.get("references")
+                                    or notebook.metadata.get("citations")
+                                )
+
+                                correction_builder = LogicCorrectionContextBuilder()
+                                fix_prompt = correction_builder.build_rerun_comment(
+                                    LogicCorrectionInputs(
+                                        notebook_title=notebook.title or "",
+                                        notebook_description=notebook.description or "",
+                                        user_prompt=cell.prompt or "",
+                                        previous_cells_brief="\n".join(prev_brief_lines),
+                                        issues_to_fix=issues_to_fix,
+                                        severity_label=severity_to_fix.value,
+                                        attempt_number=logic_correction_count,
+                                        execution_result=result,
+                                        persona_combination=persona_combination,
+                                        bibliography=bibliography,
+                                    )
+                                )
+
+                                # Use rerun_comment (delta request) to avoid treating this as a Python exception.
+                                logic_fix_context = dict(context or {})
+                                logic_fix_context["rerun_comment"] = fix_prompt
+
+                                fixed_code, trace_id, full_trace = await self.llm_service.asuggest_improvements(
+                                    prompt=cell.prompt,
+                                    code=cell.code,
+                                    error_message=None,
+                                    error_type=None,
+                                    step_type='logic_correction',
+                                    attempt_number=logic_correction_count,
+                                    context=logic_fix_context,
+                                )
+                                
+                                # Store trace for logic correction
+                                if full_trace:
+                                    cell.llm_traces.append(full_trace)
+                                
+                                if fixed_code and fixed_code != cell.code:
+                                    # Re-execute the fixed code (LOOP A can be triggered from LOOP B).
+                                    phase_tracker.set_phase(
+                                        "logic_correction_execute",
+                                        f"Executing corrected code…",
+                                    )
+                                    
+                                    new_result = self.execution_service.execute_code(
+                                        fixed_code,
+                                        str(cell.id),
+                                        str(notebook.id),
+                                        autofix=request.autofix,
+                                    )
+
+                                    # If execution failed, try LOOP A (runtime auto-fix) on the corrected code.
+                                    if new_result.status != ExecutionStatus.SUCCESS and request.autofix:
+                                        logger.info("🔁 Logic correction produced code that doesn't execute; entering LOOP A (runtime auto-fix).")
+                                        runtime_retry_count = 0
+                                        runtime_code = fixed_code
+                                        runtime_result = new_result
+
+                                        try:
+                                            cell.is_retrying = True
+                                            while runtime_result.status != ExecutionStatus.SUCCESS and runtime_retry_count < max_retries:
+                                                runtime_retry_count += 1
+                                                phase_tracker.set_phase(
+                                                    "logic_correction_runtime_fix",
+                                                    f"Fixing runtime error after logic correction (attempt {runtime_retry_count}/{max_retries})…",
+                                                    retry_count=runtime_retry_count,
+                                                    max_retries=max_retries,
+                                                )
+
+                                                runtime_fixed_code, rt_trace_id, rt_full_trace = await self.llm_service.asuggest_improvements(
+                                                    prompt=cell.prompt,
+                                                    code=runtime_code,
+                                                    error_message=runtime_result.error_message,
+                                                    error_type=runtime_result.error_type,
+                                                    traceback=runtime_result.traceback,
+                                                    step_type='code_fix',
+                                                    attempt_number=runtime_retry_count,
+                                                    context=context,
+                                                )
+                                                if rt_full_trace:
+                                                    cell.llm_traces.append(rt_full_trace)
+
+                                                if not runtime_fixed_code or runtime_fixed_code == runtime_code:
+                                                    logger.warning("LOOP A after logic correction: LLM did not provide different code.")
+                                                    break
+
+                                                runtime_code = runtime_fixed_code
+                                                runtime_result = self.execution_service.execute_code(
+                                                    runtime_code,
+                                                    str(cell.id),
+                                                    str(notebook.id),
+                                                    autofix=request.autofix,
+                                                )
+                                        finally:
+                                            cell.is_retrying = False
+
+                                        # Use runtime-fixed code if it executes
+                                        if runtime_result.status == ExecutionStatus.SUCCESS:
+                                            fixed_code = runtime_code
+                                            new_result = runtime_result
+                                        else:
+                                            # Give up on this correction cycle; keep original successful result/code.
+                                            logger.warning(
+                                                f"❌ Logic correction failed: corrected code could not be made executable after {runtime_retry_count} attempts."
+                                            )
+                                            cell.metadata["execution"]["logic_correction_failed_execution"] = {
+                                                "severity": severity_to_fix.value,
+                                                "attempt": logic_correction_count,
+                                                "runtime_retry_count": runtime_retry_count,
+                                                "last_error_type": runtime_result.error_type,
+                                                "last_error_message": runtime_result.error_message,
+                                            }
+                                            break
+
+                                    if new_result.status == ExecutionStatus.SUCCESS:
+                                        # Update cell with fixed code and new result
+                                        cell.code = fixed_code
+                                        cell.updated_at = datetime.now()
+                                        result = new_result
+                                        cell.last_result = result
+                                        logger.info("✅ Logic correction successful, re-validating...")
+                                        continue  # Next validation cycle
+                                    else:
+                                        # Should not happen (covered above), but keep safe.
+                                        logger.warning("❌ Corrected code did not execute successfully; aborting logic correction loop.")
+                                        break
+                                else:
+                                    logger.warning(f"LLM did not provide different code for logic correction")
+                                    break
+                                    
+                            except Exception as fix_error:
+                                logger.error(f"Logic correction LLM call failed: {fix_error}")
+                                break
+                    
+                except Exception as validation_error:
+                    logger.warning(f"⚠️ Logic validation failed (non-critical): {validation_error}")
+                    # Don't let validation errors break execution
+                    cell.metadata.setdefault("execution", {})
+                    cell.metadata["execution"]["logic_validation_error"] = str(validation_error)
+
+            # IMPORTANT: Renumber figures/tables AGAIN after the logic loop.
+            # Rationale: logic correction can change what was displayed; methodology should reference the final numbering.
+            try:
+                self.asset_numbering_service.renumber_in_place(notebook)
+            except Exception as numbering_err:
+                logger.warning(
+                    f"⚠️ Failed to renumber notebook assets after logic correction: {numbering_err}"
+                )
 
             # Generate scientific explanation for successful prompt cells
             print(f"🔬 ALWAYS CHECKING scientific explanation conditions:")
@@ -1581,6 +2020,27 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
             self._save_notebook(notebook)
             phase_tracker.clear()
             
+            # Complete flow trace (ADR 0005: perfect observability)
+            trace_store.complete_step(
+                step_id=flow_id,
+                flow_id=flow_id,
+                task_id=None,
+                step_type=StepType.CODE_EXECUTION,
+                status=TraceStatus.SUCCESS if result.status == ExecutionStatus.SUCCESS else TraceStatus.ERROR,
+                started_at=execution_start_time,
+                notebook_id=str(notebook.id),
+                cell_id=str(cell.id),
+                exec_code=cell.code,
+                exec_stdout=result.stdout if result else None,
+                exec_stderr=result.stderr if result else None,
+                exec_error=result.error_message if result and result.status == ExecutionStatus.ERROR else None,
+                exec_error_type=result.error_type if result and result.status == ExecutionStatus.ERROR else None,
+                metadata={
+                    "retry_count": cell.retry_count,
+                    "execution_count": cell.execution_count,
+                },
+            )
+            
             logger.info(f"Executed cell {cell.id} with status {result.status}")
             return cell, result
             
@@ -1604,6 +2064,27 @@ print("Available columns:", df.columns.tolist() if 'df' in locals() and hasattr(
                 # Never let phase tracking failures mask the real error.
                 pass
             self._save_notebook(notebook)
+            
+            # Complete flow trace with error (ADR 0005: perfect observability)
+            try:
+                trace_store.complete_step(
+                    step_id=flow_id,
+                    flow_id=flow_id,
+                    task_id=None,
+                    step_type=StepType.CODE_EXECUTION,
+                    status=TraceStatus.ERROR,
+                    started_at=execution_start_time,
+                    notebook_id=str(notebook.id),
+                    cell_id=str(cell.id),
+                    error_message=str(e),
+                    error_type=type(e).__name__,
+                    metadata={
+                        "retry_count": cell.retry_count if cell else 0,
+                    },
+                )
+            except Exception:
+                # Never let trace failures mask the real error.
+                pass
             
             logger.error(f"Failed to execute cell {cell.id}: {e}")
             return cell, error_result

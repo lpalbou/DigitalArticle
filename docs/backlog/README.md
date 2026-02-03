@@ -94,6 +94,10 @@ Before moving any backlog item to `docs/backlog/completed/`, you MUST review and
 - [`docs/backlog/proposed/0071_secure_user_library_installation.md`](proposed/0071_secure_user_library_installation.md)
 - [`docs/backlog/proposed/0072_execution_security_policy_and_guardrails.md`](proposed/0072_execution_security_policy_and_guardrails.md)
 - [`docs/backlog/proposed/0073_dependency_audit_and_simplification.md`](proposed/0073_dependency_audit_and_simplification.md)
+- [`docs/backlog/proposed/0077_multi_language_runtime_support.md`](proposed/0077_multi_language_runtime_support.md)
+- [`docs/backlog/proposed/0078_role_based_access_control.md`](proposed/0078_role_based_access_control.md)
+- [`docs/backlog/proposed/0079_reactivate_trace_viewer_for_compliance.md`](proposed/0079_reactivate_trace_viewer_for_compliance.md)
+- [`docs/backlog/proposed/0080_bibliography_literature_integration.md`](proposed/0080_bibliography_literature_integration.md)
 
 ### Planned (active)
 

@@ -10,6 +10,7 @@ Token Tracking:
 """
 
 import logging
+import json
 import os
 import uuid
 from typing import Optional, Dict, Any, Tuple, List
@@ -17,6 +18,8 @@ from datetime import datetime
 from abstractcore import create_llm, ProviderAPIError, ModelNotFoundError, AuthenticationError
 from .token_tracker import TokenTracker
 from .execution_insights_extractor import ExecutionInsightsExtractor
+from .trace_store import get_trace_store
+from ..models.trace import StepType, TraceStatus
 
 # Create a general LLMError that encompasses all AbstractCore errors
 class LLMError(Exception):
@@ -177,6 +180,93 @@ class LLMService:
         """Get current timestamp in ISO format."""
         return datetime.now().isoformat()
 
+    def _persist_llm_trace(
+        self,
+        trace_id: str,
+        step_type: str,
+        context: Optional[Dict[str, Any]],
+        system_prompt: str,
+        user_prompt: str,
+        response: Any,
+        generation_params: Dict[str, Any],
+        generation_time: Optional[float],
+        flow_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        error: Optional[Exception] = None,
+    ) -> None:
+        """
+        Persist an LLM trace to the TraceStore (ADR 0005).
+        
+        Maps step_type strings to StepType enum and extracts usage data.
+        """
+        try:
+            trace_store = get_trace_store()
+            
+            # Map step_type string to StepType enum
+            step_type_map = {
+                'code_generation': StepType.LLM_CODE_GENERATION,
+                'code_fix': StepType.LLM_CODE_FIX,
+                'methodology': StepType.LLM_METHODOLOGY,
+                'review': StepType.LLM_REVIEW,
+                'chat': StepType.LLM_CHAT,
+                'semantic_extraction': StepType.LLM_SEMANTIC_EXTRACTION,
+                'error_analysis': StepType.LLM_ERROR_ANALYSIS,
+                # ADR 0004: semantic correctness loop
+                'logic_validation': StepType.LLM_LOGIC_VALIDATION,
+                'logic_correction': StepType.LLM_LOGIC_CORRECTION,
+            }
+            mapped_step_type = step_type_map.get(step_type, StepType.LLM_CODE_GENERATION)
+            
+            # Extract usage data
+            usage_data = getattr(response, 'usage', None) or {}
+            input_tokens = usage_data.get('input_tokens') or usage_data.get('prompt_tokens')
+            output_tokens = usage_data.get('output_tokens') or usage_data.get('completion_tokens')
+            total_tokens = usage_data.get('total_tokens')
+            
+            # Determine status
+            status = TraceStatus.ERROR if error else TraceStatus.SUCCESS
+            
+            # Use provided flow_id/task_id or generate new ones
+            actual_flow_id = flow_id or context.get('flow_id') if context else None
+            actual_task_id = task_id or context.get('task_id') if context else None
+            
+            # If no flow_id provided, this is a standalone call - create a new flow
+            if not actual_flow_id:
+                actual_flow_id = trace_id
+            if not actual_task_id:
+                actual_task_id = trace_id
+            
+            trace_store.complete_step(
+                step_id=trace_id,
+                flow_id=actual_flow_id,
+                task_id=actual_task_id,
+                step_type=mapped_step_type,
+                status=status,
+                started_at=datetime.now(),  # Approximate; could pass start time
+                notebook_id=context.get('notebook_id') if context else None,
+                cell_id=context.get('cell_id') if context else None,
+                llm_provider=self.provider,
+                llm_model=self.model,
+                llm_prompt=user_prompt,
+                llm_system_prompt=system_prompt,
+                llm_response=response.content if hasattr(response, 'content') else str(response),
+                llm_input_tokens=input_tokens,
+                llm_output_tokens=output_tokens,
+                llm_total_tokens=total_tokens,
+                llm_generation_time_ms=generation_time,
+                llm_temperature=generation_params.get('temperature'),
+                llm_seed=generation_params.get('seed'),
+                error_message=str(error) if error else None,
+                error_type=type(error).__name__ if error else None,
+                metadata={
+                    'attempt_number': context.get('attempt_number') if context else 1,
+                },
+            )
+            
+        except Exception as e:
+            # Trace persistence should never break the main flow
+            logger.warning(f"Failed to persist LLM trace: {e}")
+
     async def agenerate_code_from_prompt(self, prompt: str, context: Optional[Dict[str, Any]] = None,
                                   step_type: str = 'code_generation', attempt_number: int = 1) -> Tuple[str, Optional[float], Optional[str], Optional[Dict[str, Any]]]:
         """
@@ -301,7 +391,20 @@ class LLMService:
                     'cell_id': context.get('cell_id') if context else None,
                 }
             }
-            logger.info(f"✅ ASYNC: Built trace {trace_id} for {step_type}")
+            
+            # Persist trace to TraceStore (ADR 0005: perfect observability)
+            self._persist_llm_trace(
+                trace_id=trace_id,
+                step_type=step_type,
+                context=context,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                response=response,
+                generation_params=generation_params,
+                generation_time=generation_time,
+            )
+            
+            logger.info(f"✅ ASYNC: Built and persisted trace {trace_id} for {step_type}")
 
             logger.info(f"🚨 ASYNC: Generated code for prompt: {prompt[:50]}...")
             return code, generation_time, trace_id, full_trace
@@ -597,6 +700,33 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
             if 'data_info' in context:
                 base_prompt += f"\n\nDATA INFO:\n{context['data_info']}"
 
+            # Optional: bibliography / references provided by the user/notebook.
+            # This can help orient analysis toward best practices in fields with established guidance.
+            bibliography = context.get("bibliography")
+            if bibliography:
+                try:
+                    import json as _json  # local alias to avoid clobbering module-level json
+
+                    if isinstance(bibliography, str):
+                        bib_text = bibliography.strip()
+                    else:
+                        bib_text = _json.dumps(bibliography, indent=2, ensure_ascii=False, default=str)
+
+                    if len(bib_text) > 1200:
+                        head = bib_text[:600]
+                        tail = bib_text[-600:]
+                        notice = (
+                            f"#COMPACTION_NOTICE: bibliography compacted for system prompt "
+                            f"(original_len={len(bib_text)} chars; shown=head+tail).\n"
+                        )
+                        logger.info(notice.strip())
+                        bib_text = head + "\n\n" + notice + tail
+
+                    base_prompt += "\n\nOPTIONAL REFERENCE MATERIAL (bibliography):\n"
+                    base_prompt += bib_text
+                except Exception as e:
+                    logger.warning(f"Could not include bibliography in system prompt: {e}")
+
         return base_prompt
     
     def _build_user_prompt(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> str:
@@ -783,7 +913,9 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
             if files:
                 user_prompt += "AVAILABLE DATA FILES:\n"
                 user_prompt += "=" * 60 + "\n"
-                user_prompt += "NOTE: Below is METADATA + PREVIEW DATA (first 20 rows) for each file.\n"
+                user_prompt += "NOTE: Below is METADATA + PREVIEW DATA for each file.\n"
+                user_prompt += "For tabular files: columns + semantic stats + sample rows.\n"
+                user_prompt += "For text-like files: structured overview + deterministic sample windows (full file omitted unless very small).\n"
                 user_prompt += "Use this to understand the data structure and write appropriate analysis code.\n"
                 user_prompt += "The full dataset is available at the specified path.\n"
                 user_prompt += "=" * 60 + "\n\n"
@@ -800,7 +932,12 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
                         if 'error' not in preview:
                             # CSV and TSV files - full preview with column stats and sample data
                             if file_info['type'] in ['csv', 'tsv']:
-                                user_prompt += f"   Shape: {preview['shape'][0]} rows × {preview['shape'][1]} columns\n\n"
+                                shape = preview.get('shape', [None, None])
+                                rows = shape[0] if isinstance(shape, (list, tuple)) and len(shape) > 0 else None
+                                cols = shape[1] if isinstance(shape, (list, tuple)) and len(shape) > 1 else None
+                                rows_str = f"{rows:,}" if isinstance(rows, int) else "unknown"
+                                cols_str = f"{cols:,}" if isinstance(cols, int) else "unknown"
+                                user_prompt += f"   Shape: {rows_str} rows × {cols_str} columns\n\n"
                                 
                                 # Columns with rich stats (type, missing, range/values)
                                 column_stats = preview.get('column_stats', {})
@@ -842,7 +979,9 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
                                         user_prompt += f"\n   📖 DATA DICTIONARY (COMPLETE - ALL {len(sample_data)} rows):\n"
                                         user_prompt += "   This is a data dictionary describing variables/columns. Use this to understand the data.\n"
                                     else:
-                                        user_prompt += f"\n   SAMPLE DATA (first {len(sample_data)} rows of {preview['shape'][0]} total):\n"
+                                        total_rows = rows if isinstance(rows, int) else preview.get('rows')
+                                        total_rows_str = f"{total_rows:,}" if isinstance(total_rows, int) else "unknown"
+                                        user_prompt += f"\n   SAMPLE DATA (first {len(sample_data)} rows of {total_rows_str} total):\n"
                                     user_prompt += self._format_sample_data_table(
                                         preview.get('columns', []),
                                         sample_data,
@@ -919,17 +1058,16 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
                             
                             # JSON files - send FULL content
                             elif file_info['type'] == 'json':
-                                if 'full_content' in preview:
-                                    # New format: full content
-                                    is_large = preview.get('is_large_file', False)
-                                    token_est = preview.get('estimated_tokens', 0)
-                                    if is_large:
-                                        user_prompt += f"   ⚠️ LARGE FILE ({token_est:,} tokens estimated)\n"
-                                    user_prompt += f"   Structure: {preview.get('structure_type', 'unknown')}\n"
-                                    user_prompt += f"   Lines: {preview.get('line_count', 0)}\n\n"
+                                # Prefer structured overview (ADR 0003 compaction) when available.
+                                if isinstance(preview, dict) and preview.get('overview'):
+                                    user_prompt += self._format_text_like_file_overview(preview, label="JSON")
+                                    if preview.get('include_full_content_in_llm_context') and preview.get('full_content'):
+                                        user_prompt += f"\n   FULL CONTENT (small file):\n```json\n{preview['full_content']}\n```\n"
+                                elif 'full_content' in preview:
+                                    # Legacy: full content
                                     user_prompt += f"   FULL CONTENT:\n```json\n{preview['full_content']}\n```\n"
                                 else:
-                                    # Legacy format
+                                    # Legacy schema-only formats
                                     if preview.get('type') == 'array':
                                         user_prompt += f"   JSON array with {preview['length']} items\n"
                                         if 'schema' in preview and preview['schema']:
@@ -942,39 +1080,33 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
                             
                             # Text files - send FULL content
                             elif file_info['type'] == 'txt':
-                                if 'full_content' in preview:
-                                    # New format: full content
-                                    is_large = preview.get('is_large_file', False)
-                                    token_est = preview.get('estimated_tokens', 0)
-                                    if is_large:
-                                        user_prompt += f"   ⚠️ LARGE FILE ({token_est:,} tokens estimated)\n"
-                                    user_prompt += f"   Lines: {preview.get('line_count', 0)}\n\n"
+                                if isinstance(preview, dict) and preview.get('overview'):
+                                    user_prompt += self._format_text_like_file_overview(preview, label="TEXT")
+                                    if preview.get('include_full_content_in_llm_context') and preview.get('full_content'):
+                                        user_prompt += f"\n   FULL CONTENT (small file):\n```\n{preview['full_content']}\n```\n"
+                                elif 'full_content' in preview:
                                     user_prompt += f"   FULL CONTENT:\n```\n{preview['full_content']}\n```\n"
                                 elif 'first_lines' in preview and preview['first_lines']:
-                                    # Legacy format
                                     user_prompt += f"   Text preview:\n"
                                     for line in preview['first_lines'][:5]:
                                         user_prompt += f"      {line}\n"
                             
                             # Markdown files - send FULL content
                             elif file_info['type'] == 'md':
-                                if 'full_content' in preview:
-                                    is_large = preview.get('is_large_file', False)
-                                    token_est = preview.get('estimated_tokens', 0)
-                                    if is_large:
-                                        user_prompt += f"   ⚠️ LARGE FILE ({token_est:,} tokens estimated)\n"
-                                    user_prompt += f"   Lines: {preview.get('line_count', 0)}\n\n"
+                                if isinstance(preview, dict) and preview.get('overview'):
+                                    user_prompt += self._format_text_like_file_overview(preview, label="MARKDOWN")
+                                    if preview.get('include_full_content_in_llm_context') and preview.get('full_content'):
+                                        user_prompt += f"\n   FULL CONTENT (small file):\n```markdown\n{preview['full_content']}\n```\n"
+                                elif 'full_content' in preview:
                                     user_prompt += f"   FULL CONTENT:\n```markdown\n{preview['full_content']}\n```\n"
                             
                             # YAML files - send FULL content
                             elif file_info['type'] in ['yaml', 'yml']:
-                                if 'full_content' in preview:
-                                    is_large = preview.get('is_large_file', False)
-                                    token_est = preview.get('estimated_tokens', 0)
-                                    if is_large:
-                                        user_prompt += f"   ⚠️ LARGE FILE ({token_est:,} tokens estimated)\n"
-                                    user_prompt += f"   Structure: {preview.get('structure_type', 'unknown')}\n"
-                                    user_prompt += f"   Lines: {preview.get('line_count', 0)}\n\n"
+                                if isinstance(preview, dict) and preview.get('overview'):
+                                    user_prompt += self._format_text_like_file_overview(preview, label="YAML")
+                                    if preview.get('include_full_content_in_llm_context') and preview.get('full_content'):
+                                        user_prompt += f"\n   FULL CONTENT (small file):\n```yaml\n{preview['full_content']}\n```\n"
+                                elif 'full_content' in preview:
                                     user_prompt += f"   FULL CONTENT:\n```yaml\n{preview['full_content']}\n```\n"
                     
                     user_prompt += "\n"
@@ -1037,6 +1169,71 @@ Helpers: display(obj, label), safe_timedelta(), safe_int(), safe_float()
             return f"[{item_type}]"
         else:
             return schema.get('type', 'unknown')
+
+    def _format_text_like_file_overview(self, preview: Dict[str, Any], *, label: str) -> str:
+        """
+        Render the structured overview produced by `FileContextPreviewBuilder` into the user prompt.
+
+        This keeps LLM context compact while preserving enough structure for correct code generation.
+        """
+        overview = preview.get("overview", {}) if isinstance(preview, dict) else {}
+        identity = overview.get("identity", {}) if isinstance(overview, dict) else {}
+        fp = identity.get("fingerprint", {}) if isinstance(identity, dict) else {}
+
+        parts: List[str] = []
+        sha_prefix = fp.get("sha256_prefix")
+        if sha_prefix:
+            basis = "full" if fp.get("is_full_file_hash") else fp.get("basis", "partial")
+            parts.append(f"   Fingerprint: sha256_prefix={sha_prefix} ({basis})")
+
+        enc = overview.get("encoding_guess")
+        if enc:
+            parts.append(f"   Encoding guess: {enc}")
+
+        nl = overview.get("newline", {}).get("style") if isinstance(overview.get("newline"), dict) else None
+        if nl:
+            parts.append(f"   Newlines (prefix guess): {nl}")
+
+        approx_tokens = overview.get("approx_tokens")
+        if isinstance(approx_tokens, int):
+            parts.append(f"   Approx tokens (from size): {approx_tokens:,}")
+
+        struct = overview.get("structure")
+        if struct is not None:
+            try:
+                struct_json = json.dumps(struct, indent=2, ensure_ascii=False, default=str)
+                if len(struct_json) > 2000:
+                    struct_json = struct_json[:2000] + "\n#COMPACTION_NOTICE: structure truncated for prompt readability.\n"
+                parts.append(f"\n   STRUCTURE SUMMARY:\n```json\n{struct_json}\n```\n")
+            except Exception:
+                parts.append(f"\n   STRUCTURE SUMMARY: {str(struct)[:500]}\n")
+
+        notice = overview.get("compaction_notice")
+        if isinstance(notice, str) and notice.strip():
+            parts.append(f"   {notice.strip()}")
+
+        samples = overview.get("samples", [])
+        if isinstance(samples, list) and samples:
+            parts.append(f"\n   SAMPLES (deterministic windows):")
+            for s in samples[:6]:
+                if not isinstance(s, dict):
+                    continue
+                purpose = s.get("purpose", "sample")
+                bs = s.get("byte_start")
+                be = s.get("byte_end")
+                header = f"   --- {purpose}"
+                if isinstance(bs, int) and isinstance(be, int):
+                    header += f" (bytes {bs}:{be})"
+                header += " ---"
+                text = s.get("text", "")
+                if isinstance(text, str) and len(text) > 1500:
+                    text = text[:1500] + "\n#COMPACTION_NOTICE: sample truncated for prompt readability.\n"
+                parts.append(header + "\n" + (text if isinstance(text, str) else ""))
+
+        rendered = "\n".join(parts).strip()
+        if not rendered:
+            return f"   (No {label} overview available)\n"
+        return rendered + "\n"
     
     def _format_sample_data_table(self, columns: List[str], sample_data: List[dict], dtypes: dict = None) -> str:
         """
@@ -1280,8 +1477,11 @@ Keep the explanation accessible to biologists, clinicians, and other domain expe
                 "- Make only the minimal necessary improvements while still satisfying the original request.\n"
                 "- Do not add extra analyses/plots/models unless explicitly requested.\n"
                 "- Prefer minimal diffs to the previous code.\n"
+                "- Do not introduce new third-party dependencies unless explicitly allowed.\n"
             )
-            improvement_prompt += "\n\nImprove this code to be more robust, efficient, and user-friendly."
+            # If this is a guided rerun / logic correction, do NOT append generic "improve robustness" instructions.
+            if not (context and context.get("rerun_comment") and step_type == "logic_correction"):
+                improvement_prompt += "\n\nImprove this code to be more robust, efficient, and user-friendly."
 
         improvement_prompt += "\n\nGenerate the improved Python code:"
 

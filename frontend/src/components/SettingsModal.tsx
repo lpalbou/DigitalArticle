@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import {
   X, AlertCircle, CheckCircle, Loader, HelpCircle, Shuffle,
   Download, Settings2, Beaker, ChevronDown, ChevronUp, Eye, EyeOff,
-  Users, ClipboardCheck, Trash2
+  Users, ClipboardCheck, Trash2, Zap
 } from 'lucide-react'
 import axios from 'axios'
 import { useToaster } from '../contexts/ToasterContext'
@@ -33,6 +33,12 @@ interface UserSettings {
     use_code_seed: boolean
     code_seed: number | null
   }
+  execution: {
+    logic_validation_enabled: boolean
+    max_logic_corrections: number
+    medium_retry_max_corrections: number
+    low_retry_max_corrections: number
+  }
   version: number
 }
 
@@ -42,7 +48,7 @@ interface SettingsModalProps {
   notebookId?: string  // Current notebook ID, if any
 }
 
-type TabId = 'personas' | 'provider' | 'reproducibility' | 'review'
+type TabId = 'personas' | 'provider' | 'reproducibility' | 'execution' | 'review'
 
 const DEFAULT_BASE_URLS: Record<string, string> = {
   ollama: 'http://localhost:11434',
@@ -113,6 +119,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
   const [llmSeed, setLlmSeed] = useState<string>('')
   const [useCodeSeed, setUseCodeSeed] = useState(true)
   const [codeSeed, setCodeSeed] = useState<string>('')
+
+  // Execution / Quality
+  const [logicValidationEnabled, setLogicValidationEnabled] = useState(true)
+  const [maxLogicCorrections, setMaxLogicCorrections] = useState(2)
+  const [mediumRetryMaxCorrections, setMediumRetryMaxCorrections] = useState(0)
+  const [lowRetryMaxCorrections, setLowRetryMaxCorrections] = useState(0)
 
   const refreshProviders = async () => {
     try {
@@ -261,6 +273,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
       setUseCodeSeed(settings.reproducibility.use_code_seed)
       setCodeSeed(settings.reproducibility.code_seed?.toString() || '')
 
+      // Execution / Quality
+      setLogicValidationEnabled(settings.execution?.logic_validation_enabled ?? true)
+      setMaxLogicCorrections(settings.execution?.max_logic_corrections ?? 2)
+      setMediumRetryMaxCorrections(settings.execution?.medium_retry_max_corrections ?? 0)
+      setLowRetryMaxCorrections(settings.execution?.low_retry_max_corrections ?? 0)
+
       // Models will be fetched by useEffect when provider is set
 
     } catch (error) {
@@ -327,6 +345,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
       } else if (activeTab === 'review' && reviewTabRef.current) {
         await reviewTabRef.current.save()
         toaster.success('Review settings saved successfully')
+        onClose()
+      } else if (activeTab === 'execution') {
+        // Save execution / quality settings
+        await axios.put('/api/settings', {
+          execution: {
+            logic_validation_enabled: logicValidationEnabled,
+            max_logic_corrections: maxLogicCorrections,
+            medium_retry_max_corrections: mediumRetryMaxCorrections,
+            low_retry_max_corrections: lowRetryMaxCorrections,
+          },
+        })
+
+        toaster.success('Execution settings saved successfully')
         onClose()
       } else if (activeTab === 'provider' || activeTab === 'reproducibility') {
         // Save provider and reproducibility settings
@@ -503,6 +534,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
               >
                 <Beaker className="h-4 w-4" />
                 <span>Reproducibility</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('execution')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors flex items-center space-x-2 ${
+                  activeTab === 'execution'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Zap className="h-4 w-4" />
+                <span>Execution</span>
               </button>
               <button
                 onClick={() => setActiveTab('review')}
@@ -1054,6 +1096,119 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, notebook
                   </ul>
                 </div>
               </div>
+                )}
+
+                {/* Execution / Quality Tab */}
+                {activeTab === 'execution' && (
+                  <div className="space-y-6">
+                    <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-4">
+                      <p className="text-sm text-cyan-900">
+                        <strong>Logic/Semantic validation</strong> runs after successful execution to catch
+                        “code runs but the answer is wrong” (domain/statistical/methodology issues).
+                        You can control which severities trigger automatic correction.
+                      </p>
+                      <p className="text-xs text-cyan-800 mt-2">
+                        Default behavior: HIGH retries (bounded), MEDIUM/LOW are logged only (no auto-correction).
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <h4 className="text-sm font-medium text-gray-700">Enable Logic Validation</h4>
+                        <span title="Runs a post-success semantic check and (optionally) corrects issues">
+                          <HelpCircle className="h-4 w-4 text-gray-400" />
+                        </span>
+                      </div>
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={logicValidationEnabled}
+                          onChange={(e) => setLogicValidationEnabled(e.target.checked)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="ml-2 text-sm text-gray-600">Enable</span>
+                      </label>
+                    </div>
+
+                    {logicValidationEnabled && (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                            <div className="text-xs font-semibold text-gray-700 mb-1">HIGH</div>
+                            <div className="text-xs text-gray-600">
+                              Must retry (bounded by max corrections).
+                            </div>
+                          </div>
+                          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                            <div className="text-xs font-semibold text-gray-700 mb-1">MEDIUM</div>
+                            <div className="text-xs text-gray-600">
+                              Retry only while corrections_done &lt; threshold.
+                            </div>
+                          </div>
+                          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                            <div className="text-xs font-semibold text-gray-700 mb-1">LOW</div>
+                            <div className="text-xs text-gray-600">
+                              Usually ignored unless you explicitly enable retries.
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="block text-sm font-medium text-gray-700">
+                            Max logic corrections (HIGH severity budget): {maxLogicCorrections}
+                          </label>
+                          <input
+                            type="range"
+                            min="0"
+                            max="5"
+                            step="1"
+                            value={maxLogicCorrections}
+                            onChange={(e) => setMaxLogicCorrections(parseInt(e.target.value))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                          />
+                          <div className="text-xs text-gray-500">
+                            Note: Validation always runs once; this controls how many correction attempts are allowed.
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              MEDIUM: retry while corrections_done &lt;
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="5"
+                              value={mediumRetryMaxCorrections}
+                              onChange={(e) => setMediumRetryMaxCorrections(parseInt(e.target.value || '0'))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                            />
+                            <div className="text-xs text-gray-500 mt-1">
+                              Set to 0 to never auto-correct MEDIUM issues.
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              LOW: retry while corrections_done &lt;
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="5"
+                              value={lowRetryMaxCorrections}
+                              onChange={(e) => setLowRetryMaxCorrections(parseInt(e.target.value || '0'))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                            />
+                            <div className="text-xs text-gray-500 mt-1">
+                              Set to 0 to never auto-correct LOW issues.
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {/* Review Tab */}
